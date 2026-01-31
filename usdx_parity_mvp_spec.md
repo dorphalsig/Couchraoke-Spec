@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.32
+Version: 1.33
 Date: 2026-01-31
 Owner: TBD
 
@@ -18,6 +18,7 @@ Status: Draft
 | 2026-01-31 20:57 CET | Assistant | Align preview-start derivation and duration=0 note handling with USDX (PreviewStart from PREVIEWSTART only; zero-duration notes are accepted as-is). |
 | 2026-01-31 21:02 CET | Assistant | Remove assignPlayer from the protocol and clarify that pitch frames carry MIDI note values only (no frequency/pitch-value fields). |
 | 2026-01-31 21:18 CET | Assistant | Normalize countdown semantics (display N..1 only; playback+scoring start together). |
+| 2026-01-31 21:20 CET | Assistant | Clarify disconnect behavior: auto-reconnect on transport disconnect; return to Join on kick/Leave session. |
 
 
 
@@ -803,7 +804,7 @@ Session state is owned by the TV host app.
 
 - Phone joins by scanning the TV QR code or entering the join code.
 - Phone shows:
- - Connection state (Connecting / Connected / Disconnected)
+ - Connection state (Connecting / Connected / Reconnecting / Disconnected)
  - Current assigned role (Singer / Spectator); if Singer, show playerId (P1/P2)
  - Live input level meter
  - Mute toggle: when enabled, the phone MUST continue to stay connected but MUST stream frames as unvoiced (equivalent to `toneValid=false` and no `midiNote`) so the TV scores silence.
@@ -953,7 +954,10 @@ Protocol mismatch
 
 - Gameplay does not pause on disconnect.
 - While disconnected, that player contributes no pitch frames and MUST receive no additional score.
-- Automatic reconnect is NOT supported in MVP: after a disconnect, the phone MUST require explicit user action to rejoin (Scan QR or enter join code on the Join screen).
+- Disconnect handling depends on cause:
+ - **Transport disconnect** (network drop, app backgrounded, temporary WiFi loss; not initiated by the user): the phone SHOULD automatically attempt to reconnect to the last session endpoint. While attempting, show `Reconnecting`. No QR/code rescan is required.
+ - **User-initiated leave** (tap **Leave session**): follow "Leave session UX" above; return to Join and clear cached endpoint. Automatic reconnect MUST NOT occur.
+ - **Host kick/forget**: the TV closes the connection. The phone MUST return to the Join screen and clear any cached endpoint (same effect as Leave session).
 - If the same phone reconnects within the same session, it SHOULD reclaim its prior identity using `clientId` (Section 8.2 `hello`).
 - If the phone was assigned as a Singer when it disconnected, it MUST resume that role on reconnect (unless the host has cleared assignments).
 - If the session roster is full and the reconnect cannot be matched to an existing `clientId`, the reconnect MUST be rejected with `code="session_full"`.
