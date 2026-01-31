@@ -325,9 +325,9 @@
       "id": "F14",
       "name": "clock_sync_ntp_lite",
       "tags": ["protocol", "timing"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F14_clock_sync_ntp_lite_best_rtt"
       },
       "covers": ["9.1.1", "8.2", "Appendix B"]
     },
