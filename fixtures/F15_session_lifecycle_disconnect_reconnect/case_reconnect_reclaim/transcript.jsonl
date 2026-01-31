@@ -1,17 +1,12 @@
-{"step":1,"dir":"phone->tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-a","deviceName":"Phone A","appVersion":"1.0","capabilities":{"pitchFps":50}}}
-{"step":2,"dir":"tv->phone","toClientId":"c-a","message":{"type":"assignPlayer","protocolVersion":1,"playerId":"P1","thresholdIndex":2,"effectiveMicDelayMs":0}}
-
-{"step":3,"dir":"phone->tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-b","deviceName":"Phone B","appVersion":"1.0","capabilities":{"pitchFps":50}}}
-{"step":4,"dir":"tv->phone","toClientId":"c-b","message":{"type":"assignPlayer","protocolVersion":1,"playerId":"P2","thresholdIndex":2,"effectiveMicDelayMs":0}}
-
-{"step":5,"dir":"tv->phone","toClientId":"c-a","message":{"type":"assignSinger","protocolVersion":1,"sessionId":"S1","songInstanceId":"SI1","role":"singer","playerId":"P1","difficulty":"Medium","thresholdIndex":2,"effectiveMicDelayMs":0,"expectedPitchFps":50,"startMode":"countdown","countdownMs":2000}}
-{"step":6,"dir":"tv->phone","toClientId":"c-b","message":{"type":"assignSinger","protocolVersion":1,"sessionId":"S1","songInstanceId":"SI1","role":"singer","playerId":"P2","difficulty":"Medium","thresholdIndex":2,"effectiveMicDelayMs":0,"expectedPitchFps":50,"startMode":"countdown","countdownMs":2000}}
-
-{"step":7,"dir":"event","eventType":"disconnect","clientId":"c-a","reason":"socket_closed"}
-
-{"step":8,"dir":"phone->tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-c","deviceName":"Phone C","appVersion":"1.0","capabilities":{"pitchFps":50}}}
-{"step":9,"dir":"tv->phone","toClientId":"c-c","message":{"type":"error","protocolVersion":1,"code":"REJECTED","message":"session full"}}
-
-{"step":10,"dir":"phone->tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-a","deviceName":"Phone A","appVersion":"1.0","capabilities":{"pitchFps":50}}}
-{"step":11,"dir":"tv->phone","toClientId":"c-a","message":{"type":"assignPlayer","protocolVersion":1,"playerId":"P1","thresholdIndex":2,"effectiveMicDelayMs":0}}
-{"step":12,"dir":"tv->phone","toClientId":"c-a","message":{"type":"assignSinger","protocolVersion":1,"sessionId":"S1","songInstanceId":"SI1","role":"singer","playerId":"P1","difficulty":"Medium","thresholdIndex":2,"effectiveMicDelayMs":0,"expectedPitchFps":50,"startMode":"live"}}
+{"seq":1,"direction":"phone_to_tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-a","deviceName":"Phone A","appVersion":"1.0","capabilities":{"pitchFps":50}}}
+{"seq":2,"direction":"tv_to_phone","message":{"type":"assignPlayer","protocolVersion":1,"playerId":"P1","thresholdIndex":2,"effectiveMicDelayMs":0},"clientId":"c-a"}
+{"seq":3,"direction":"phone_to_tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-b","deviceName":"Phone B","appVersion":"1.0","capabilities":{"pitchFps":50}}}
+{"seq":4,"direction":"tv_to_phone","message":{"type":"assignPlayer","protocolVersion":1,"playerId":"P2","thresholdIndex":2,"effectiveMicDelayMs":0},"clientId":"c-b"}
+{"seq":5,"direction":"tv_to_phone","message":{"type":"assignSinger","protocolVersion":1,"sessionId":"S1","songInstanceId":"SI1","role":"singer","playerId":"P1","difficulty":"Medium","thresholdIndex":2,"effectiveMicDelayMs":0,"expectedPitchFps":50,"startMode":"countdown","countdownMs":2000},"clientId":"c-a"}
+{"seq":6,"direction":"tv_to_phone","message":{"type":"assignSinger","protocolVersion":1,"sessionId":"S1","songInstanceId":"SI1","role":"singer","playerId":"P2","difficulty":"Medium","thresholdIndex":2,"effectiveMicDelayMs":0,"expectedPitchFps":50,"startMode":"countdown","countdownMs":2000},"clientId":"c-b"}
+{"seq":7,"direction":"tv_internal","message":null}
+{"seq":8,"direction":"phone_to_tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-c","deviceName":"Phone C","appVersion":"1.0","capabilities":{"pitchFps":50}}}
+{"seq":9,"direction":"tv_to_phone","message":{"type":"error","protocolVersion":1,"code":"REJECTED","message":"session full"},"clientId":"c-c"}
+{"seq":10,"direction":"phone_to_tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-a","deviceName":"Phone A","appVersion":"1.0","capabilities":{"pitchFps":50}}}
+{"seq":11,"direction":"tv_to_phone","message":{"type":"assignPlayer","protocolVersion":1,"playerId":"P1","thresholdIndex":2,"effectiveMicDelayMs":0},"clientId":"c-a"}
+{"seq":12,"direction":"tv_to_phone","message":{"type":"assignSinger","protocolVersion":1,"sessionId":"S1","songInstanceId":"SI1","role":"singer","playerId":"P1","difficulty":"Medium","thresholdIndex":2,"effectiveMicDelayMs":0,"expectedPitchFps":50,"startMode":"live"},"clientId":"c-a"}
