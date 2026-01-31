@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.28
+Version: 1.29
 Date: 2026-01-31
 Owner: TBD
 
@@ -14,6 +14,7 @@ Status: Draft
 | Timestamp | Author | Changes |
 | --- | --- | --- |
 | 2026-01-31 20:46 CET | Assistant | Align timing tag units/types and ParsedSong model fields with USDX parsing (GAP float ms; START seconds; END ms int; VIDEOGAP seconds; BPM-change start beat float). |
+| 2026-01-31 20:52 CET | Assistant | Make custom header tags order-preserving and USDX-aligned (CustomHeaderTag[]). Note: if represented as a map internally, it must preserve insertion order. |
 
 
 
@@ -1829,7 +1830,7 @@ Legend:
 | `#P2` | no | string | - | all | unset | none | Duet singer display name for Player 2. |
 
 ### A.1.1 Unknown/unsupported header tags
-Unknown header tags MUST be preserved as `ParsedSong.header.customTags` (Appendix C) in the order encountered.
+Unknown header tags MUST be preserved as `ParsedSong.header.customTags` (Appendix C) in the order encountered (as `{tag, content}` entries).
 
 ## A.2 Body tokens (USDX-aligned)
 
@@ -2163,7 +2164,14 @@ Optional fields:
 - `p2Name` (string|null) : from `#P2` (duet)
 - `relativeMode` (bool) : legacy `<1.0.0` RELATIVE mode (Section 4.3)
 - `version` (string) : from `#VERSION` if present; otherwise treated as `0.3.0` for legacy behavior (Section 4.3)
-- `customTags` (map<string,string>) : unknown/malformed tags preserved per Section 4.3
+- `customTags` (CustomHeaderTag[]) : unknown/malformed tags preserved per Section 4.3 in encounter order (including tags without `:` where `tag=""`). If represented as a map/dictionary internally, it MUST preserve insertion order and MUST NOT discard duplicates.
+
+`CustomHeaderTag`:
+
+- `tag` (string) : tag name without leading `#` (empty string when the header line had no `:`)
+- `content` (string) : remainder of the header line (decoded per Section 4.3 rules)
+
+Note: implementations MAY maintain a convenience map/dictionary view, but it MUST preserve insertion order. Fixtures MUST compare `customTags` by ordered list semantics.
 
 ### SongTiming
 
@@ -2275,7 +2283,7 @@ Top level: `ParsedSong`
   - `p2Name`: string|null (optional)
   - `relativeMode`: boolean (optional)
   - `version`: string (optional)
-  - `customTags`: object<string,string> (optional)
+  - `customTags`: array of objects `{ tag:string, content:string }` (optional; ordered)
 - `timing`: object
   - `bpmChanges`: array of objects `{ startBeatFile:number, bpmFile:number }`
   - `startSec`: number|null (optional)
