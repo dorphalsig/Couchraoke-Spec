@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.20
+Version: 1.21
 Date: 2026-01-31
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-01-31 15:00 CET | Assistant | Define navigation stack and Back behavior (Settings root vs sub-screens; return target depends on entry source). |
 | 2026-01-31 11:39 CET | Assistant | Update Gameplay settings wireframe hints to reflect numeric keypad editing. |
 | 2026-01-31 11:38 CET | Assistant | Define countdown disconnect handling as a blocking modal on return to Assign Singers. |
 | 2026-01-31 11:37 CET | Assistant | Define invalid-song diagnostics export as CSV via share sheet; overwrite on repeat export. |
@@ -20,9 +21,6 @@ Status: Draft
 | 2026-01-31 11:25 CET | Assistant | Clarify join resolution: QR encodes full WS endpoint URL including token; join code is the same token (formatted for manual entry); NSD is used for LAN session discovery (especially for manual-code join). |
 | 2026-01-31 11:24 CET | Assistant | Specify Scan QR permission-denied flow and NSD permission route; reuse the same blocking error modal for camera/nearby-wifi denial. |
 | 2026-01-31 11:22 CET | Assistant | Define phone Leave session semantics: explicit leave clears session, no auto reconnect; rejoin via scan QR or enter code. |
-| 2026-01-31 10:51 CET | Assistant | Specify numeric setting edit via modal numeric keypad (OK opens keypad; validation; apply/cancel) for Scoring Timing and Gameplay. |
-| 2026-01-31 10:48 CET | Assistant | Specify Rename device dialog UI/behavior (keyboard entry, validation, commit/cancel). |
-| 2026-01-31 10:38 CET | Assistant | Clarify join/roster placement: show compact QR+code join widget on Song List; make roster management canonical in Settings > Connect Phones; align Pairing UX section accordingly. |
 
 
 
@@ -1186,14 +1184,26 @@ This section is normative for MVP UI and navigation on Android TV.
 ## 10.1 Global navigation and input
 
 - Primary input is TV remote (DPAD + OK/Enter + Back).
-- **Back** behavior:
- - From Song List: exits app (or returns to Android launcher).
- - From Settings: returns to Song List.
- - From modal dialogs/overlays (Search, Assign Singers): closes overlay and returns to Song List.
- - From Singing: opens Pause overlay (Resume / Quit to Song List).
+
+**Navigation model (normative)**
+- The TV app uses a simple navigation stack.
+ - Entering a full-screen screen **pushes** it onto the stack.
+ - Pressing **Back** on a full-screen screen **pops** the current screen and returns to the previous screen.
+- Overlays/modals (Search, Assign Singers, dialogs) do not affect the navigation stack; Back closes the overlay and returns to the underlying screen.
+
+**Back behavior (normative)**
+- From Song List: exits app (or returns to Android launcher).
+- From Settings (root): returns to the previous screen in the navigation stack.
+ - If Settings was entered from Song List, previous is Song List.
+ - If Settings was entered from Assign Singers, previous is Assign Singers.
+- From Settings sub-screens: returns to Settings (root).
+- From modal dialogs/overlays:
+ - Back closes the overlay/dialog and returns to the underlying screen.
+ - If a software keyboard is shown (Search), Back closes keyboard first, then the overlay.
+- From Singing: opens Pause overlay (Resume / Quit to Song List).
+
 - **OK/Enter** selects highlighted item.
 - DPAD navigates focus in lists and menus.
-- If a software keyboard is shown (Search), Back closes keyboard first, then overlay.
 
 ## 10.2 Song preview playback
 
