@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.24
+Version: 1.25
 Date: 2026-01-31
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-01-31 15:05 CET | Assistant | Replace "Show pitch bars" with USDX-parity "Show note lines" toggle (Ini.NoteLines). |
 | 2026-01-31 15:04 CET | Assistant | Define Back precedence during Song Library scanning: Back cancels scan before leaving the screen. |
 | 2026-01-31 15:03 CET | Assistant | Specify Settings > Song Library action targeting, focus traversal, and Remove root confirmation dialog. |
 | 2026-01-31 15:02 CET | Assistant | Specify deterministic focus traversal and action activation for Settings > Connect Phones. |
@@ -1613,12 +1614,12 @@ This is the Add songs workflow.
 - Line bonus ON/OFF (default ON).
 - Ready countdown before song start: ON/OFF (default ON).
 - Countdown length (seconds): integer 1-10 (default 3). Countdown ticks at 1 Hz: N, N-1, ... , 1, then start.
-- Optional: show pitch bars ON/OFF (visual only).
+- Optional: show note lines ON/OFF (visual only; USDX: Ini.NoteLines).
 
 **Interaction rules (normative)**
 - Selecting **Countdown seconds** and pressing OK MUST open the numeric keypad dialog (see "Numeric setting edit" in Section 10.4).
  - Validation MUST enforce the range 1-10.
-- Selecting **Line bonus**, **Ready countdown**, or **Show pitch bars** and pressing OK MUST toggle ON/OFF.
+- Selecting **Line bonus**, **Ready countdown**, or **Show note lines** and pressing OK MUST toggle ON/OFF.
 
 **Wireframe (Gameplay)**
 ```text
@@ -1628,7 +1629,7 @@ This is the Add songs workflow.
 | Line bonus:             ON            |
 | Ready countdown:        ON            |
 | Countdown seconds:      3             |
-| Show pitch bars:        ON            |
+| Show note lines:        ON            |
 +--------------------------------------+
 | Hints: OK=Toggle/Keypad  Back=Return  |
 +--------------------------------------+
