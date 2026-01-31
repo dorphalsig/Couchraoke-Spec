@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.27
+Version: 1.28
 Date: 2026-01-31
 Owner: TBD
 
@@ -13,20 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
-| 2026-01-31 15:06 CET | Assistant | Specify numeric keypad editing semantics: replace-on-first-digit, Del deletes last digit, long-press Del clears. |
-| 2026-01-31 15:06 CET | Assistant | Define Back key behavior on Results: Back returns to Song List (same as Back to Song List button). |
-| 2026-01-31 15:05 CET | Assistant | Replace "Show pitch bars" with USDX-parity "Show note lines" toggle (Ini.NoteLines). |
-| 2026-01-31 15:04 CET | Assistant | Define Back precedence during Song Library scanning: Back cancels scan before leaving the screen. |
-| 2026-01-31 15:03 CET | Assistant | Specify Settings > Song Library action targeting, focus traversal, and Remove root confirmation dialog. |
-| 2026-01-31 15:02 CET | Assistant | Specify deterministic focus traversal and action activation for Settings > Connect Phones. |
-| 2026-01-31 15:00 CET | Assistant | Define navigation stack and Back behavior (Settings root vs sub-screens; return target depends on entry source). |
-| 2026-01-31 11:39 CET | Assistant | Update Gameplay settings wireframe hints to reflect numeric keypad editing. |
-| 2026-01-31 11:38 CET | Assistant | Define countdown disconnect handling as a blocking modal on return to Assign Singers. |
-| 2026-01-31 11:37 CET | Assistant | Define invalid-song diagnostics export as CSV via share sheet; overwrite on repeat export. |
-| 2026-01-31 11:36 CET | Assistant | Remove non-MVP Debug entry from Settings root (no dead-end screen). |
-| 2026-01-31 11:25 CET | Assistant | Clarify join resolution: QR encodes full WS endpoint URL including token; join code is the same token (formatted for manual entry); NSD is used for LAN session discovery (especially for manual-code join). |
-| 2026-01-31 11:24 CET | Assistant | Specify Scan QR permission-denied flow and NSD permission route; reuse the same blocking error modal for camera/nearby-wifi denial. |
-| 2026-01-31 11:22 CET | Assistant | Define phone Leave session semantics: explicit leave clears session, no auto reconnect; rejoin via scan QR or enter code. |
+| 2026-01-31 20:46 CET | Assistant | Align timing tag units/types and ParsedSong model fields with USDX parsing (GAP float ms; START seconds; END ms int; VIDEOGAP seconds; BPM-change start beat float). |
 
 
 
@@ -1817,8 +1804,8 @@ Legend:
 | `#BPM` | yes | float | file BPM | all | - | timing/scoring | Required and MUST be non-zero. Internal BPM = `BPM_file * 4` (Section 5.2). |
 | `#GAP` | no | float | ms | all | `0` | timing/scoring | Shifts highlight/scoring cursors (Section 5.1). |
 | `#START` | no | float | sec | all | `0` | timing (trim) | Audio start trim (Section 5.3). |
-| `#END` | no | float | sec | all | `0` | timing (trim) | Audio end trim (Section 5.3). |
-| `#VIDEOGAP` | no | float | ms | all | `0` | A/V sync only | Video offset relative to audio (rendering). |
+| `#END` | no | int | ms | all | `0` | timing (trim) | Audio end trim (Section 5.3). |
+| `#VIDEOGAP` | no | float | sec | all | `0` | A/V sync only | Video offset relative to audio (rendering). |
 | `#VIDEO` | no | string | relative path | all | unset | none | Optional; missing file is non-fatal in USDX; implementations MAY warn. |
 | `#COVER` | no | string | relative path | all | unset | none | Optional cover image. |
 | `#BACKGROUND` | no | string | relative path | all | unset | none | Optional background image. |
@@ -2164,7 +2151,7 @@ Required fields (mirrors Section 4.2 semantics):
 - `title` (string)
 - `artist` (string)
 - `bpmFile` (float) : file BPM from `#BPM` (before internal conversion)
-- `gapMs` (int) : from `#GAP`
+- `gapMs` (float) : from `#GAP` (milliseconds; fractional ms allowed)
 - `audio` (string) : resolved audio filename (from `#AUDIO` when `#VERSION >= 1.0.0` and present; otherwise from `#MP3`, USDX behavior)
 
 Optional fields:
@@ -2186,13 +2173,13 @@ Required fields:
 
 Optional/derived fields:
 
-- `startBeatFile` (int|null) : from `#START` if present
-- `endBeatFile` (int|null) : from `#END` if present
+- `startSec` (float|null) : from `#START` if present (seconds)
+- `endMs` (int|null) : from `#END` if present (milliseconds)
 - `notesGapBeatsFile` (int|null) : from `#NOTESGAP` if present
 
 `BpmChange`:
 
-- `startBeatFile` (int) : beat at which this BPM becomes active (file beats)
+- `startBeatFile` (float) : beat at which this BPM becomes active (file beats)
 - `bpmFile` (float) : BPM value that applies from `startBeatFile` until the next change
 
 Invariants:
@@ -2279,7 +2266,7 @@ Top level: `ParsedSong`
   - `title`: string
   - `artist`: string
   - `bpmFile`: number
-  - `gapMs`: integer
+  - `gapMs`: number
   - `audio`: string
   - `video`: string|null (optional)
   - `cover`: string|null (optional)
@@ -2290,10 +2277,10 @@ Top level: `ParsedSong`
   - `version`: string (optional)
   - `customTags`: object<string,string> (optional)
 - `timing`: object
-  - `bpmChanges`: array of objects `{ startBeatFile:int, bpmFile:number }`
-  - `startBeatFile`: int|null (optional)
-  - `endBeatFile`: int|null (optional)
-  - `notesGapBeatsFile`: int|null (optional)
+  - `bpmChanges`: array of objects `{ startBeatFile:number, bpmFile:number }`
+  - `startSec`: number|null (optional)
+  - `endMs`: integer|null (optional)
+  - `notesGapBeatsFile`: integer|null (optional)
 - `tracks`: array (length 1 or 2)
   - track object:
     - `trackIndex`: int
