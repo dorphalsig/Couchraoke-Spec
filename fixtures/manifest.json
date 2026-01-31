@@ -335,9 +335,9 @@
       "id": "F15",
       "name": "session_lifecycle_reconnect_reclaim",
       "tags": ["protocol"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F15_session_lifecycle_disconnect_reconnect"
       },
       "covers": ["8.2", "7.4", "Appendix B"]
     }
