@@ -265,9 +265,9 @@
       "id": "F08",
       "name": "scoring_beat_stepping_interval_semantics",
       "tags": ["scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F08_scoring_beat_stepping_interval_semantics"
       },
       "covers": ["6.1", "5.2", "Appendix E"]
     },
