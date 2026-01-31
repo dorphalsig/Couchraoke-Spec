@@ -1,0 +1,14 @@
+{
+  "accepted": true,
+  "finalAssignments": [
+    { "clientId": "c-c", "singerSlot": 0 },
+    { "clientId": "c-b", "singerSlot": 1 }
+  ],
+  "reclaimed": [
+    { "clientId": "c-a", "reclaimedSingerSlot": 0 }
+  ],
+  "rejected": [
+    { "clientId": "c-c", "reason": "session_full" },
+    { "clientId": "c-a", "reason": "session_full" }
+  ]
+}

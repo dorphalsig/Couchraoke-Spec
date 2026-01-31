@@ -1,7 +1,7 @@
 {
   "songId": "F03_freestyle_only",
   "header": {
-    "title": "Freestyle Only",
+    "title": "Freestyle Mixed",
     "artist": "Fixture",
     "bpmFile": 120.0,
     "gapMs": 0,
@@ -34,11 +34,23 @@
           "lineIndex": 0,
           "notes": [
             {
-              "noteType": "Freestyle",
+              "noteType": "Normal",
               "startBeatFile": 0,
-              "durationBeats": 4,
+              "durationBeats": 2,
               "toneUsdx": 0,
               "lyric": "la"
+            }
+          ]
+        },
+        {
+          "lineIndex": 1,
+          "notes": [
+            {
+              "noteType": "Freestyle",
+              "startBeatFile": 2,
+              "durationBeats": 2,
+              "toneUsdx": 0,
+              "lyric": "free"
             }
           ]
         }

@@ -1,6 +1,6 @@
 {
   "manifestVersion": "1.0",
-  "specVersion": "1.10",
+  "specVersion": "1.16",
   "root": "fixtures",
   "fixtures": [
     {
@@ -245,9 +245,9 @@
       "id": "F06",
       "name": "beat_time_conversion_static_bpm",
       "tags": ["timing"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F06_beat_time_conversion_static_bpm"
       },
       "covers": ["5.1", "5.2", "Appendix E"]
     },
@@ -255,9 +255,9 @@
       "id": "F07",
       "name": "beat_time_conversion_variable_bpm",
       "tags": ["timing"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F07_beat_time_conversion_variable_bpm"
       },
       "covers": ["5.2", "Appendix E"]
     },
@@ -265,9 +265,9 @@
       "id": "F08",
       "name": "scoring_beat_stepping_interval_semantics",
       "tags": ["scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F08_scoring_beat_stepping_interval_semantics"
       },
       "covers": ["6.1", "5.2", "Appendix E"]
     },
@@ -275,9 +275,9 @@
       "id": "F09",
       "name": "pitch_tolerance_octave_normalization",
       "tags": ["scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F09_pitch_tolerance_octave_normalization"
       },
       "covers": ["6.3", "6.4", "Appendix E"]
     },
@@ -285,19 +285,19 @@
       "id": "F10",
       "name": "rap_scoring_tonevalid_gate",
       "tags": ["scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F10_rap_scoring_tonevalid_gate"
       },
-      "covers": ["6.4", "Appendix A", "Appendix E"]
+      "covers": ["6.2", "Appendix A", "Appendix E"]
     },
     {
       "id": "F11",
       "name": "line_bonus_and_rounding",
       "tags": ["scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F11_line_bonus_and_rounding"
       },
       "covers": ["6.5", "6.6", "Appendix E"]
     },
@@ -305,9 +305,9 @@
       "id": "F12",
       "name": "pitch_stream_validation_semantics",
       "tags": ["protocol", "scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F12_pitch_stream_validation_semantics"
       },
       "covers": ["8.3", "9.1", "Appendix B", "Appendix D"]
     },
@@ -315,9 +315,9 @@
       "id": "F13",
       "name": "jitter_buffer_selection_staleness",
       "tags": ["timing", "scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F13_jitter_buffer_selection_staleness"
       },
       "covers": ["9.1", "Appendix D"]
     },
@@ -325,9 +325,9 @@
       "id": "F14",
       "name": "clock_sync_ntp_lite",
       "tags": ["protocol", "timing"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F14_clock_sync_ntp_lite_best_rtt"
       },
       "covers": ["9.1.1", "8.2", "Appendix B"]
     },
@@ -335,9 +335,9 @@
       "id": "F15",
       "name": "session_lifecycle_reconnect_reclaim",
       "tags": ["protocol"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F15_session_lifecycle_disconnect_reconnect"
       },
       "covers": ["8.2", "7.4", "Appendix B"]
     }
