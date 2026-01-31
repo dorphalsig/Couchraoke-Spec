@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.34
+Version: 1.35
 Date: 2026-01-31
 Owner: TBD
 
@@ -20,6 +20,7 @@ Status: Draft
 | 2026-01-31 21:18 CET | Assistant | Normalize countdown semantics (display N..1 only; playback+scoring start together). |
 | 2026-01-31 21:20 CET | Assistant | Clarify disconnect behavior: auto-reconnect on transport disconnect; return to Join on kick/Leave session. |
 | 2026-01-31 21:22 CET | Assistant | Relax join-code entropy requirement for LAN use (32-bit min; recommend 64+). |
+| 2026-01-31 21:24 CET | Assistant | Fix protocol schemas for coherence (ping/pong oneOf; pitchBatch example+schema; pitchFrame optional telemetry; MIDI-only). |
 
 
 
@@ -1063,7 +1064,7 @@ Voicing/thresholding (normative):
 - The phone MUST compute `toneValid` using the following thresholds on normalized peak amplitude `maxAmp` (0..1):
   - thresholdValueByIndex = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.60]
   - `toneValid = (maxAmp >= thresholdValueByIndex[thresholdIndex]) AND (pitch_estimate_succeeded)`
-- When `toneValid=false`, the phone MUST set `midiNote=null` (or omit it).
+- When `toneValid=false`, the phone MUST set `midiNote=null`.
 
 Receiver semantics (normative):
 - The receiver MUST NOT interpret any specific `midiNote` value (including 0) as silence. Silence/unvoiced is represented only by `toneValid=false`.
@@ -1072,7 +1073,7 @@ Receiver semantics (normative):
  - `thresholdIndex` (int 0..7) debugging only
 
 Rate:
-- Default 50 fps (one frame every 20 ms). Phone MAY batch multiple frames in a single WebSocket message as `{"type":"pitchBatch","frames":[...]}`.
+- Default 50 fps (one frame every 20 ms). Phone MAY batch multiple frames in a single WebSocket message as `{"type":"pitchBatch","protocolVersion":1,"playerId":"P1","frames":[...]}`.
 
 Validation:
 - Drop frames with decreasing `seq` or `tCaptureMs` regressions > 200 ms.
@@ -1965,6 +1966,11 @@ All messages are JSON objects and MUST include:
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ping_or_pong",
+  "oneOf": [
+    {"$ref": "#/$defs/ping"},
+    {"$ref": "#/$defs/pong"}
+  ],
   "$defs": {
     "ping": {
       "title": "ping",
@@ -2060,10 +2066,11 @@ All messages are JSON objects and MUST include:
   "title": "pitchFrame",
   "type": "object",
   "additionalProperties": false,
-  "required": ["type", "protocolVersion", "playerId", "seq", "tCaptureMs", "toneValid", "midiNote", "maxAmp", "thresholdIndex"],
+  "required": ["type", "protocolVersion", "playerId", "seq", "tCaptureMs", "toneValid", "midiNote"],
   "properties": {
     "type": {"const": "pitchFrame"},
     "protocolVersion": {"type": "integer", "const": 1},
+    "tsTvMs": {"type": "number"},
     "playerId": {"type": "string", "enum": ["P1", "P2"]},
     "seq": {"type": "integer", "minimum": 0},
     "tCaptureMs": {"type": "integer"},
@@ -2092,14 +2099,15 @@ All messages are JSON objects and MUST include:
   "properties": {
     "type": {"const": "pitchBatch"},
     "protocolVersion": {"type": "integer", "const": 1},
-    "playerId": {"enum": ["P1", "P2"]},
+    "tsTvMs": {"type": "number"},
+    "playerId": {"type": "string", "enum": ["P1", "P2"]},
     "frames": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["seq", "tCaptureMs", "toneValid", "midiNote", "maxAmp", "thresholdIndex"],
+        "required": ["seq", "tCaptureMs", "toneValid", "midiNote"],
         "properties": {
           "seq": {"type": "integer", "minimum": 0},
           "tCaptureMs": {"type": "integer", "minimum": 0},
@@ -2107,7 +2115,13 @@ All messages are JSON objects and MUST include:
           "midiNote": {"type": ["integer", "null"], "minimum": 0, "maximum": 127},
           "maxAmp": {"type": "number", "minimum": 0.0},
           "thresholdIndex": {"type": "integer", "minimum": 0, "maximum": 7}
-        }
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"toneValid": {"const": false}}},
+            "then": {"properties": {"midiNote": {"type": "null"}}}
+          }
+        ]
       }
     }
   }
