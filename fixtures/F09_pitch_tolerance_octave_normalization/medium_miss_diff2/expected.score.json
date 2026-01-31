@@ -1,0 +1,13 @@
+{
+  "description": "Tolerance miss case (difficulty=Medium).",
+  "assumptions": {"playerId":"P1","difficulty":"Medium","LineBonusEnabled":true},
+  "derived": {"MaxSongPoints":9000,"MaxLineBonusPool":1000,"TrackScoreValue":4,"CurBeatPoints_Normal":2250},
+  "perBeat": [
+    {"beat":0,"activeNoteType":"Normal","toneValid":true,"expected":{"scoreDelta":0,"scoreGoldenDelta":0}},
+    {"beat":1,"activeNoteType":"Normal","toneValid":true,"expected":{"scoreDelta":0,"scoreGoldenDelta":0}},
+    {"beat":2,"activeNoteType":"Normal","toneValid":true,"expected":{"scoreDelta":0,"scoreGoldenDelta":0}},
+    {"beat":3,"activeNoteType":"Normal","toneValid":true,"expected":{"scoreDelta":0,"scoreGoldenDelta":0}}
+  ],
+  "lineBonus": {"NonEmptyLines":1,"LineBonusPerLine":1000,"expectedScoreLine":0},
+  "expectedTotals": {"score":0,"scoreGolden":0,"scoreLine":0,"scoreInt":0,"scoreGoldenInt":0,"scoreLineInt":0,"scoreTotalInt":0}
+}

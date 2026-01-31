@@ -1,0 +1,35 @@
+{
+  "playerId": "P1",
+  "selectionRule": "choose sample with smallest rttMs",
+  "expectedSamples": [
+    {
+      "tTvSendMs": 1000,
+      "tPhoneRecvMs": 520,
+      "tPhoneSendMs": 530,
+      "tTvRecvMs": 1050,
+      "expectedRttMs": 40,
+      "expectedOffsetMs": -500.0
+    },
+    {
+      "tTvSendMs": 2000,
+      "tPhoneRecvMs": 1600,
+      "tPhoneSendMs": 1620,
+      "tTvRecvMs": 2200,
+      "expectedRttMs": 180,
+      "expectedOffsetMs": -490.0
+    },
+    {
+      "tTvSendMs": 3000,
+      "tPhoneRecvMs": 2515,
+      "tPhoneSendMs": 2520,
+      "tTvRecvMs": 3035,
+      "expectedRttMs": 30,
+      "expectedOffsetMs": -500.0
+    }
+  ],
+  "expectedChosen": {
+    "chosenSampleIndex": 2,
+    "clockOffsetMs": -500.0,
+    "rttMs": 30
+  }
+}
