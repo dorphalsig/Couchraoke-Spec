@@ -315,9 +315,9 @@
       "id": "F13",
       "name": "jitter_buffer_selection_staleness",
       "tags": ["timing", "scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F13_jitter_buffer_selection_staleness"
       },
       "covers": ["9.1", "Appendix D"]
     },
