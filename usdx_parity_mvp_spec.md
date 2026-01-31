@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.37
+Version: 1.38
 Date: 2026-01-31
 Owner: TBD
 
@@ -23,6 +23,7 @@ Status: Draft
 | 2026-01-31 21:24 CET | Assistant | Fix protocol schemas for coherence (ping/pong oneOf; pitchBatch example+schema; pitchFrame optional telemetry; MIDI-only). |
 | 2026-01-31 21:26 CET | Assistant | Require phones to delay pitch-frame sending until countdown ends when assignSinger.startMode=countdown. |
 | 2026-01-31 21:30 CET | Assistant | Update fixtures manifest specVersion to match spec version. |
+| 2026-01-31 21:31 CET | Assistant | Align Appendix D/F fixture patterns with the actual fixtures/ directory (no required expected.parsedSong.json; pitchFrames.jsonl uses pitchFrame envelope fields). |
 
 
 
@@ -2264,15 +2265,15 @@ The goal is that the same fixtures can be consumed by:
 
 ## D.1 Fixture folder layout
 
-Each fixture is a directory containing at minimum:
+Fixtures are discovered via `fixtures/manifest.json` and follow the file patterns for their fixture type (Appendix F.4).
 
-- `song.txt` : the USDX `.txt` under test
-- `expected.parsedSong.json` : the expected `ParsedSong` (Appendix C) serialized as JSON
+Common patterns in this repository:
 
-Optional files depending on fixture type:
+- **Song-variant fixtures**: `song.txt` plus any stub media referenced by the header (e.g., `audio.ogg`, `audio.mp3`).
+- **Discovery/index fixtures**: `songs_root/` plus `expected.discovery.json`.
+- **Scoring fixtures**: `song.txt`, `pitchFrames.jsonl`, and `expected.score.json`.
 
-- `pitchFrames.jsonl` : one JSON object per line (same fields as protocol `pitchFrame`, Section 8.3)
-- `expected.score.json` : expected scoring totals and/or per-beat outcomes
+If a fixture includes `expected.parsedSong.json`, it is an expected Parsed Song Model output (Appendix C) and MUST follow the structural schema in D.2 below.
 
 ## D.2 JSON schema (structural)
 
@@ -2322,12 +2323,22 @@ Top level: `ParsedSong`
 
 ## D.3 Pitch frame fixture format (`pitchFrames.jsonl`)
 
-Each line is a JSON object with the same required fields as Section 8.3 `pitchFrame`:
+Each line is a JSON object representing one `pitchFrame` protocol message (Section 8.3 / Appendix B.2.6).
 
+Required fields (protocol-required):
+
+- `type` (must be `"pitchFrame"`)
+- `protocolVersion` (must be `1`)
+- `playerId` (`"P1"` or `"P2"`)
 - `seq` (uint32)
 - `tCaptureMs` (int)
 - `toneValid` (bool)
 - `midiNote` (int|null)
+
+Optional telemetry fields (may be present but MUST NOT be required by tests):
+
+- `maxAmp` (number)
+- `thresholdIndex` (int)
 
 Implementations MUST treat missing frames for a scoring beat as `toneValid=false` for that beat (Section 9.1).
 # Appendix E: Worked Examples (Normative for fixtures)
@@ -2551,9 +2562,15 @@ Test harness guidance:
 A parse-only fixture is a directory containing at minimum:
 
 - `song.txt`
-- `expected.parsedSong.json`
+- any stub media files referenced by the header (e.g., `audio.ogg`, `audio.mp3`)
 
-This validates TXT parsing into the Parsed Song Model (Appendix C).
+The expected behavior is asserted by tests using the spec rules referenced by the fixture manifest entry (e.g., accept/reject validation and key header/body parsing semantics).
+
+Optionally, a parse-only fixture MAY include:
+
+- `expected.parsedSong.json` — expected Parsed Song Model output (Appendix C / D.2)
+
+This validates TXT parsing into the Parsed Song Model (Appendix C) when `expected.parsedSong.json` is provided.
 
 ### F.4.2 Scoring fixture (timing + scoring)
 
@@ -2562,7 +2579,7 @@ A scoring fixture is a parse-only fixture plus deterministic scoring inputs/outp
 - `pitchFrames.jsonl` (recommended for acceptance fixtures)
   - one JSON object per line
   - timestamped via `tCaptureMs`
-  - includes at least the protocol-required fields: `seq`, `tCaptureMs`, `toneValid`, `midiNote`
+  - includes at least the protocol-required fields: `type`, `protocolVersion`, `playerId`, `seq`, `tCaptureMs`, `toneValid`, `midiNote`
 - `expected.score.json`
 
 This validates beat/time conversion (Section 5) and scoring (Section 6). For acceptance, prefer `pitchFrames.jsonl` over synthetic hit/miss injection because it also covers jitter/clock mapping behavior.
