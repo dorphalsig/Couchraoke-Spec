@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.38
+Version: 1.39
 Date: 2026-01-31
 Owner: TBD
 
@@ -15,7 +15,7 @@ Status: Draft
 | --- | --- | --- |
 | 2026-01-31 20:46 CET | Assistant | Align timing tag units/types and ParsedSong model fields with USDX parsing (GAP float ms; START seconds; END ms int; VIDEOGAP seconds; BPM-change start beat float). |
 | 2026-01-31 20:52 CET | Assistant | Make custom header tags order-preserving and USDX-aligned (CustomHeaderTag[]). Note: if represented as a map internally, it must preserve insertion order. |
-| 2026-01-31 20:57 CET | Assistant | Align preview-start derivation and duration=0 note handling with USDX (PreviewStart from PREVIEWSTART only; zero-duration notes are accepted as-is). |
+| 2026-01-31 20:57 CET | Assistant | Align preview-start derivation and duration=0 note handling with USDX (PreviewStart from PREVIEWSTART only; zero-duration notes are converted to FreeStyle). |
 | 2026-01-31 21:02 CET | Assistant | Remove assignPlayer from the protocol and clarify that pitch frames carry MIDI note values only (no frequency/pitch-value fields). |
 | 2026-01-31 21:18 CET | Assistant | Normalize countdown semantics (display N..1 only; playback+scoring start together). |
 | 2026-01-31 21:20 CET | Assistant | Clarify disconnect behavior: auto-reconnect on transport disconnect; return to Join on kick/Leave session. |
@@ -24,6 +24,7 @@ Status: Draft
 | 2026-01-31 21:26 CET | Assistant | Require phones to delay pitch-frame sending until countdown ends when assignSinger.startMode=countdown. |
 | 2026-01-31 21:30 CET | Assistant | Update fixtures manifest specVersion to match spec version. |
 | 2026-01-31 21:31 CET | Assistant | Align Appendix D/F fixture patterns with the actual fixtures/ directory (no required expected.parsedSong.json; pitchFrames.jsonl uses pitchFrame envelope fields). |
+| 2026-01-31 22:40 CET | Assistant | Fix duration=0 contradictions: Change Record + ParsedSong invariants + F03 fixture wording now match USDX (convert to FreeStyle). |
 
 
 
@@ -2155,7 +2156,7 @@ Required fields:
 Invariants:
 
 - `tracks.length` MUST be `2` if and only if duet mode is detected (Section 4.1: first non-empty body token begins with `P`). Otherwise `tracks.length` MUST be `1`.
-- All note events in `tracks[*].lines[*].notes[*]` MUST satisfy `durationBeats >= 0` (USDX accepts duration=0; it simply contributes 0 score and yields a zero-length note).
+- All note events in `tracks[*].lines[*].notes[*]` MUST satisfy `durationBeats >= 0` (duration=0 contributes 0 score; USDX converts the note token to `F` Freestyle; Section 4.3 / Appendix A).
 
 ### SongHeader
 
@@ -2724,13 +2725,13 @@ Required subcases:
 Verifies:
 
 - unknown tokens are ignored with a warning; recognized tokens with numeric parse failures invalidate (Section 4.2–4.3)
-- duration=0 note is accepted as-is (no auto-conversion; USDX behavior)
+- duration=0 note is auto-converted to `F` (Freestyle) with a warning (USDX behavior; Section 4.3)
 
 Required subcases:
 
 - unknown token line
 - malformed numeric fields on a recognized note token
-- duration=0 note is accepted (zero-length note)
+- duration=0 note is auto-converted to `F` (Freestyle) with warning
 - **Freestyle scoring subcase**: freestyle yields no pitch-based scoring (Section 6.2)
 
 ### F04 — Duet parsing: P1/P2 track routing
