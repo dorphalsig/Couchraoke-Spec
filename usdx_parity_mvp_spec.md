@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.22
+Version: 1.23
 Date: 2026-01-31
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-01-31 15:03 CET | Assistant | Specify Settings > Song Library action targeting, focus traversal, and Remove root confirmation dialog. |
 | 2026-01-31 15:02 CET | Assistant | Specify deterministic focus traversal and action activation for Settings > Connect Phones. |
 | 2026-01-31 15:00 CET | Assistant | Define navigation stack and Back behavior (Settings root vs sub-screens; return target depends on entry source). |
 | 2026-01-31 11:39 CET | Assistant | Update Gameplay settings wireframe hints to reflect numeric keypad editing. |
@@ -1479,6 +1480,33 @@ This is the Add songs workflow.
  - Rescan all
  - Rescan root
  - Remove root (confirm)
+
+**Action targeting and focus (normative; TV remote)**
+- Target root for **Rescan root** and **Remove root** is the currently highlighted row in the **Roots** list.
+ - If no root row exists, **Rescan root** and **Remove root** MUST be disabled (or show a validation error) and MUST NOT perform any action.
+- Default focus on entry: **Roots** list (first row if present); otherwise **Add songs folder**.
+- DPAD Up/Down: moves focus within the current list/row group.
+- DPAD Down from the **Roots** list when focus is on the **last** root row: moves focus to the **Actions** button row (default focused button **Rescan all**).
+- DPAD Left/Right while on the **Actions** button row: cycles **Rescan all** / **Rescan root** / **Remove root**.
+- DPAD Down from the **Actions** button row: moves focus to **Export invalid-song diagnostics**.
+- DPAD Up from **Export invalid-song diagnostics**: returns focus to the **Actions** button row (keeping the currently focused action button).
+- OK/Enter triggers the currently focused action button.
+
+**Remove root (confirm; normative)**
+- Selecting **Remove root** MUST open a confirm dialog (default focus **Cancel**).
+- Cancel (or Back) MUST close the dialog without changes.
+- OK MUST remove the selected root from the configured song roots list.
+- Removing a root MUST immediately remove all songs originating from that root from the in-memory library index and Song List; a rescan is not required.
+
+**Wireframe (confirm dialog; default focus Cancel)**
+```text
++--------------------------------------+
+| CONFIRM                              |
+| Remove <RootName>?                   |
+|                                      |
+|  > Cancel     OK                     |
++--------------------------------------+
+```
 
 **Rescan UX (normative)**
 - While scanning, the UI MUST show an in-progress status (e.g., "Scanning…") and MUST remain responsive.
