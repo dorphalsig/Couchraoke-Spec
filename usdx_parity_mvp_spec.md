@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.16
+Version: 1.21
 Date: 2026-01-31
 Owner: TBD
 
@@ -13,12 +13,20 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
-| 2026-01-31 15:11 CET | Assistant | Align F15 transcripts to Appendix F fixture conventions (transcript.jsonl + expected.session.json) and allow tv_internal events; bump version. |
-| 2026-01-31 15:05 CET | Assistant | Update F03 scoring subcase to mix normal and freestyle beats (normal scores; freestyle excluded); bump version. |
-| 2026-01-31 15:01 CET | Assistant | Fix F02 legacy encoding subcase: ISO-8859-1 bytes + deterministic expected title; bump version. |
-| 2026-01-31 14:58 CET | Assistant | Split F15 into deterministic subcases (reconnect reclaim vs kick/free slot); bump version. |
-| 2026-01-31 14:54 CET | Assistant | Fix F10 manifest covers (rap toneValid gate) and align manifest.specVersion; bump version. |
+| 2026-01-31 11:22 CET | Assistant | Define phone Leave session semantics: explicit leave clears session, no auto reconnect; rejoin via scan QR or enter code. |
+| 2026-01-31 11:24 CET | Assistant | Specify Scan QR permission-denied flow and NSD permission route; reuse the same blocking error modal for camera/nearby-wifi denial. |
+| 2026-01-31 11:25 CET | Assistant | Clarify join resolution: QR encodes full WS endpoint URL including token; join code is the same token (formatted for manual entry); NSD is used for LAN session discovery (especially for manual-code join). |
+| 2026-01-31 11:36 CET | Assistant | Remove non-MVP Debug entry from Settings root (no dead-end screen). |
+| 2026-01-31 11:37 CET | Assistant | Define invalid-song diagnostics export as CSV via share sheet; overwrite on repeat export. |
+| 2026-01-31 11:38 CET | Assistant | Define countdown disconnect handling as a blocking modal on return to Assign Singers. |
+| 2026-01-31 11:39 CET | Assistant | Update Gameplay settings wireframe hints to reflect numeric keypad editing. |
 | 2026-01-31 14:52 CET | Assistant | Fix F13 staleness fixture: cutoff=120ms + reason=stale_gt_cutoff; bump version. |
+| 2026-01-31 14:54 CET | Assistant | Fix F10 manifest covers (rap toneValid gate) and align manifest.specVersion; bump version. |
+| 2026-01-31 14:58 CET | Assistant | Split F15 into deterministic subcases (reconnect reclaim vs kick/free slot); bump version. |
+| 2026-01-31 15:01 CET | Assistant | Fix F02 legacy encoding subcase: ISO-8859-1 bytes + deterministic expected title; bump version. |
+| 2026-01-31 15:05 CET | Assistant | Update F03 scoring subcase to mix normal and freestyle beats (normal scores; freestyle excluded); bump version. |
+| 2026-01-31 15:11 CET | Assistant | Align F15 transcripts to Appendix F fixture conventions (transcript.jsonl + expected.session.json) and allow tv_internal events; bump version. |
+| 2026-01-31 15:21 CET | Assistant | Merge SPEC_1.16 and SPEC_1.20 repos; resolve spec Version and merge rolling Change Record chronologically; leave other conflicts unresolved (none). |
 
 
 
@@ -227,7 +235,11 @@ Implementations MAY store additional fields (e.g., genre, year, cover/background
 - **Search** button: opens Search overlay (see Section 3.5).
 
 **Pairing (on landing)**
-- The landing screen MUST display only the session join QR code and short join code (no roster on the landing screen).
+- The landing screen MUST show a compact session join widget: QR code + join code (token) for the current session endpoint (Section 8.1).
+- The QR payload MUST encode the full WebSocket endpoint URL (including the `token` query parameter), so the phone can join without relying on LAN discovery.
+- The landing screen MUST NOT show a connected-device roster.
+- The join widget SHOULD be placed in the top-right area of the screen to avoid disrupting the song list layout.
+- Device roster management (Rename/Kick/Forget) is available only in Settings -> Connect Phones (Section 10.4.1).
 
 **Empty state**
 - If no songs are indexed, show:
@@ -249,7 +261,8 @@ Implementations MAY store additional fields (e.g., genre, year, cover/background
 ```text
 +--------------------------------------------------------------------------------+
 | ● song selection                                      ultrastar (clone)        |
-|   choose your song                                                             |
+|   choose your song                                                     [  QR ] |
+|                                                                  Code: ABCD    |
 +--------------------------------------------------------------------------------+
 |                                                                                |
 |   [Cover - Prev]        [Cover - Selected]           [Cover - Next]            |
@@ -259,9 +272,6 @@ Implementations MAY store additional fields (e.g., genre, year, cover/background
 |                      |         Title            |                              |
 |                      |                     6/86 |                              |
 |                      +---------------------------+                              |
-|                                                                                |
-|  Pair / Join (landing: only QR + code)                                         |
-|     [  QR  ]     Code: ABCD                                                    |
 |                                                                                |
 +--------------------------------------------------------------------------------+
 | Hints:  OK=Select Song   Search=Filter   Settings=Config   Back=Exit            |
@@ -777,11 +787,15 @@ Session state is owned by the TV host app.
 
 ## 7.2 Pairing UX (TV)
 
-- TV shows QR code and a short join code representing the current session endpoint (Section 8.1).
-- TV shows a roster of connected device names (up to **10**).
-- Join admission (normative):
- - Phones MAY join while the session is **Open** until the roster reaches 10 devices.
- - Additional phones MUST be rejected with an `error` (e.g., `code="session_full"`).
+**Join UI placement (normative)**
+- The TV host MUST display the session join QR code and join code (token) representing the current session endpoint (Section 8.1).
+- The QR payload MUST encode the full WebSocket endpoint URL (including the `token` query parameter). It MUST NOT be an NSD/service-discovery identifier.
+- The Song List landing screen (Section 3.4) MUST show a compact join widget (QR + code) and MUST NOT show the connected-device roster.
+- Settings -> Connect Phones (Section 10.4.1) MUST show the join QR/code plus the connected-device roster and management actions.
+
+**Join admission (normative)**
+- Phones MAY join while the session is **Open** until the roster reaches 10 devices.
+- Additional phones MUST be rejected with an `error` (e.g., `code="session_full"`).
 - During **Locked** state, new joins MUST be rejected with an `error` (e.g., `code="session_locked"`).
 
 **Roster actions (normative)**
@@ -790,24 +804,9 @@ Session state is owned by the TV host app.
 - **Forget device**: removes the stored display label for that `clientId` and disconnects the device; a future join is treated as a fresh device with default name.
 - Kick/Forget MUST use a confirm dialog with default focus on Cancel.
 
-**Wireframe (TV pairing info + roster management; spec-only interactions)**
-```text
-+--------------------------------------------------------------------------------+
-| PAIR / JOIN                                                                    |
-+--------------------------------------------------------------------------------+
-| Join this session:                                                             |
-|   [   QR CODE   ]             Code: ABCD                                       |
-|                                                                                |
-| Connected devices (up to 10):                                                  |
-|  > Pixel-7        Connected                                                    |
-|    iPhone-13      Connected                                                    |
-|    ...                                                                         |
-|                                                                                |
-| Actions on selected device:  [Rename] [Kick] [Forget]                         |
-+--------------------------------------------------------------------------------+
-| Hints: OK=Select/Action   Back=Return                                          |
-+--------------------------------------------------------------------------------+
-```
+**Wireframes**
+- Join widget: see Section 3.4 (Song List).
+- Roster management: see Section 10.4.1 (Settings > Connect Phones).
 
 ## 7.3 Pairing UX (Phone)
 
@@ -817,7 +816,7 @@ Session state is owned by the TV host app.
  - Current assigned role (Singer / Spectator); if Singer, show playerId (P1/P2)
  - Live input level meter
  - Mute toggle: when enabled, the phone MUST continue to stay connected but MUST stream frames as unvoiced (equivalent to `toneValid=false` and no `midiNote`) so the TV scores silence.
- - Leave session action
+ - Leave session action (see below)
 
 **Wireframes (phone app, spec-only interactions)**
 ```text
@@ -857,6 +856,69 @@ Assigned as Singer (during a song)
 | [Leave session]                   |
 +----------------------------------+
 ```
+
+**Scan QR UX (normative)**
+- Tapping **Scan QR** MUST open the camera-based QR scanner.
+- If camera permission is not granted, the phone MUST request it.
+- If camera permission is denied (including "Don't ask again"), the phone MUST:
+ - Return to the Join screen.
+ - Show a blocking error modal (see below).
+
+**Join resolution (normative)**
+- The QR payload MUST encode the full WebSocket endpoint URL as specified in Section 8.1, including the `token` query parameter.
+- On successful QR scan, the phone MUST parse the URL and attempt to connect directly to that endpoint.
+- After a successful QR scan, the phone SHOULD additionally start LAN discovery (NSD/mDNS) to detect available TV sessions on the current Wi-Fi network. This is used to:
+ - Confirm the user is on the correct LAN.
+ - Display a friendly TV/session name if discovered.
+- When the user enters the join code manually, the phone MUST use LAN discovery (NSD/mDNS) to locate a TV session endpoint on the LAN.
+- If multiple TV sessions are discovered, the phone MUST prompt the user to select which session to join.
+
+**Wireframe (phone select TV session; used when multiple sessions are discovered)**
+```text
++----------------------------------+
+| SELECT TV SESSION                 |
++----------------------------------+
+|  > Living Room TV                 |
+|    Bedroom TV                     |
+|                                  |
+| [Back]                            |
++----------------------------------+
+```
+
+**LAN discovery permission UX (normative)**
+- If LAN discovery is used (NSD/mDNS), the phone MUST request the required Android permission(s) to perform discovery.
+- If the required permission(s) are denied (including "Don't ask again"), the phone MUST:
+ - Return to the Join screen.
+ - Show the same blocking error modal as camera-permission denial.
+- The error modal MUST provide a deterministic "how to fix" route:
+ - User is instructed to open Android Settings -> Apps -> (this app) -> Permissions and enable the missing permission(s).
+
+**Wireframe (phone permission denied; shared modal)**
+```text
++----------------------------------+
+| ERROR                             |
++----------------------------------+
+| Permission required.              |
+|                                  |
+| Enable:                           |
+|  - Camera (to scan QR)            |
+|  - Nearby devices / Wi-Fi scan    |
+|    (to discover the TV on LAN)    |
+|                                  |
+| Open Android Settings -> Apps ->  |
+| (this app) -> Permissions         |
+|                                  |
+| [OK]                              |
++----------------------------------+
+```
+
+**Leave session UX (normative)**
+- Tapping **Leave session** MUST:
+ - Close the network connection to the TV host (WebSocket).
+ - Return the phone UI to the Join screen.
+ - Clear any cached session endpoint so the user MUST rejoin explicitly (Scan QR or enter code).
+- After leaving, automatic reconnect MUST NOT occur in MVP.
+- Rejoining the same session is done via the Join screen (Scan QR or enter code). The phone SHOULD reuse the same `clientId` so the TV can reclaim identity/assignment per Section 7.4.
 
 **Join rejection UX (normative)**
 - If the TV rejects a join with an `error`, the phone MUST show a blocking error message and return to the Join screen.
@@ -900,6 +962,7 @@ Protocol mismatch
 
 - Gameplay does not pause on disconnect.
 - While disconnected, that player contributes no pitch frames and MUST receive no additional score.
+- Automatic reconnect is NOT supported in MVP: after a disconnect, the phone MUST require explicit user action to rejoin (Scan QR or enter join code on the Join screen).
 - If the same phone reconnects within the same session, it SHOULD reclaim its prior identity using `clientId` (Section 8.2 `hello`).
 - If the phone was assigned as a Singer when it disconnected, it MUST resume that role on reconnect (unless the host has cleared assignments).
 - If the session roster is full and the reconnect cannot be matched to an existing `clientId`, the reconnect MUST be rejected with `code="session_full"`.
@@ -912,8 +975,11 @@ Protocol mismatch
 
 - Transport MUST be **WebSocket** over the local network (same subnet WiFi).
 - TV host exposes: `ws://<host-ip>:<port>/?token=<sessionToken>`.
-- **Session token**
- - Cryptographically random string, minimum 128 bits entropy (e.g., 22+ chars base64url).
+- **Session token / join code (normative)**
+ - Cryptographically random token, minimum 128 bits entropy.
+ - The same token MUST be shown to the user as the join code and MUST be the value of the `token` query parameter.
+ - The join code MUST be human-enterable: implementations SHOULD use a case-insensitive alphabet and MAY display the code in groups (e.g., `ABCD-EFGH-IJKL-...`).
+ - When the user types the join code, the phone MUST normalize it by removing spaces/hyphens and applying case-insensitive comparison.
  - Generated per Session start; invalidated when Session ends.
  - Reuse across sessions is NOT allowed.
 - Host MUST reject connections with missing/incorrect token and send an `error` before closing.
@@ -1253,7 +1319,6 @@ Settings is a simple list of items; selecting one opens a sub-screen.
 - Scoring Timing
 - Gameplay
 - Video
-- Debug (optional)
 
 **Wireframe (TV Settings root)**
 ```text
@@ -1265,9 +1330,37 @@ Settings is a simple list of items; selecting one opens a sub-screen.
 |    Scoring Timing                     |
 |    Gameplay                           |
 |    Video                              |
-|    Debug (optional)                   |
 +--------------------------------------+
 | Hints: OK=Open   Back=Return          |
++--------------------------------------+
+```
+
+**Numeric setting edit (normative)**
+- For boolean settings, OK MUST toggle the value immediately.
+- For numeric settings, OK MUST open a modal numeric keypad dialog.
+- The numeric keypad dialog MUST:
+ - Show the setting name and current value.
+ - Allow entering digits 0-9.
+ - Provide **Cancel** and **OK** actions.
+ - Cancel (or Back) MUST close the dialog without applying changes.
+ - OK MUST validate input; on success, apply immediately and return to the settings screen.
+ - On validation failure, the dialog MUST remain open and show an error.
+- Default focus MUST be **Cancel**.
+
+**Wireframe (numeric keypad dialog; default focus Cancel)**
+```text
++--------------------------------------+
+| EDIT VALUE                            |
+| Setting: <SettingName>                |
+|                                      |
+| Value: [ 123 ]                        |
+|                                      |
+|  [1] [2] [3]                          |
+|  [4] [5] [6]                          |
+|  [7] [8] [9]                          |
+|  [Del] [0]                            |
+|                                      |
+|  > Cancel     OK                      |
 +--------------------------------------+
 ```
 
@@ -1288,6 +1381,29 @@ Settings is a simple list of items; selecting one opens a sub-screen.
 - Rename device: opens a rename dialog (TV on-screen keyboard), updates the stored label for that `clientId`.
 - Kick device: confirm then disconnect.
 - Forget device: confirm then remove the stored label for that `clientId` and disconnect.
+
+**Rename dialog (normative)**
+- Selecting **Rename** MUST open a modal rename dialog using the TV on-screen keyboard.
+- The input field MUST be pre-filled with the current display name.
+- The user MAY change the name to any non-empty trimmed string.
+ - If the resulting trimmed string is empty, OK MUST be disabled (or a validation error MUST be shown and the rename MUST NOT be applied).
+- Cancel (or Back) MUST close the dialog without applying changes.
+- OK MUST apply the change immediately, store the new name for that `clientId`, and update the roster display.
+- Default focus MUST be **Cancel**.
+
+**Wireframe (rename dialog; default focus Cancel)**
+```text
++--------------------------------------+
+| RENAME DEVICE                         |
+| Device: <DeviceName>                  |
+|                                      |
+| Name: [ Pixel-7__________ ]           |
+|                                      |
+| [On-screen keyboard]                  |
+|                                      |
+|  > Cancel     OK                      |
++--------------------------------------+
+```
 
 **Wireframe (Connect Phones)**
 ```text
@@ -1372,6 +1488,17 @@ This is the Add songs workflow.
 - Export MUST include: song path, error reason, and error line number.
 - The UI MAY show an in-app list, but MVP only requires an export action.
 
+**Invalid-song diagnostics export contract (normative)**
+- Export format MUST be CSV (UTF-8).
+- The CSV MUST include a header row with exactly these columns:
+ - `song_path`
+ - `error_reason`
+ - `error_line_number`
+- Each invalid song MUST be one CSV row.
+- Export delivery MUST use the Android share sheet (user chooses destination app/location).
+- If the user triggers export multiple times, the exported file MUST overwrite the previous export (same filename), not create additional copies.
+- Filename MUST be `invalid_song_diagnostics.csv`.
+
 **Wireframe (Song Library)**
 ```text
 +--------------------------------------------------------------------------------+
@@ -1416,6 +1543,11 @@ This is the Add songs workflow.
 - Auto mic delay adjust ON/OFF (and status).
 - These settings affect the TV scoring timeline (Section 9).
 
+**Interaction rules (normative)**
+- Selecting **Manual mic delay** and pressing OK MUST open the numeric keypad dialog (see "Numeric setting edit" in Section 10.4).
+ - The manual mic delay value MUST be an integer number of milliseconds (>= 0).
+- Selecting **Auto mic delay adjust** and pressing OK MUST toggle ON/OFF.
+
 **Wireframe (Scoring Timing)**
 ```text
 +--------------------------------------+
@@ -1433,8 +1565,13 @@ This is the Add songs workflow.
 
 - Line bonus ON/OFF (default ON).
 - Ready countdown before song start: ON/OFF (default ON).
-- Countdown length (seconds): integer 110 (default 3). Countdown ticks at 1 Hz: N, N-1, , 1, then start.
+- Countdown length (seconds): integer 1-10 (default 3). Countdown ticks at 1 Hz: N, N-1, ... , 1, then start.
 - Optional: show pitch bars ON/OFF (visual only).
+
+**Interaction rules (normative)**
+- Selecting **Countdown seconds** and pressing OK MUST open the numeric keypad dialog (see "Numeric setting edit" in Section 10.4).
+ - Validation MUST enforce the range 1-10.
+- Selecting **Line bonus**, **Ready countdown**, or **Show pitch bars** and pressing OK MUST toggle ON/OFF.
 
 **Wireframe (Gameplay)**
 ```text
@@ -1446,7 +1583,7 @@ This is the Add songs workflow.
 | Countdown seconds:      3             |
 | Show pitch bars:        ON            |
 +--------------------------------------+
-| Hints: OK=Toggle/Edit  Back=Return    |
+| Hints: OK=Toggle/Keypad  Back=Return  |
 +--------------------------------------+
 ```
 
@@ -1477,7 +1614,29 @@ This is the Add songs workflow.
 - Countdown before scoring begins is controlled by Settings > Gameplay:
  - If Ready countdown is ON: show N-second countdown at 1 Hz (N from setting) then begin scoring.
  - If OFF: begin scoring immediately.
-- If a required singer disconnects during countdown: cancel start and return to Assign Singers with an error message.
+- If a required singer disconnects during countdown: cancel start and return to Assign Singers with a blocking error modal.
+
+**Countdown disconnect error modal (normative)**
+- The modal MUST appear immediately after returning to Assign Singers.
+- The modal MUST be blocking (no background interaction until dismissed).
+- Modal content:
+ - Title: `DISCONNECTED`
+ - Body: `A required singer disconnected during countdown. Please reconnect and start again.`
+ - Single action: `OK`
+- Default focus MUST be on `OK`.
+- On `OK`, the modal MUST close and the user remains on Assign Singers.
+
+**Wireframe (countdown disconnect modal; TV)**
+```text
++--------------------------------------+
+| DISCONNECTED                          |
+| A required singer disconnected         |
+| during countdown.                      |
+| Please reconnect and start again.      |
+|                                      |
+|  > OK                                 |
++--------------------------------------+
+```
 
 **Pause**
 - Back opens Pause overlay:
