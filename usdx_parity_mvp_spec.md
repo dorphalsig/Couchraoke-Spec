@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.35
+Version: 1.36
 Date: 2026-01-31
 Owner: TBD
 
@@ -21,6 +21,7 @@ Status: Draft
 | 2026-01-31 21:20 CET | Assistant | Clarify disconnect behavior: auto-reconnect on transport disconnect; return to Join on kick/Leave session. |
 | 2026-01-31 21:22 CET | Assistant | Relax join-code entropy requirement for LAN use (32-bit min; recommend 64+). |
 | 2026-01-31 21:24 CET | Assistant | Fix protocol schemas for coherence (ping/pong oneOf; pitchBatch example+schema; pitchFrame optional telemetry; MIDI-only). |
+| 2026-01-31 21:26 CET | Assistant | Require phones to delay pitch-frame sending until countdown ends when assignSinger.startMode=countdown. |
 
 
 
@@ -1020,7 +1021,9 @@ Sent when the user starts a song (Assign Singers overlay) and on reconnect while
  - `startMode` (`"countdown"` or `"live"`)
  - `countdownMs` (int; required if `startMode=="countdown"`)
 - Semantics:
- - `role="singer"` instructs the phone to begin streaming frames for the given `playerId` and `songInstanceId`.
+ - `role="singer"` instructs the phone to stream frames for the given `playerId` and `songInstanceId`:
+   - If `startMode=="countdown"`: the phone MUST delay sending frames until the countdown completes (after `countdownMs`). The phone MAY warm up pitch detection locally during countdown, but MUST NOT send frames.
+   - If `startMode=="live"`: begin sending frames immediately.
  - `role="spectator"` instructs the phone to stop streaming frames (or the TV will ignore them).
  - On song end/quit, TV MUST send `assignSinger` with `role="spectator"` to selected phones (clears assignment).
 
