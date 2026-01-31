@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.33
+Version: 1.34
 Date: 2026-01-31
 Owner: TBD
 
@@ -19,6 +19,7 @@ Status: Draft
 | 2026-01-31 21:02 CET | Assistant | Remove assignPlayer from the protocol and clarify that pitch frames carry MIDI note values only (no frequency/pitch-value fields). |
 | 2026-01-31 21:18 CET | Assistant | Normalize countdown semantics (display N..1 only; playback+scoring start together). |
 | 2026-01-31 21:20 CET | Assistant | Clarify disconnect behavior: auto-reconnect on transport disconnect; return to Join on kick/Leave session. |
+| 2026-01-31 21:22 CET | Assistant | Relax join-code entropy requirement for LAN use (32-bit min; recommend 64+). |
 
 
 
@@ -971,7 +972,7 @@ Protocol mismatch
 - Transport MUST be **WebSocket** over the local network (same subnet WiFi).
 - TV host exposes: `ws://<host-ip>:<port>/?token=<sessionToken>`.
 - **Session token / join code (normative)**
- - Cryptographically random token, minimum 128 bits entropy.
+ - Random token to prevent accidental joins on the LAN; minimum 32 bits entropy (recommended 64+).
  - The same token MUST be shown to the user as the join code and MUST be the value of the `token` query parameter.
  - The join code MUST be human-enterable: implementations SHOULD use a case-insensitive alphabet and MAY display the code in groups (e.g., `ABCD-EFGH-IJKL-...`).
  - When the user types the join code, the phone MUST normalize it by removing spaces/hyphens and applying case-insensitive comparison.
