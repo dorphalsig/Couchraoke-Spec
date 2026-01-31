@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.30
+Version: 1.31
 Date: 2026-01-31
 Owner: TBD
 
@@ -16,6 +16,7 @@ Status: Draft
 | 2026-01-31 20:46 CET | Assistant | Align timing tag units/types and ParsedSong model fields with USDX parsing (GAP float ms; START seconds; END ms int; VIDEOGAP seconds; BPM-change start beat float). |
 | 2026-01-31 20:52 CET | Assistant | Make custom header tags order-preserving and USDX-aligned (CustomHeaderTag[]). Note: if represented as a map internally, it must preserve insertion order. |
 | 2026-01-31 20:57 CET | Assistant | Align preview-start derivation and duration=0 note handling with USDX (PreviewStart from PREVIEWSTART only; zero-duration notes are accepted as-is). |
+| 2026-01-31 21:02 CET | Assistant | Remove assignPlayer from the protocol and clarify that pitch frames carry MIDI note values only (no frequency/pitch-value fields). |
 
 
 
@@ -985,20 +986,17 @@ Required control messages:
 1) `hello` (phone -> TV) 
 - Fields: `clientId` (stable UUID), `deviceName`, `appVersion`, `protocolVersion`, `capabilities` (e.g., `{"pitchFps":50}`)
 
-2) `assignPlayer` (TV -> phone) 
-- Fields: `playerId` (`"P1"` or `"P2"`), `thresholdIndex` (0..7), `effectiveMicDelayMs` (optional for display/debug)
-
-3) `sessionState` (TV -> phone, and optional phone -> TV ack) 
+2) `sessionState` (TV -> phone, and optional phone -> TV ack) 
 - Fields: `sessionId`, `slots` (`{"P1":{connected,deviceName}, "P2":{...}}`), `inSong` (bool), `songTimeSec` (float, optional)
 
-4) `ping` / `pong` (both directions) 
+3) `ping` / `pong` (both directions) 
 - `ping` fields: `nonce`, `tTvSendMs` (TV time) or `tPhoneSendMs` (phone time) depending on sender 
 - `pong` echoes nonce plus sender timestamps to compute RTT and offset.
 
-5) `error` (TV -> phone) 
+4) `error` (TV -> phone) 
 - Fields: `code` (string), `message` (string). After sending, TV MAY close.
 
-6) `assignSinger` (TV -> phone)
+5) `assignSinger` (TV -> phone)
 
 Sent when the user starts a song (Assign Singers overlay) and on reconnect while a song is in progress.
 
@@ -1045,23 +1043,17 @@ Option A: phone sends `toneValid` + `midiNote` at 50 fps.
  - `midiNote` (int or null) MIDI note number (0..127). The TV MUST translate this to USDX semitone scale as `toneUsdx = midiNote - 36`.
 
 MIDI domain (normative):
-- `midiNote=69` corresponds to A4 = 440.0 Hz.
-- Mapping from `midiNote` to frequency is:
-  `f_hz(midiNote) = 440.0 * 2^((midiNote - 69)/12)`
+- `midiNote` is an integer in [0..127] using standard MIDI note numbering.
+- The TV converts to USDX semitone scale via `toneUsdx = midiNote - 36` (C2=36 → toneUsdx=0).
 
-Phone-side computation (normative):
-- If the phone pitch tracker produces an estimated fundamental frequency `f0_hz` (Hz):
-  - If `f0_hz <= 0` or unvoiced -> `toneValid=false` and `midiNote=null`.
-  - Else compute:
-    - `midi_raw = 69 + 12 * log2(f0_hz / 440.0)`
-    - `midiNote = clamp(round(midi_raw), 0, 127)`
-- If the phone pitch tracker produces a semitone index directly, it MUST be converted/clamped to the same [0..127] domain.
+Phone-side note derivation (non-normative):
+- Implementation-defined. The protocol carries only `toneValid` and `midiNote`.
 
 Voicing/thresholding (normative):
 - `maxAmp` definition (normative): normalized peak amplitude for the audio window that produced the pitch estimate for this frame.
   - If input is 16-bit signed PCM, compute `maxAmp = clamp(max(abs(sample_i)) / 32768.0, 0, 1)` over the window.
   - If input is floating-point samples in [-1..1], compute `maxAmp = clamp(max(abs(sample_i)), 0, 1)`.
-- The TV selects a noise threshold via `thresholdIndex` (0..7) and sends it in `assignPlayer`/`assignSinger`.
+- The TV selects a noise threshold via `thresholdIndex` (0..7) and sends it in `assignSinger`.
 - The phone MUST compute `toneValid` using the following thresholds on normalized peak amplitude `maxAmp` (0..1):
   - thresholdValueByIndex = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.60]
   - `toneValid = (maxAmp >= thresholdValueByIndex[thresholdIndex]) AND (pitch_estimate_succeeded)`
@@ -1919,26 +1911,7 @@ All messages are JSON objects and MUST include:
 }
 ```
 
-### B.2.2 `assignPlayer`
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "assignPlayer",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["type", "protocolVersion", "playerId", "thresholdIndex"],
-  "properties": {
-    "type": {"const": "assignPlayer"},
-    "protocolVersion": {"type": "integer", "const": 1},
-    "tsTvMs": {"type": "number"},
-    "playerId": {"type": "string", "enum": ["P1", "P2"]},
-    "thresholdIndex": {"type": "integer", "minimum": 0, "maximum": 7},
-    "effectiveMicDelayMs": {"type": "integer", "minimum": 0}
-  }
-}
-```
-
-### B.2.3 `sessionState`
+### B.2.2 `sessionState`
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1982,7 +1955,7 @@ All messages are JSON objects and MUST include:
 }
 ```
 
-### B.2.4 `ping` / `pong` (clock sync)
+### B.2.3 `ping` / `pong` (clock sync)
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2020,7 +1993,7 @@ All messages are JSON objects and MUST include:
 }
 ```
 
-### B.2.5 `error`
+### B.2.4 `error`
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2038,7 +2011,7 @@ All messages are JSON objects and MUST include:
 }
 ```
 
-### B.2.6 `assignSinger`
+### B.2.5 `assignSinger`
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2074,14 +2047,14 @@ All messages are JSON objects and MUST include:
 }
 ```
 
-### B.2.7 `pitchFrame`
+### B.2.6 `pitchFrame`
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "pitchFrame",
   "type": "object",
   "additionalProperties": false,
-  "required": ["type", "protocolVersion", "playerId", "seq", "tCaptureMs", "toneValid"],
+  "required": ["type", "protocolVersion", "playerId", "seq", "tCaptureMs", "toneValid", "midiNote", "maxAmp", "thresholdIndex"],
   "properties": {
     "type": {"const": "pitchFrame"},
     "protocolVersion": {"type": "integer", "const": 1},
@@ -2102,21 +2075,34 @@ All messages are JSON objects and MUST include:
 }
 ```
 
-### B.2.8 `pitchBatch`
+### B.2.7 `pitchBatch`
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "pitchBatch",
   "type": "object",
   "additionalProperties": false,
-  "required": ["type", "protocolVersion", "frames"],
+  "required": ["type", "protocolVersion", "playerId", "frames"],
   "properties": {
     "type": {"const": "pitchBatch"},
     "protocolVersion": {"type": "integer", "const": 1},
+    "playerId": {"enum": ["P1", "P2"]},
     "frames": {
       "type": "array",
       "minItems": 1,
-      "items": {"$ref": "#B.2.7"}
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["seq", "tCaptureMs", "toneValid", "midiNote", "maxAmp", "thresholdIndex"],
+        "properties": {
+          "seq": {"type": "integer", "minimum": 0},
+          "tCaptureMs": {"type": "integer", "minimum": 0},
+          "toneValid": {"type": "boolean"},
+          "midiNote": {"type": ["integer", "null"], "minimum": 0, "maximum": 127},
+          "maxAmp": {"type": "number", "minimum": 0.0},
+          "thresholdIndex": {"type": "integer", "minimum": 0, "maximum": 7}
+        }
+      }
     }
   }
 }
