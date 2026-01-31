@@ -1,7 +1,7 @@
 {
   "assumptions": {
     "clockOffsetMs": 0,
-    "stalenessCutoffMs": 200,
+    "stalenessCutoffMs": 120,
     "selectionRule": "pick most recent frame where tvCaptureMs<=tvNowMs"
   },
   "tvNowSamples": [
@@ -17,7 +17,7 @@
       "tvNowMs": 1400,
       "expectedSelected": null,
       "expectedToneValid": false,
-      "reason": "stale_gt_200ms"
+      "reason": "stale_gt_cutoff"
     }
   ]
 }
