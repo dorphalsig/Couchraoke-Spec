@@ -245,9 +245,9 @@
       "id": "F06",
       "name": "beat_time_conversion_static_bpm",
       "tags": ["timing"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F06_beat_time_conversion_static_bpm"
       },
       "covers": ["5.1", "5.2", "Appendix E"]
     },
