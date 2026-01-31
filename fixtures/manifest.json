@@ -285,9 +285,9 @@
       "id": "F10",
       "name": "rap_scoring_tonevalid_gate",
       "tags": ["scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F10_rap_scoring_tonevalid_gate"
       },
       "covers": ["6.4", "Appendix A", "Appendix E"]
     },
