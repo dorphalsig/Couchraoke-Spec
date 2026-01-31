@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.26
+Version: 1.27
 Date: 2026-01-31
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-01-31 15:06 CET | Assistant | Specify numeric keypad editing semantics: replace-on-first-digit, Del deletes last digit, long-press Del clears. |
 | 2026-01-31 15:06 CET | Assistant | Define Back key behavior on Results: Back returns to Song List (same as Back to Song List button). |
 | 2026-01-31 15:05 CET | Assistant | Replace "Show pitch bars" with USDX-parity "Show note lines" toggle (Ini.NoteLines). |
 | 2026-01-31 15:04 CET | Assistant | Define Back precedence during Song Library scanning: Back cancels scan before leaving the screen. |
@@ -1353,6 +1354,9 @@ Settings is a simple list of items; selecting one opens a sub-screen.
 - The numeric keypad dialog MUST:
  - Show the setting name and current value.
  - Allow entering digits 0-9.
+ - First digit entered MUST **replace** the entire current value (replace-on-first-digit). Subsequent digits MUST append.
+ - **Del** MUST delete the last entered digit (if any). If no digits remain, the value becomes empty.
+ - Long-pressing **Del** (or equivalent Clear gesture) MUST clear the entire input.
  - Provide **Cancel** and **OK** actions.
  - Cancel (or Back) MUST close the dialog without applying changes.
  - OK MUST validate input; on success, apply immediately and return to the settings screen.
