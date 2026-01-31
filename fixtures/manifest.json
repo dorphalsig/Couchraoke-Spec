@@ -255,9 +255,9 @@
       "id": "F07",
       "name": "beat_time_conversion_variable_bpm",
       "tags": ["timing"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F07_beat_time_conversion_variable_bpm"
       },
       "covers": ["5.2", "Appendix E"]
     },
