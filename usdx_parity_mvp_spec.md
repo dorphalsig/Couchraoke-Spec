@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.25
+Version: 1.26
 Date: 2026-01-31
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-01-31 15:06 CET | Assistant | Define Back key behavior on Results: Back returns to Song List (same as Back to Song List button). |
 | 2026-01-31 15:05 CET | Assistant | Replace "Show pitch bars" with USDX-parity "Show note lines" toggle (Ini.NoteLines). |
 | 2026-01-31 15:04 CET | Assistant | Define Back precedence during Song Library scanning: Back cancels scan before leaving the screen. |
 | 2026-01-31 15:03 CET | Assistant | Specify Settings > Song Library action targeting, focus traversal, and Remove root confirmation dialog. |
@@ -1205,6 +1206,7 @@ This section is normative for MVP UI and navigation on Android TV.
  - Back closes the overlay/dialog and returns to the underlying screen.
  - If a software keyboard is shown (Search), Back closes keyboard first, then the overlay.
 - From Singing: opens Pause overlay (Resume / Quit to Song List).
+- From Results: returns to Song List.
 
 - **OK/Enter** selects highlighted item.
 - DPAD navigates focus in lists and menus.
@@ -1761,6 +1763,9 @@ Actions:
 - MVP has **no song queue**; returning to Song List is required to start another song.
 - Back to Song List
 - Play again (re-opens Assign Singers for the same song)
+
+**Back key (normative)**
+- Pressing TV remote **Back** on the Results screen MUST behave the same as selecting **Back to Song List** (i.e., return to Song List).
 
 **Wireframe (USDX Song Punkte layout; spec-only actions)**
 ```text
