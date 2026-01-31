@@ -275,9 +275,9 @@
       "id": "F09",
       "name": "pitch_tolerance_octave_normalization",
       "tags": ["scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F09_pitch_tolerance_octave_normalization"
       },
       "covers": ["6.3", "6.4", "Appendix E"]
     },
