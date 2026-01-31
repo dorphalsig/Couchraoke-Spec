@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.39
+Version: 1.40
 Date: 2026-01-31
 Owner: TBD
 
@@ -22,9 +22,9 @@ Status: Draft
 | 2026-01-31 21:22 CET | Assistant | Relax join-code entropy requirement for LAN use (32-bit min; recommend 64+). |
 | 2026-01-31 21:24 CET | Assistant | Fix protocol schemas for coherence (ping/pong oneOf; pitchBatch example+schema; pitchFrame optional telemetry; MIDI-only). |
 | 2026-01-31 21:26 CET | Assistant | Require phones to delay pitch-frame sending until countdown ends when assignSinger.startMode=countdown. |
-| 2026-01-31 21:30 CET | Assistant | Update fixtures manifest specVersion to match spec version. |
 | 2026-01-31 21:31 CET | Assistant | Align Appendix D/F fixture patterns with the actual fixtures/ directory (no required expected.parsedSong.json; pitchFrames.jsonl uses pitchFrame envelope fields). |
 | 2026-01-31 22:40 CET | Assistant | Fix duration=0 contradictions: Change Record + ParsedSong invariants + F03 fixture wording now match USDX (convert to FreeStyle). |
+| 2026-01-31 22:42 CET | Assistant | Update fixtures manifest specVersion to match spec version (1.40). |
 
 
 

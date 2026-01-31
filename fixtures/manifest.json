@@ -1,6 +1,6 @@
 {
   "manifestVersion": "1.0",
-  "specVersion": "1.37",
+  "specVersion": "1.40",
   "root": "fixtures",
   "fixtures": [
     {
