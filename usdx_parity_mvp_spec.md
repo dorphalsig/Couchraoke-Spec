@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.29
+Version: 1.30
 Date: 2026-01-31
 Owner: TBD
 
@@ -15,6 +15,7 @@ Status: Draft
 | --- | --- | --- |
 | 2026-01-31 20:46 CET | Assistant | Align timing tag units/types and ParsedSong model fields with USDX parsing (GAP float ms; START seconds; END ms int; VIDEOGAP seconds; BPM-change start beat float). |
 | 2026-01-31 20:52 CET | Assistant | Make custom header tags order-preserving and USDX-aligned (CustomHeaderTag[]). Note: if represented as a map internally, it must preserve insertion order. |
+| 2026-01-31 20:57 CET | Assistant | Align preview-start derivation and duration=0 note handling with USDX (PreviewStart from PREVIEWSTART only; zero-duration notes are accepted as-is). |
 
 
 
@@ -206,7 +207,7 @@ Normative minimum index record (per song)
   - `hasInstrumental` (true if `#INSTRUMENTAL` exists and the file is present).
 - Preview/seek metadata
   - `startSec` (from `#START`, default 0.0).
-  - `previewStartSec` (computed as: PREVIEWSTART else START else 0.0; see Section 3.4 and Section 10.2).
+  - `previewStartSec` (computed as: `#PREVIEWSTART` if present and >0, else `0.0`; see Section 3.4 and Section 10.2).
 
 Implementations MAY store additional fields (e.g., genre, year, cover/background URIs, videoGapSec) but the above is the minimum required for MVP behavior.
 
@@ -242,8 +243,8 @@ Implementations MAY store additional fields (e.g., genre, year, cover/background
 - OK on a song opens **Assign Singers** overlay (Section 10.3).
 
 **Song preview**
-- MVP: 10s audio preview starting at `#PREVIEWSTART` if present; otherwise start at `#START` if present, else start at 0.0 seconds (or optionally the first note).
-(USDX editor uses PREVIEWSTART heavily; selection-screen preview behavior is theme-dependent, so we define MVP behavior here.)
+- MVP: 10s audio preview starting at `#PREVIEWSTART` if present and >0; otherwise start at `0.0` seconds.
+(Note: `#START` is gameplay audio trim; USDX does not use it as a preview fallback.)
 
 **Wireframe (USDX-aligned, spec-limited interactions)**
 ```text
@@ -2143,7 +2144,7 @@ Required fields:
 Invariants:
 
 - `tracks.length` MUST be `2` if and only if duet mode is detected (Section 4.1: first non-empty body token begins with `P`). Otherwise `tracks.length` MUST be `1`.
-- All note events in `tracks[*].lines[*].notes[*]` MUST satisfy `durationBeats >= 1` (duration 0 MUST already be converted to Freestyle per Section 4.3).
+- All note events in `tracks[*].lines[*].notes[*]` MUST satisfy `durationBeats >= 0` (USDX accepts duration=0; it simply contributes 0 score and yields a zero-length note).
 
 ### SongHeader
 
@@ -2689,20 +2690,20 @@ Required subcases:
 - unknown tags with and without `:`
 - required-tag failures (missing required field; malformed numeric)
 - **Encoding subcase**: `>= 1.0.0` UTF-8 forced; legacy honors `#ENCODING` (Section 4.2)
-- **Preview start subcase**: `previewStartSec` computed from `#PREVIEWSTART` else `#START` else 0 (Section 3.4, 10.2)
+- **Preview start subcase**: `previewStartSec` computed from `#PREVIEWSTART` if present and >0, else 0 (Section 3.4, 10.2)
 
 ### F03 — Body grammar: token recognition + invalidation rules
 
 Verifies:
 
 - unknown tokens are ignored with a warning; recognized tokens with numeric parse failures invalidate (Section 4.2–4.3)
-- duration=0 note is parsed as freestyle (Appendix A)
+- duration=0 note is accepted as-is (no auto-conversion; USDX behavior)
 
 Required subcases:
 
 - unknown token line
 - malformed numeric fields on a recognized note token
-- duration=0 note → freestyle note
+- duration=0 note is accepted (zero-length note)
 - **Freestyle scoring subcase**: freestyle yields no pitch-based scoring (Section 6.2)
 
 ### F04 — Duet parsing: P1/P2 track routing
