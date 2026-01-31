@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.31
+Version: 1.32
 Date: 2026-01-31
 Owner: TBD
 
@@ -17,6 +17,7 @@ Status: Draft
 | 2026-01-31 20:52 CET | Assistant | Make custom header tags order-preserving and USDX-aligned (CustomHeaderTag[]). Note: if represented as a map internally, it must preserve insertion order. |
 | 2026-01-31 20:57 CET | Assistant | Align preview-start derivation and duration=0 note handling with USDX (PreviewStart from PREVIEWSTART only; zero-duration notes are accepted as-is). |
 | 2026-01-31 21:02 CET | Assistant | Remove assignPlayer from the protocol and clarify that pitch frames carry MIDI note values only (no frequency/pitch-value fields). |
+| 2026-01-31 21:18 CET | Assistant | Normalize countdown semantics (display N..1 only; playback+scoring start together). |
 
 
 
@@ -1600,7 +1601,7 @@ This is the Add songs workflow.
 
 - Line bonus ON/OFF (default ON).
 - Ready countdown before song start: ON/OFF (default ON).
-- Countdown length (seconds): integer 1-10 (default 3). Countdown ticks at 1 Hz: N, N-1, ... , 1, then start.
+- Countdown length (seconds): integer 1-10 (default 3). Countdown displays at 1 Hz: N, N-1, ... , 1. After displaying `1`, playback and scoring start.
 - Optional: show note lines ON/OFF (visual only; USDX: Ini.NoteLines).
 
 **Interaction rules (normative)**
@@ -1646,9 +1647,9 @@ This is the Add songs workflow.
 - If a singer disconnects: show Disconnected indicator for that lane and stop increasing that singer's score while disconnected; on reconnect within the same session, scoring resumes (Section 7.4).
 
 **Countdown**
-- Countdown before scoring begins is controlled by Settings > Gameplay:
- - If Ready countdown is ON: show N-second countdown at 1 Hz (N from setting) then begin scoring.
- - If OFF: begin scoring immediately.
+- Countdown before playback and scoring begin is controlled by Settings > Gameplay:
+ - If Ready countdown is ON: show N-second countdown at 1 Hz (N from setting) then begin playback and scoring.
+ - If OFF: begin playback and scoring immediately.
 - If a required singer disconnects during countdown: cancel start and return to Assign Singers with a blocking error modal.
 
 **Countdown disconnect error modal (normative)**
@@ -1709,14 +1710,14 @@ Active singing screen (composition matches USDX)
 |                                                                      00:35     |
 +--------------------------------------------------------------------------------+
 
-Countdown overlay (before playback starts; 1 Hz)
+Countdown overlay (before playback and scoring start; 1 Hz)
 
 +--------------------------------------------------------------------------------+
 |                                                                                |
 |                                     3                                          |
 |                                                                                |
 +--------------------------------------------------------------------------------+
-(then 2, 1, 0; at 0 playback + scoring start)
+(then 2, 1; after showing 1, playback + scoring start)
 
 Pause overlay (Back)
 
