@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.21
+Version: 1.22
 Date: 2026-01-31
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-01-31 15:02 CET | Assistant | Specify deterministic focus traversal and action activation for Settings > Connect Phones. |
 | 2026-01-31 15:00 CET | Assistant | Define navigation stack and Back behavior (Settings root vs sub-screens; return target depends on entry source). |
 | 2026-01-31 11:39 CET | Assistant | Update Gameplay settings wireframe hints to reflect numeric keypad editing. |
 | 2026-01-31 11:38 CET | Assistant | Define countdown disconnect handling as a blocking modal on return to Assign Singers. |
@@ -1387,6 +1388,15 @@ Settings is a simple list of items; selecting one opens a sub-screen.
 - Rename device: opens a rename dialog (TV on-screen keyboard), updates the stored label for that `clientId`.
 - Kick device: confirm then disconnect.
 - Forget device: confirm then remove the stored label for that `clientId` and disconnect.
+
+**Focus and activation (normative; TV remote)**
+- Default focus on entry: the connected-devices roster list (first row if present).
+- DPAD Up/Down: moves focus within the roster list.
+- DPAD Down from the roster list when focus is on the **last** row: moves focus to the action-button row (default focused button **Rename**).
+- DPAD Left/Right while on the action-button row: cycles **Rename** / **Kick** / **Forget**.
+- DPAD Down from the action-button row: moves focus to **End session**.
+- DPAD Up from **End session**: returns focus to the action-button row (keeping the currently focused action button).
+- OK/Enter triggers the currently focused action (Rename/Kick/Forget/End session).
 
 **Rename dialog (normative)**
 - Selecting **Rename** MUST open a modal rename dialog using the TV on-screen keyboard.
