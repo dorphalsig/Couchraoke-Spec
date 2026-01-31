@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.11
+Version: 1.12
 Date: 2026-01-31
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-01-31 14:54 CET | Assistant | Fix F10 manifest covers (rap toneValid gate) and align manifest.specVersion; bump version. |
 | 2026-01-31 14:52 CET | Assistant | Fix F13 staleness fixture: cutoff=120ms + reason=stale_gt_cutoff; bump version. |
 
 
