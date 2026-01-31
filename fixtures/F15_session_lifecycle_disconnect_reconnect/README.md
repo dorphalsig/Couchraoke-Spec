@@ -1,18 +1,13 @@
-# F15 — Session lifecycle: hello/assignSinger + reconnect reclaim
+# F15 — Session lifecycle: hello/assignSinger + disconnect/reconnect
 
-Purpose (Appendix F):
-- verify reconnect reclaim via stable clientId (Section 7.4; hello in Section 8.2)
-- verify role resumption: during an in-progress song, reconnect triggers assignSinger re-send (Section 8.2)
-- verify rejection behavior when session is full and cannot match a reconnecting clientId (Section 7.1–7.4)
+This fixture is split into deterministic subcases (Appendix F.5.15).
 
-Notes:
-- Disconnect is represented here as an out-of-band transcript event (`eventType: "disconnect"`) since socket close is not an explicit protocol message.
-- Kick is represented here as an out-of-band transcript event (`eventType: "kick"`) and corresponds to the TV "Kick device" action (Section 10.4).
+## Files and conventions
 
-Cases (preferred):
-- `case_reconnect_reclaim/` — reconnect reclaim + assignSinger resend; third device is rejected while roster is full.
-- `case_slot_taken/` — device disconnects, TV kicks it (roster removed), a new device takes the freed slot, and the original clientId is rejected.
+- `transcript.jsonl` / `expected.session.json`: **current repo convention** (Appendix F.4.4)
+- `transcript.legacy.jsonl` / `expected.outcome.legacy.json`: kept for backward compatibility with an earlier transcript schema
 
-Legacy (kept for backward compatibility):
-- `transcript.jsonl`
-- `expected.outcome.json`
+## Subcases
+
+- `case_reconnect_reclaim/` — disconnected client reclaims its singer slot by stable `clientId`; third client is rejected.
+- `case_slot_taken/` — host kicks the disconnected client (`tv_internal` event); a third client joins and takes the free slot; original client is rejected.

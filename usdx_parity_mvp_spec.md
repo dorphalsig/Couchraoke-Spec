@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.15
+Version: 1.16
 Date: 2026-01-31
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-01-31 15:11 CET | Assistant | Align F15 transcripts to Appendix F fixture conventions (transcript.jsonl + expected.session.json) and allow tv_internal events; bump version. |
 | 2026-01-31 15:05 CET | Assistant | Update F03 scoring subcase to mix normal and freestyle beats (normal scores; freestyle excluded); bump version. |
 | 2026-01-31 15:01 CET | Assistant | Fix F02 legacy encoding subcase: ISO-8859-1 bytes + deterministic expected title; bump version. |
 | 2026-01-31 14:58 CET | Assistant | Split F15 into deterministic subcases (reconnect reclaim vs kick/free slot); bump version. |
@@ -2409,10 +2410,12 @@ Minimum schema (repo convention):
 
 Field semantics:
 
-- `direction`: `phone_to_tv` or `tv_to_phone`.
-- `message`: a JSON object that MUST conform to the relevant protocol message schema from Section 8.
+- `direction`: `phone_to_tv`, `tv_to_phone`, or `tv_internal`.
+- `message`: if `direction` is `phone_to_tv` or `tv_to_phone`, it MUST conform to the relevant protocol message schema from Section 8. If `direction` is `tv_internal`, it is a repo-defined event object documented by the fixture (e.g., disconnect/kick).
 
 Tests MAY include optional fields for ordering/debugging (e.g., `tLocalMs`, `seq`), but they must not be required for correctness unless the fixture explicitly tests ordering.
+
+Fixtures MAY include an additional envelope field `clientId` on `tv_to_phone` lines to indicate which phone the message was sent to (routing metadata; not part of the Section 8 message schema).
 
 #### `expected.session.json` (repo convention)
 
