@@ -305,9 +305,9 @@
       "id": "F12",
       "name": "pitch_stream_validation_semantics",
       "tags": ["protocol", "scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F12_pitch_stream_validation_semantics"
       },
       "covers": ["8.3", "9.1", "Appendix B", "Appendix D"]
     },

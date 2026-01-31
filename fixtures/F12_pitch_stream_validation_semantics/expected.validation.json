@@ -1,0 +1,12 @@
+{
+  "playerId": "P1",
+  "expectedAccepted": [
+    {"seq": 1, "tCaptureMs": 1000, "toneValid": true, "midiNote": 36},
+    {"seq": 2, "tCaptureMs": 1020, "toneValid": true, "midiNote": 36},
+    {"seq": 4, "tCaptureMs": 1100, "toneValid": false, "midiNote": null}
+  ],
+  "expectedDropped": [
+    {"seq": 1, "tCaptureMs": 1040, "reason": "seq_regression"},
+    {"seq": 3, "tCaptureMs": 800, "reason": "tCaptureMs_regression_gt_200ms"}
+  ]
+}
