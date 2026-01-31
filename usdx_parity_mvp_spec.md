@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.23
+Version: 1.24
 Date: 2026-01-31
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-01-31 15:04 CET | Assistant | Define Back precedence during Song Library scanning: Back cancels scan before leaving the screen. |
 | 2026-01-31 15:03 CET | Assistant | Specify Settings > Song Library action targeting, focus traversal, and Remove root confirmation dialog. |
 | 2026-01-31 15:02 CET | Assistant | Specify deterministic focus traversal and action activation for Settings > Connect Phones. |
 | 2026-01-31 15:00 CET | Assistant | Define navigation stack and Back behavior (Settings root vs sub-screens; return target depends on entry source). |
@@ -1511,6 +1512,8 @@ This is the Add songs workflow.
 **Rescan UX (normative)**
 - While scanning, the UI MUST show an in-progress status (e.g., "Scanning…") and MUST remain responsive.
 - The user MUST be able to cancel an in-progress rescan via Back; cancellation leaves the last successful index intact.
+- While scanning is in progress, the first press of **Back** MUST cancel scanning and remain on the Song Library screen (it MUST NOT navigate away).
+- After scanning is not in progress, **Back** follows normal navigation (returns to Settings root per Section 10.1).
 
 **Wireframe (Song Library while scanning; spec-only interactions)**
 ```text
