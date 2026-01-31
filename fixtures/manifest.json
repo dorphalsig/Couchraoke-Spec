@@ -295,9 +295,9 @@
       "id": "F11",
       "name": "line_bonus_and_rounding",
       "tags": ["scoring"],
-      "status": "planned",
+      "status": "implemented",
       "paths": {
-        "fixtureDir": null
+        "fixtureDir": "fixtures/F11_line_bonus_and_rounding"
       },
       "covers": ["6.5", "6.6", "Appendix E"]
     },
