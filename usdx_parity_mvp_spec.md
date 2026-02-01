@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.10
+Version: 2.11
 Date: 2026-02-01
 Owner: SpecBot
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 16:51 CET | Assistant | Extend pitchFrames fixture format to optionally include TV receive timestamps for deterministic lateness/jitter assertions. |
 | 2026-02-01 16:50 CET | Assistant | Resolve ping/pong narrative conflict: MVP clock sync is TV-initiated; `nonce` and required fields match protocol schema. |
 | 2026-02-01 16:47 CET | Assistant | Define `relativeTxtPath` and make `songId` derivation consistent (songsFolderUri + relativeTxtPath) across index and ParsedSong model. |
 | 2026-02-01 16:46 CET | Assistant | Align Product Contract scope with in-spec Medley support ("party modes" excludes Medley). |
@@ -2605,6 +2606,10 @@ Required fields (protocol-required):
 - `tCaptureMs` (int)
 - `toneValid` (bool)
 - `midiNote` (int|null)
+
+Optional timing fields (may be present; tests MAY assert these only when provided):
+
+- `tRecvTvMs` (int): TV monotonic ms receive timestamp for this frame. If present, fixture evaluation MUST treat this as the frame's `arrivalTimeTv` (Section 9.1.1) for lateness/jitter assertions.
 
 Optional telemetry fields (may be present but MUST NOT be required by tests):
 
