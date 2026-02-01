@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.8
+Version: 2.9
 Date: 2026-02-01
 Owner: SpecBot
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 16:47 CET | Assistant | Define `relativeTxtPath` and make `songId` derivation consistent (songsFolderUri + relativeTxtPath) across index and ParsedSong model. |
 | 2026-02-01 16:46 CET | Assistant | Align Product Contract scope with in-spec Medley support ("party modes" excludes Medley). |
 | 2026-02-01 16:45 CET | Assistant | Fix Table of Contents: add missing 10.6.1 Results (post-song) entry. |
 | 2026-02-01 15:52 CET | Assistant | Specify medley TOTAL rounding (USDX: mean + round of per-segment scores, TOTAL may be non-multiple-of-10) and add an F11 fixture subcase to test it. |
@@ -198,9 +199,16 @@ The library index MUST store enough information to render Song Select and Search
 
 Normative minimum index record (per song)
 - Identity / storage
-  - `songId`: stable identifier derived from the TXT document URI (e.g., normalized URI string hash). Must be stable across app restarts.
-  - `txtUri`: persisted SAF URI for the TXT file (or absolute path in non-SAF environments).
   - `songsFolderUri`: the root library folder URI that produced this entry (to support multiple roots).
+  - `relativeTxtPath`: the normalized relative path of the `.txt` within the selected `songsFolderUri` root.
+    - Normalization rules (normative):
+      - Path separators MUST be `/`.
+      - MUST NOT start with `/`.
+      - MUST NOT contain `.` or `..` segments.
+      - Case MUST be preserved.
+  - `songId`: stable identifier derived from `songsFolderUri` and `relativeTxtPath`.
+    - Normative form: `songId = songsFolderUri + "::" + relativeTxtPath`.
+  - `txtUri`: persisted SAF URI for the TXT file (or absolute path in non-SAF environments).
   - `modifiedTimeMs`: last-modified timestamp of the TXT file at indexing time.
 - Validation
   - `isValid`: boolean.
@@ -2403,7 +2411,8 @@ This appendix defines the **normative in-memory representation** of a parsed USD
 
 Required fields:
 
-- `songId` (string): stable identifier of the song instance in the library (e.g., derived from song folder URI + relative path).
+- `songId` (string): stable identifier of the song instance in the library.
+  - MUST match the index `songId` derivation in Section 3.3: `songsFolderUri + "::" + relativeTxtPath`.
 - `header` (SongHeader)
 - `timing` (SongTiming)
 - `tracks` (Track[1..2])
