@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.7
+Version: 2.8
 Date: 2026-02-01
 Owner: SpecBot
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 16:46 CET | Assistant | Align Product Contract scope with in-spec Medley support ("party modes" excludes Medley). |
 | 2026-02-01 16:45 CET | Assistant | Fix Table of Contents: add missing 10.6.1 Results (post-song) entry. |
 | 2026-02-01 15:52 CET | Assistant | Specify medley TOTAL rounding (USDX: mean + round of per-segment scores, TOTAL may be non-multiple-of-10) and add an F11 fixture subcase to test it. |
 | 2026-02-01 15:47 CET | Assistant | Clarify medley fadeInSec/fadeOutSec as USDX-aligned fade envelope durations that also define pre-roll/post-roll window. |
@@ -106,7 +107,7 @@ Conventions:
 
 - Players: 2.
 
-- Out of scope: online song store, party modes, editors, esports-grade calibration.
+- Out of scope: online song store, party modes other than Medley, editors, esports-grade calibration.
 
 ## 1.1 Locked Product Decisions
 
