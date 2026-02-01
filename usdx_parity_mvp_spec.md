@@ -1,9 +1,9 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.3
+Version: 2.4
 Date: 2026-02-01
-Owner: TBD
+Owner: SpecBot
 
 Status: Draft
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 15:45 CET | Assistant | Set spec owner to SpecBot. |
 | 2026-02-01 15:39 CET | Assistant | Fix internal contradiction: rename “Select Players modal (per-song)” to “Select Players modal” (title matches scope including medley runs). |
 | 2026-02-01 15:01 CET | Assistant | Medley conflict resolution: no applause; fade/crossfade transitions; Select Players once per medley run; medley segment failure follows normal song play error; apply QR sizing rules to Connect Phones. |
 | 2026-02-01 14:42 CET | Assistant | Define medley singing + results flow (segment window playback, per-song cycling, TOTAL averaging) aligned to USDX medley mode. |
