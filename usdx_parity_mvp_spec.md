@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.12
+Version: 2.13
 Date: 2026-02-01
 Owner: SpecBot
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 16:54 CET | Assistant | Standardize error codes (snake_case), add `invalid_token`, and document aliasing for legacy `PROTOCOL_MISMATCH`. |
 | 2026-02-01 16:53 CET | Assistant | Specify phone-side semantics of `effectiveMicDelayMs` (informational only; TV applies mic delay to scoring timing). |
 | 2026-02-01 16:51 CET | Assistant | Extend pitchFrames fixture format to optionally include TV receive timestamps for deterministic lateness/jitter assertions. |
 | 2026-02-01 16:50 CET | Assistant | Resolve ping/pong narrative conflict: MVP clock sync is TV-initiated; `nonce` and required fields match protocol schema. |
@@ -1109,7 +1110,7 @@ Protocol mismatch
  - When the user types the join code, the phone MUST normalize it by removing spaces/hyphens and applying case-insensitive comparison.
  - Generated per Session start; invalidated when Session ends.
  - Reuse across sessions is NOT allowed.
-- Host MUST reject connections with missing/incorrect token and send an `error` before closing.
+- Host MUST reject connections with missing/incorrect token and send an `error(code="invalid_token")` before closing.
 
 ## 8.2 Control Messages
 
@@ -1134,6 +1135,12 @@ Required control messages:
 
 4) `error` (TV -> phone) 
 - Fields: `code` (string), `message` (string). After sending, TV MAY close.
+- `code` (normative; snake_case):
+  - `invalid_token`: join token is missing/incorrect.
+  - `protocol_mismatch`: `protocolVersion` mismatch.
+  - `session_full`: session roster is full.
+  - `session_locked`: session is in Locked state.
+  - Implementations MAY add additional codes in the future; unknown codes MUST be displayed as a generic error.
 
 5) `assignSinger` (TV -> phone)
 
@@ -1161,7 +1168,8 @@ Sent when the user starts a song (Select Players modal) and on reconnect while a
 
 Validation rules:
 - Unknown `type`: ignore + warn (except during handshake; handshake failures are fatal).
-- `protocolVersion` mismatch: send `error(code="PROTOCOL_MISMATCH")` and close.
+- `protocolVersion` mismatch: send `error(code="protocol_mismatch")` and close.
+  - Compatibility: clients MUST also accept the legacy alias `code="PROTOCOL_MISMATCH"` as equivalent to `protocol_mismatch`.
 
 ## 8.3 Pitch Stream Messages
 
@@ -1219,7 +1227,7 @@ Validation:
 **Implementation requirements (MVP)**
 
 - Define `protocolVersion = 1` for this MVP.
-- TV host MUST reject clients whose `hello.protocolVersion != 1` with `error(code="PROTOCOL_MISMATCH")` and close.
+- TV host MUST reject clients whose `hello.protocolVersion != 1` with `error(code="protocol_mismatch")` and close.
 - Backward/forward compatibility is out of scope for MVP; future versions must increment `protocolVersion` and maintain a compatibility table.
 
 # 9. Time Sync, Jitter Handling, and Auto Delay
