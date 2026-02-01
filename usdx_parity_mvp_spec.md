@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.4
+Version: 2.5
 Date: 2026-02-01
 Owner: SpecBot
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 15:47 CET | Assistant | Clarify medley fadeInSec/fadeOutSec as USDX-aligned fade envelope durations that also define pre-roll/post-roll window. |
 | 2026-02-01 15:45 CET | Assistant | Set spec owner to SpecBot. |
 | 2026-02-01 15:39 CET | Assistant | Fix internal contradiction: rename “Select Players modal (per-song)” to “Select Players modal” (title matches scope including medley runs). |
 | 2026-02-01 15:01 CET | Assistant | Medley conflict resolution: no applause; fade/crossfade transitions; Select Players once per medley run; medley segment failure follows normal song play error; apply QR sizing rules to Connect Phones. |
@@ -1922,11 +1923,13 @@ Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, bu
 - The medley window is defined by the song's medley beats:
   - `startBeat = ParsedSong.medley.startBeat`
   - `endBeat = ParsedSong.medley.endBeat`
-- The implementation MUST play and display lyrics starting at a **pre-roll** time and stop at an **extended end** time:
+- The implementation MUST play and display lyrics starting at a **medley entry** time and stop at an **extended end** time.
   - `fadeInSec` defaults to **8 seconds**.
   - `fadeOutSec` defaults to **2 seconds**.
+  - **Parity note (USDX):** `fadeInSec`/`fadeOutSec` are the medley audio fade envelope durations and are also used to extend the playback window before `startBeat` and after `endBeat`.
   - `medleyStartSec = max(0, timeFromBeat(startBeat) - fadeInSec)`
   - `medleyEndSec = timeFromBeat(endBeat) + fadeOutSec`
+  - At the start of each segment (including segment 1), audio MUST begin with a fade-in over `fadeInSec` to the normal playback volume (USDX uses `FadeIn_time`).
 - For video backgrounds (if present and enabled):
   - The video position MUST be initialized to `videoGapSec + medleyStartSec` (USDX behavior).
 
