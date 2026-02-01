@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.9
+Version: 2.10
 Date: 2026-02-01
 Owner: SpecBot
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 16:50 CET | Assistant | Resolve ping/pong narrative conflict: MVP clock sync is TV-initiated; `nonce` and required fields match protocol schema. |
 | 2026-02-01 16:47 CET | Assistant | Define `relativeTxtPath` and make `songId` derivation consistent (songsFolderUri + relativeTxtPath) across index and ParsedSong model. |
 | 2026-02-01 16:46 CET | Assistant | Align Product Contract scope with in-spec Medley support ("party modes" excludes Medley). |
 | 2026-02-01 16:45 CET | Assistant | Fix Table of Contents: add missing 10.6.1 Results (post-song) entry. |
@@ -1123,9 +1124,11 @@ Required control messages:
 2) `sessionState` (TV -> phone, and optional phone -> TV ack) 
 - Fields: `sessionId`, `slots` (`{"P1":{connected,deviceName}, "P2":{...}}`), `inSong` (bool), `songTimeSec` (float, optional)
 
-3) `ping` / `pong` (both directions) 
-- `ping` fields: `nonce`, `tTvSendMs` (TV time) or `tPhoneSendMs` (phone time) depending on sender 
-- `pong` echoes nonce plus sender timestamps to compute RTT and offset.
+3) `ping` / `pong` (clock sync; MVP is TV-initiated)
+- For MVP clock sync, `ping` MUST be sent **TV -> phone** and `pong` MUST be sent **phone -> TV** (Section 9.1.1).
+- Envelope semantics:
+  - `ping` fields: `nonce`, `tTvSendMs` (TV monotonic ms at send)
+  - `pong` fields: `nonce` (echo), `tTvSendMs` (echo), plus phone timestamps (`tPhoneRecvMs`, `tPhoneSendMs`) used to compute RTT/offset.
 
 4) `error` (TV -> phone) 
 - Fields: `code` (string), `message` (string). After sending, TV MAY close.
@@ -1252,8 +1255,10 @@ Clock model:
 
 Messages (normative; reuse existing ping/pong envelope):
 - `ping` (TV -> phone):
+  - `nonce` (string; random per sample; echoed by `pong`)
   - `tTvSendMs` (TV monotonic ms at send)
 - `pong` (phone -> TV):
+  - `nonce` (echo)
   - `tTvSendMs` (echo)
   - `tPhoneRecvMs` (phone monotonic ms at receive of ping)
   - `tPhoneSendMs` (phone monotonic ms at send of pong)
