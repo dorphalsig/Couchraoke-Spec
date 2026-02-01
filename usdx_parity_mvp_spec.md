@@ -1,8 +1,8 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 1.40
-Date: 2026-01-31
+Version: 2.0
+Date: 2026-02-01
 Owner: TBD
 
 Status: Draft
@@ -13,18 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
-| 2026-01-31 20:46 CET | Assistant | Align timing tag units/types and ParsedSong model fields with USDX parsing (GAP float ms; START seconds; END ms int; VIDEOGAP seconds; BPM-change start beat float). |
-| 2026-01-31 20:52 CET | Assistant | Make custom header tags order-preserving and USDX-aligned (CustomHeaderTag[]). Note: if represented as a map internally, it must preserve insertion order. |
-| 2026-01-31 20:57 CET | Assistant | Align preview-start derivation and duration=0 note handling with USDX (PreviewStart from PREVIEWSTART only; zero-duration notes are converted to FreeStyle). |
-| 2026-01-31 21:02 CET | Assistant | Remove assignPlayer from the protocol and clarify that pitch frames carry MIDI note values only (no frequency/pitch-value fields). |
-| 2026-01-31 21:18 CET | Assistant | Normalize countdown semantics (display N..1 only; playback+scoring start together). |
-| 2026-01-31 21:20 CET | Assistant | Clarify disconnect behavior: auto-reconnect on transport disconnect; return to Join on kick/Leave session. |
-| 2026-01-31 21:22 CET | Assistant | Relax join-code entropy requirement for LAN use (32-bit min; recommend 64+). |
-| 2026-01-31 21:24 CET | Assistant | Fix protocol schemas for coherence (ping/pong oneOf; pitchBatch example+schema; pitchFrame optional telemetry; MIDI-only). |
-| 2026-01-31 21:26 CET | Assistant | Require phones to delay pitch-frame sending until countdown ends when assignSinger.startMode=countdown. |
-| 2026-01-31 21:31 CET | Assistant | Align Appendix D/F fixture patterns with the actual fixtures/ directory (no required expected.parsedSong.json; pitchFrames.jsonl uses pitchFrame envelope fields). |
-| 2026-01-31 22:40 CET | Assistant | Fix duration=0 contradictions: Change Record + ParsedSong invariants + F03 fixture wording now match USDX (convert to FreeStyle). |
-| 2026-01-31 22:42 CET | Assistant | Update fixtures manifest specVersion to match spec version (1.40). |
+| 2026-02-01 14:10 CET | Assistant | Add Medley support to Song Selection: medley eligibility flag (canMedley), M tag, transient medley playlist with reorder/delete, random song/duet, auto-medley (random 5), inline+advanced search filter behavior, and USDX-aligned non-muted preview + Select Players modal rules. |
 
 
 
@@ -53,7 +42,7 @@ Conventions:
   - 3.2 Discovery and Validation Rules
   - 3.3 Index Fields (Functional)
   - 3.4 Song List (Landing Screen)
-  - 3.5 Search (MVP)
+  - 3.5 Advanced Search (Overlay)
 - 4. USDX TXT Format Support
   - 4.1 Supported Note Tokens
   - 4.2 Supported Header Tags and Semantics
@@ -86,7 +75,7 @@ Conventions:
 - 10. UI Screens and Flows
   - 10.1 Global navigation and input
   - 10.2 Song preview playback
-  - 10.3 Assign Singers overlay (per-song)
+  - 10.3 Select Players modal (per-song)
   - 10.4 Settings Screen
   - 10.5 Singing Screen
   - 10.6 Results
@@ -214,9 +203,15 @@ Normative minimum index record (per song)
   - `hasRap` (true if any `R` or `G` notes exist).
   - `hasVideo` (true if a video reference exists and the file is present).
   - `hasInstrumental` (true if `#INSTRUMENTAL` exists and the file is present).
+  - Medley eligibility (derived from parse; parity-aligned)
+    - `canMedley` (true iff the song can be added to the Medley playlist; see Section 3.4)
+    - `medleySource` (enum: `none` | `tag` | `calculated`)
+    - `medleyStartBeat` (int; required if `medleySource != none`)
+    - `medleyEndBeat` (int; required if `medleySource != none`)
+    - `calcMedleyEnabled` (boolean; default true; false iff `#CALCMEDLEY:OFF`)
 - Preview/seek metadata
   - `startSec` (from `#START`, default 0.0).
-  - `previewStartSec` (computed as: `#PREVIEWSTART` if present and >0, else `0.0`; see Section 3.4 and Section 10.2).
+  - `previewStartSec` (computed as: `#PREVIEWSTART` if present and >0; else if `medleySource!=none` use `timeFromBeat(medleyStartBeat)`; else 0.0; see Section 3.4 and Section 10.2).
 
 Implementations MAY store additional fields (e.g., genre, year, cover/background URIs, videoGapSec) but the above is the minimum required for MVP behavior.
 
@@ -226,61 +221,162 @@ Implementations MAY store additional fields (e.g., genre, year, cover/background
 **Purpose**
 - Always the landing screen (even if library is empty).
 - Displays songs sorted by **Artist -> Album -> Title**.
-- MVP has **no song queue/playlist**; only one song is selected and played at a time.
+- Only one song (or one medley segment) is played at a time.
+- The screen maintains a **transient Medley playlist** (a short, in-memory list of songs to be played back-to-back in medley mode).
+  - The Medley playlist is **initialized empty** each time this screen is shown.
+  - The Medley playlist is **cleared** when leaving this screen for a non-modal screen (e.g., Settings, starting a song, starting a medley, Results).
+  - Opening/closing modal overlays (Advanced Search, Select Players, error dialogs) MUST NOT clear it.
 
 **Header actions**
-- **Settings** button: opens Settings screen.
-- **Search** button: opens Search overlay (see Section 3.5).
+- **Back** button: behaves like the TV remote Back key (see Back key behavior below).
+- **QR join widget**: QR code + join code for the current session endpoint.
+- Optional: **Settings** shortcut button (may be in the header or a dedicated remote key).
 
 **Pairing (on landing)**
 - The landing screen MUST show a compact session join widget: QR code + join code (token) for the current session endpoint (Section 8.1).
 - The QR payload MUST encode the full WebSocket endpoint URL (including the `token` query parameter), so the phone can join without relying on LAN discovery.
 - The landing screen MUST NOT show a connected-device roster.
-- The join widget SHOULD be placed in the top-right area of the screen to avoid disrupting the song list layout.
 - Device roster management (Rename/Kick/Forget) is available only in Settings -> Connect Phones (Section 10.4.1).
+
+**QR sizing (normative; TV usability)**
+- QR code MUST be scannable at typical living-room TV distance.
+- Render requirements (implementation MUST satisfy all):
+  - QR visible size MUST be at least **16% of screen height** (square), and MUST NOT be less than **280 px** on a 1080p surface.
+  - Quiet zone MUST be at least **4 modules** on each side.
+  - Join code text MUST be readable at the same distance: character height MUST be at least **3.5% of screen height** (approx. 38 px at 1080p).
 
 **Empty state**
 - If no songs are indexed, show:
  - No songs found.
  - Hint: Open Settings -> Song Library to add a songs folder.
 
-**Song row display**
-- Minimum: Title, Artist, Album (if present).
-- Icons/flags (if known from index): Duet, Rap, Video, Instrumental available.
+**Song card display (grid)**
+- Each visible song is shown as a **cover tile** with:
+  - Cover image (if present; otherwise placeholder)
+  - Title + Artist
+  - Bottom-right tag overlays (single-letter chips):
+    - `D` = duet (`isDuet=true`)
+    - `R` = rap (`hasRap=true`)
+    - `V` = video (`hasVideo=true`)
+    - `I` = instrumental (`hasInstrumental=true`)
+    - `M` = medley-eligible (`canMedley=true`)
 
-**Selection behavior**
-- OK on a song opens **Assign Singers** overlay (Section 10.3).
+**Default inline search (grid filter; normative)**
+- The screen MUST provide a Search text field.
+- Matching is **case-insensitive substring** match.
+- Default search scope is fixed to `Everywhere` (matches if any of {artist, album, title} match).
+- Filtering MUST preserve the underlying ordering (Artist -> Album -> Title) and simply hides non-matching songs.
+- Input MUST be debounced by **150 ms**.
 
-**Song preview**
-- MVP: 10s audio preview starting at `#PREVIEWSTART` if present and >0; otherwise start at `0.0` seconds.
-(Note: `#START` is gameplay audio trim; USDX does not use it as a preview fallback.)
+**Advanced Search (overlay)**
+- The screen MUST provide an **Advanced** action that opens the Advanced Search overlay (Section 3.5).
+- Applying Advanced Search MUST set the current filter state of this screen (query + scope).
 
-**Wireframe (USDX-aligned, spec-limited interactions)**
+**Back key behavior (normative)**
+- If a filter is active (from inline search or Advanced Search), Back MUST **clear the filter** and keep the user on the Song List.
+- Otherwise, Back exits the app (or returns to Android launcher).
+
+**Primary actions (normative)**
+- OK on a focused song tile opens **Select Players** modal (Section 10.3).
+- Long-press OK on a focused song tile attempts **Add to Medley**.
+  - If the focused song has `canMedley=false`, show a blocking modal:
+    - Text (exact): `This song can't be used in a medley. Look for songs with an M tag in the lower right corner`
+    - Single action: `OK` (default focus), closes the modal.
+  - If `canMedley=true`, append the song to the end of the Medley playlist.
+
+**Random actions (normative)**
+- The screen MUST provide:
+  - **Sing Random Song**: selects a random **valid** song from the currently visible (filtered) set, then opens Select Players.
+  - **Sing Random Duet**: selects a random **valid duet** song from the currently visible (filtered) set, then opens Select Players.
+- If no eligible songs exist for the chosen action, show a blocking modal with a single `OK` action and keep focus unchanged.
+
+**Medley playlist behavior (normative)**
+- The Medley playlist is a fixed-height list area on the Song List screen.
+- The playlist scrolls when it exceeds the visible height.
+- Playlist row rendering: `N. <Artist> — <Title>`.
+
+Playlist actions:
+- **Play Medley**: starts medley playback using the playlist order.
+- **Auto Medley (Random 5)**: replaces the playlist with up to **5** randomly selected songs from the currently visible (filtered) set where `canMedley=true`.
+  - If fewer than 5 eligible songs exist, use all eligible songs.
+  - If zero eligible songs exist, show a blocking modal with `OK` and do not change the playlist.
+
+Playlist edit interactions:
+- Focus can move into the playlist.
+- OK on a playlist row enters **Reorder mode** for that row.
+  - In Reorder mode: Up/Down moves the item within the playlist; OK confirms; Back cancels and restores the prior order.
+  - While in Reorder mode, the bottom-of-screen context hints MUST include `Up/Down=Move  OK=Accept  Back=Cancel`.
+- Long-press OK on a playlist row deletes that row immediately (no confirm).
+
+**Layout / focus (normative; TV remote)**
+- The song list is presented as a grid occupying approximately the right half of the screen.
+- Grid column count SHOULD be responsive by resolution; implementations MUST ensure each tile remains readable on 32"+ screens.
+- Ordering is row-major: the visual grid is a window over the sorted list (Artist -> Album -> Title) filled left-to-right, top-to-bottom.
+
+**Wireframe (spec interactions; TV)**
 ```text
-+--------------------------------------------------------------------------------+
-| ● song selection                                      ultrastar (clone)        |
-|   choose your song                                                     [  QR ] |
-|                                                                  Code: ABCD    |
-+--------------------------------------------------------------------------------+
-|                                                                                |
-|   [Cover - Prev]        [Cover - Selected]           [Cover - Next]            |
-|                                                                                |
-|                      +---------------------------+                              |
-|                      |         ARTIST           |                              |
-|                      |         Title            |                              |
-|                      |                     6/86 |                              |
-|                      +---------------------------+                              |
-|                                                                                |
-+--------------------------------------------------------------------------------+
-| Hints:  OK=Select Song   Search=Filter   Settings=Config   Back=Exit            |
-+--------------------------------------------------------------------------------+
++--------------------------------------------------------------------------------------------------+
+|  ◀ Back                                                                                  [ QR ]  |
+|                                                                                         Code ABCD|
++--------------------------------------------------------------------------------------------------+
+|                                                                                                  |
+|  +--------------------------------------+     +----------------------------------------------+   |
+|  | VIDEO PREVIEW (focused song)         |     | Search: [______________________________]      |   |
+|  | (uses Preview Volume)                |     | [Advanced]   [Random Song]  [Random Duet]     |   |
+|  |                                      |     |                                              |   |
+|  |  +------------------------------+    |     |  SONG GRID (right half)                        |   |
+|  |  |          16:9 video          |    |     |  +---------+ +---------+ +---------+ +-----+   |   |
+|  |  |          preview             |    |     |  | Cover   | | Cover   | | Cover   | | ... |   |   |
+|  |  |                              |    |     |  | Title   | | Title   | | Title   | |     |   |   |
+|  |  |                              |    |     |  | Artist  | | Artist  | | Artist  | |     |   |   |
+|  |  +------------------------------+    |     |  | [D][V][M]| | [R]     | | [D]     | |     |   |   |
+|  +--------------------------------------+     |  +---------+ +---------+ +---------+ +-----+   |   |
+|                                               |  +---------+ +---------+ +---------+ +-----+   |   |
+|  +--------------------------------------+     |  | Cover   | | Cover   | | Cover   | | ... |   |   |
+|  | MEDLEY PLAYLIST (fixed height)       |     |  | Title   | | Title   | | Title   | |     |   |   |
+|  | (scrolls on overflow; size fixed)    |     |  | Artist  | | Artist  | | Artist  | |     |   |   |
+|  |  +-------------------------------+   |     |  | [V]     | | [D]     | | [I][M]  | |     |   |   |
+|  |  | 1. <artist>  <song>           |   |     |  +---------+ +---------+ +---------+ +-----+   |   |
+|  |  | 2. <artist>  <song>           |   |     |                                              |   |
+|  |  | 3. <artist>  <song>           |   |     |  Tags: [D]=Duet  [R]=Rap  [V]=Video  [I]=Inst  |
+|  |  | 4. <artist>  <song>           |   |     |        [M]=Medley                               |
+|  |  | 5. <artist>  <song>           |   |     +----------------------------------------------+   |
+|  |  +-------------------------------+   |                                                      |
+|  |    [ PLAY MEDLEY ]  [ AUTO MEDLEY (RANDOM 5) ]                                                |
+|  +--------------------------------------+                                                      |
++--------------------------------------------------------------------------------------------------+
+| Contextual help:                                                                                |
+|  - Song grid: OK = Sing   Long-Press OK = Add to Medley                                         |
+|  - Medley playlist: OK = Reorder   Long-Press OK = Delete                                       |
++--------------------------------------------------------------------------------------------------+
 ```
 
-## 3.5 Search (MVP)
+**Medley eligibility: `canMedley` (normative; parity-aligned)**
+`canMedley` MUST be computed and stored in the in-memory song list built on scan/index.
 
-**User-visible behavior**
-- Song list includes a **Search** action (button or icon in the header). Selecting it opens a Search overlay.
-- Search overlay contains:
+A song is medley-eligible iff all are true:
+- `isDuet = false`, AND
+- Either:
+  - Valid medley tags exist (`medleySource=tag`), OR
+  - Medley auto-calc is enabled (`calcMedleyEnabled=true`) AND auto-calc succeeded (`medleySource=calculated`).
+
+Definition details (USDX parity):
+- Valid medley tags exist iff:
+  - `#MEDLEYSTARTBEAT` and `#MEDLEYENDBEAT` are both present, both parse as integers, song is not `RELATIVE`, and `startBeat < endBeat`.
+  - If valid tags exist, `medleySource=tag` and those beats are used.
+- Auto-calc succeeded iff:
+  - `calcMedleyEnabled=true` (i.e., `#CALCMEDLEY` is absent or not `OFF`), song is not `RELATIVE`, and the USDX refrain-finding algorithm produces a medley window, resulting in `medleySource=calculated`.
+
+Indexing requirement:
+- To compute `medleySource=calculated` reliably, the indexer MUST run the same refrain-finding logic during indexing (or an equivalent that yields the same `medleySource` outcome for the same parsed song structure).
+
+
+## 3.5 Advanced Search (Overlay)
+
+This is the scoped search overlay opened from Song List via the **Advanced** action (Section 3.4).
+
+**User-visible behavior (normative)**
+- Overlay contains:
  - `Query` text field
  - `Scope` selector: `Everywhere` (default), `Artist`, `Album`, `Song`
  - Results list that updates as the query changes
@@ -289,17 +385,22 @@ Implementations MAY store additional fields (e.g., genre, year, cover/background
  - `Album` scope matches only the album field.
  - `Song` scope matches only the title field.
  - `Everywhere` matches if any of {artist, album, title} match.
-- Selecting a result behaves exactly like selecting that song in the main list (i.e., proceeds to Assign Singers overlay, Section 10.3).
+
+**Applying the filter (normative)**
+- Selecting a result with OK MUST:
+  - Apply the current `Query` and `Scope` as the active filter on the Song List screen, AND
+  - Close the overlay (returning to Song List).
+- Back MUST close the overlay without changing the existing filter.
 
 **Focus and keyboard (normative)**
-- On opening Search, focus MUST start on the Query field and the software keyboard MUST open.
+- On opening Advanced Search, focus MUST start on the Query field and the software keyboard MUST open.
 - DPAD down from the keyboard focuses the Scope selector; DPAD down again focuses the Results list.
 - The Query field MUST provide a Clear action to erase the current query.
 
-**Wireframe (spec interactions; USDX-style modal)**
+**Wireframe (spec interactions; modal overlay)**
 ```text
 +--------------------------------------------------------------------------------+
-| SEARCH                                                                          |
+| ADVANCED SEARCH                                                                 |
 +--------------------------------------------------------------------------------+
 | Query: [ psy____________________ ]     [Clear]                                 |
 | Scope:  (• Everywhere) (  Artist) (  Album) (  Song)                           |
@@ -309,12 +410,12 @@ Implementations MAY store additional fields (e.g., genre, year, cover/background
 |    PSY — Gentleman                                                             |
 |    ...                                                                         |
 +--------------------------------------------------------------------------------+
-| Hints: OK=Select Song   Back=Close                                              |
+| Hints: OK=Apply Filter   Back=Close                                             |
 +--------------------------------------------------------------------------------+
 ```
 
 **Result ordering (normative)**
-- Search results MUST preserve the same ordering as the main Song List (Artist -> Album -> Title), filtered by the current query.
+- Results MUST preserve the same ordering as the main Song List (Artist -> Album -> Title), filtered by the current query.
 
 **Performance and memory constraints (normative for MVP)**
 - Live filtering MUST be implemented as **O(N)** scan over the in-memory song index, where `N` is the number of songs.
@@ -1009,7 +1110,7 @@ Required control messages:
 
 5) `assignSinger` (TV -> phone)
 
-Sent when the user starts a song (Assign Singers overlay) and on reconnect while a song is in progress.
+Sent when the user starts a song (Select Players modal) and on reconnect while a song is in progress.
 
 - Fields:
  - `sessionId` (string)
@@ -1189,70 +1290,92 @@ This section is normative for MVP UI and navigation on Android TV.
 - The TV app uses a simple navigation stack.
  - Entering a full-screen screen **pushes** it onto the stack.
  - Pressing **Back** on a full-screen screen **pops** the current screen and returns to the previous screen.
-- Overlays/modals (Search, Assign Singers, dialogs) do not affect the navigation stack; Back closes the overlay and returns to the underlying screen.
+- Overlays/modals (Advanced Search, Select Players, dialogs) do not affect the navigation stack; Back closes the overlay and returns to the underlying screen.
 
 **Back behavior (normative)**
-- From Song List: exits app (or returns to Android launcher).
+- From Song List: if a song filter is active, Back clears the filter; otherwise exits app (or returns to Android launcher).
 - From Settings (root): returns to the previous screen in the navigation stack.
  - If Settings was entered from Song List, previous is Song List.
- - If Settings was entered from Assign Singers, previous is Assign Singers.
+ - If Settings was entered from Select Players, previous is Select Players.
 - From Settings sub-screens: returns to Settings (root).
 - From modal dialogs/overlays:
  - Back closes the overlay/dialog and returns to the underlying screen.
- - If a software keyboard is shown (Search), Back closes keyboard first, then the overlay.
+ - If a software keyboard is shown (Advanced Search), Back closes keyboard first, then the overlay.
 - From Singing: opens Pause overlay (Resume / Quit to Song List).
 - From Results: returns to Song List.
 
 - **OK/Enter** selects highlighted item.
 - DPAD navigates focus in lists and menus.
 
+**Long-press OK (normative)**
+- A long-press OK is a press-and-hold of OK/Enter for **>= 500 ms**.
+- When a screen defines a long-press action, the long-press MUST trigger that secondary action.
+- When no long-press action is defined, long-press MUST behave the same as a normal OK.
+
 ## 10.2 Song preview playback
 
-This section defines the MVP behavior for Song List preview playback (Section 3.4) and the related Preview Volume setting (10.4.3).
+This section defines the behavior for Song List preview playback (Section 3.4) and the related Preview Volume setting (10.4.3).
 
-**When preview plays (normative)**
-- A preview MAY start only when a song row is focused and focus remains unchanged for **600 ms**.
+**When preview plays (normative; USDX-aligned)**
+- A preview MAY start only when:
+  - A song tile is focused, AND
+  - Focus remains on the same song for **500 ms** (debounce), AND
+  - Preview Volume is non-zero.
 - Preview MUST stop immediately when:
- - focus moves to a different song row
- - Search overlay opens
- - Settings opens
- - Assign Singers opens
- - Singing starts
+  - Focus moves to a different song tile
+  - Focus leaves the song grid (e.g., moves to Search field, buttons, Medley playlist)
+  - Advanced Search overlay opens
+  - Select Players modal opens
+  - Settings opens
+  - Singing starts
+  - The Song List screen is hidden (screen loses focus)
 
-**What plays (normative)**
-- Preview duration: **10 seconds**.
-- Preview start time:
- - `#PREVIEWSTART` if present
- - otherwise `#START` if present
- - otherwise 0.0 seconds (implementations MAY choose the first note start time)
+**What plays (normative; USDX-aligned)**
+- Preview uses the song's **audio** file.
+- Preview start position:
+  - If `previewStartSec > 0.0`, use `previewStartSec` (as computed in Section 3.3).
+  - Otherwise, use a fallback position computed from the audio length:
+    - `pos = audioLengthSec / 4`
+    - If `pos > 120.0`, clamp to `60.0` seconds.
+- Preview plays from the start position and continues until stopped by the rules above (no fixed 10s limit).
 
-**Concurrency and audio routing (normative)**
-- Preview MUST NOT overlap with full song playback.
-- Preview volume uses **Settings > Audio > Preview Volume**. A value of 0 MUST result in silence (effectively disabling preview).
+**Video preview (normative; USDX-aligned)**
+- If video preview is enabled in settings and the focused song has a valid video file, the preview pane MUST play video.
+- Video position MUST be synchronized to audio preview position:
+  - `videoPositionSec = videoGapSec + audioPreviewPositionSec` (i.e., applies `#VIDEOGAP` like USDX).
+- If video preview is stopped (focus change or screen hide), the preview pane MUST stop video and show a blank/black area.
 
-## 10.3 Assign Singers overlay (per-song)
+**Audio routing (normative)**
+- Preview volume uses **Settings > Audio > Preview Volume**.
+- A value of 0 MUST result in silence (disables preview).
+
+## 10.3 Select Players modal (per-song)
 
 **Purpose**
-- On selecting a song, assign the song to one or two connected phones (singers).
+- On starting a song (including via Random actions) and on starting each medley segment, select which connected phone(s) sing.
+
+**Presentation (normative)**
+- This is a modal overlay.
+- Title: `SELECT PLAYERS`
+- Subtitle: `<Artist> — <Title>`
 
 **Fields**
-- Singer 1 device: required (list of connected phones).
-- Singer 2 device: optional.
-- Difficulty per singer: Easy / Medium / Hard.
-- If duet:
- - If two singers are selected: assign Singer 1 to P1 and Singer 2 to P2; provide a **Swap Parts** action that swaps which device sings P1 vs P2.
- - If only one singer is selected: allow selecting which duet part is sung (P1 or P2).
+- Player 1 device: required (dropdown list of connected phones).
+- Player 2 device: present but may be disabled depending on song type.
+- Difficulty per player: Easy / Medium / Hard.
 
-**Gating rules**
+**Gating rules (normative)**
 - Duet songs:
- - Singer 1 required.
- - Singer 2 optional.
+ - Player 1 required.
+ - Player 2 optional.
+ - If two players are selected: Player 1 sings P1 and Player 2 sings P2; provide **Swap Parts**.
+ - If only one player is selected: allow selecting which duet part is sung (P1 or P2).
 - Non-duet songs:
- - Singer 1 required.
- - Singer 2 optional; if selected, both singers sing the same track and are scored independently.
+ - Player 1 required.
+ - Player 2 selector MUST be visible but **disabled** (cannot be selected).
 
 **Empty/error states (normative)**
-- If no phones are connected, show a blocking message "No phones connected" and a primary action to open Settings > Connect Phones.
+- If no phones are connected, show a blocking message `No phones connected` and a primary action to open Settings > Connect Phones.
 
 **Actions**
 - Start: begins countdown then singing.
@@ -1263,30 +1386,34 @@ This section defines the MVP behavior for Song List preview playback (Section 3.
 Non-duet song
 
 +--------------------------------------------------------------------------------+
-| ASSIGN SINGERS                                               Song: <Artist> — <Title> |
+| SELECT PLAYERS                                                   <Artist> — <Title> |
 +--------------------------------------------------------------------------------+
-| Singer (required)                                                              |
-|  Phone:      [ Pixel-7 ▾ ]   (dropdown lists connected phone names)            |
-|  Difficulty: [ Medium ▾ ]                                                      |
+| Player 1 (required)                                                             |
+|  Phone:      [ Pixel-7 ▾ ]                                                      |
+|  Difficulty: [ Medium ▾ ]                                                       |
 +--------------------------------------------------------------------------------+
-| [Start]   [Cancel]                                                             |
+| Player 2                                                                        |
+|  Phone:      [ (disabled) ]                                                     |
+|  Difficulty: [ (disabled) ]                                                     |
 +--------------------------------------------------------------------------------+
-| Hints: OK=Change/Select   Back=Cancel                                           |
+| [Start]   [Cancel]                                                              |
++--------------------------------------------------------------------------------+
+| Hints: OK=Select   Back=Cancel                                                  |
 +--------------------------------------------------------------------------------+
 
 Duet song
 
 +--------------------------------------------------------------------------------+
-| ASSIGN SINGERS (DUET)                                      Song: <Artist> — <Title> |
+| SELECT PLAYERS (DUET)                                           <Artist> — <Title> |
 +--------------------------------------------------------------------------------+
-| Singer 1 (P1)                                Singer 2 (P2)                      |
+| Player 1 (P1)                                Player 2 (P2)                      |
 |  Phone: [ Pixel-7 ▾ ]                        Phone: [ (none) ▾ ] (optional)    |
 |  Difficulty: [ Medium ▾ ]                    Difficulty: [ Medium ▾ ]          |
 |                                                                                |
-| If Singer 2 is (none):  Solo duet part:  (• P1) (  P2)                         |
-| If both singers selected:  [Swap Parts]                                        |
+| If Player 2 is (none):  Solo duet part:  (• P1) (  P2)                         |
+| If both players selected:  [Swap Parts]                                        |
 +--------------------------------------------------------------------------------+
-| [Start]   [Cancel]                                                             |
+| [Start]   [Cancel]                                                              |
 +--------------------------------------------------------------------------------+
 | Hints: OK=Select   Back=Cancel                                                  |
 +--------------------------------------------------------------------------------+
@@ -1294,28 +1421,29 @@ Duet song
 Blocking state (no phones connected)
 
 +--------------------------------------------------------------------------------+
-| ASSIGN SINGERS                                                                  |
+| SELECT PLAYERS                                                                  |
 +--------------------------------------------------------------------------------+
 | ⚠ No phones connected.                                                         |
-|   Connect phones in Settings to sing.                                          |
+|   Connect phones in Settings to sing.                                           |
 |                                                                                |
-| [Open Settings > Connect Phones]   [Cancel]                                    |
+| [Open Settings > Connect Phones]   [Cancel]                                     |
 +--------------------------------------------------------------------------------+
 ```
 
 **Protocol side effects (normative)**
 - On Start, TV sends `assignSinger` to each connected phone:
- - Selected devices get `role="singer"` with `playerId`:
-  - For non-duet songs: Singer 1 -> `P1`; if Singer 2 selected -> `P2`.
-  - For duet songs:
-   - If two singers selected: Singer 1 -> `P1`, Singer 2 -> `P2` (swapped if the user selects Swap Parts).
-   - If one singer selected: `P1` or `P2` based on the user's duet-part selection.
+ - Selected device(s) get `role="singer"` with `playerId`:
+  - Non-duet: Player 1 -> `P1`.
+  - Duet:
+   - If two players selected: Player 1 -> `P1`, Player 2 -> `P2` (swapped if the user selects Swap Parts).
+   - If one player selected: `P1` or `P2` based on the user's duet-part selection.
  - Non-selected devices MAY receive `role="spectator"` (or receive no message).
 - When a song ends or user quits:
  - TV sends `assignSinger` with `role="spectator"` (clears assignment).
 - Countdown mapping (from Settings > Gameplay):
  - If Ready countdown is ON: send `startMode="countdown"` and `countdownMs = countdownSeconds*1000`.
  - If OFF: send `startMode="live"` and omit `countdownMs`.
+
 ## 10.4 Settings Screen
 
 Settings is a simple list of items; selecting one opens a sub-screen.
@@ -1662,17 +1790,17 @@ This is the Add songs workflow.
 - Countdown before playback and scoring begin is controlled by Settings > Gameplay:
  - If Ready countdown is ON: show N-second countdown at 1 Hz (N from setting) then begin playback and scoring.
  - If OFF: begin playback and scoring immediately.
-- If a required singer disconnects during countdown: cancel start and return to Assign Singers with a blocking error modal.
+- If a required singer disconnects during countdown: cancel start and return to Select Players with a blocking error modal.
 
 **Countdown disconnect error modal (normative)**
-- The modal MUST appear immediately after returning to Assign Singers.
+- The modal MUST appear immediately after returning to Select Players.
 - The modal MUST be blocking (no background interaction until dismissed).
 - Modal content:
  - Title: `DISCONNECTED`
  - Body: `A required singer disconnected during countdown. Please reconnect and start again.`
  - Single action: `OK`
 - Default focus MUST be on `OK`.
-- On `OK`, the modal MUST close and the user remains on Assign Singers.
+- On `OK`, the modal MUST close and the user remains on Select Players.
 
 **Wireframe (countdown disconnect modal; TV)**
 ```text
@@ -1758,9 +1886,9 @@ Show per singer:
 - If disconnected mid-song: show a Disconnected indicator and the total disconnected time (and/or number of disconnect intervals) for that singer.
 
 Actions:
-- MVP has **no song queue**; returning to Song List is required to start another song.
+- MVP has no persistent song queue; returning to Song List is required to start another song. The Song List screen may maintain a transient Medley playlist (Section 3.4) that is initialized when the screen is shown.
 - Back to Song List
-- Play again (re-opens Assign Singers for the same song)
+- Play again (re-opens Select Players for the same song)
 
 **Back key (normative)**
 - Pressing TV remote **Back** on the Results screen MUST behave the same as selecting **Back to Song List** (i.e., return to Song List).
@@ -2718,7 +2846,7 @@ Required subcases:
 - unknown tags with and without `:`
 - required-tag failures (missing required field; malformed numeric)
 - **Encoding subcase**: `>= 1.0.0` UTF-8 forced; legacy honors `#ENCODING` (Section 4.2)
-- **Preview start subcase**: `previewStartSec` computed from `#PREVIEWSTART` if present and >0, else 0 (Section 3.4, 10.2)
+- **Preview start subcase**: `previewStartSec` computed from `#PREVIEWSTART` if present and >0; else if `medleySource!=none` use `timeFromBeat(medleyStartBeat)`; else 0.0 (Section 3.4, 10.2)
 
 ### F03 — Body grammar: token recognition + invalidation rules
 
