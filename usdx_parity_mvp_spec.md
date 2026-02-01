@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.0
+Version: 2.1
 Date: 2026-02-01
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 14:42 CET | Assistant | Define medley singing + results flow (segment window playback, per-song cycling, TOTAL averaging) aligned to USDX medley mode. |
 | 2026-02-01 14:10 CET | Assistant | Add Medley support to Song Selection: medley eligibility flag (canMedley), M tag, transient medley playlist with reorder/delete, random song/duet, auto-medley (random 5), inline+advanced search filter behavior, and USDX-aligned non-muted preview + Select Players modal rules. |
 
 
@@ -78,7 +79,9 @@ Conventions:
   - 10.3 Select Players modal (per-song)
   - 10.4 Settings Screen
   - 10.5 Singing Screen
+    - 10.5.1 Singing Screen (Medley mode)
   - 10.6 Results
+    - 10.6.2 Results (post-medley)
 - Appendix A: Supported Tags Reference
 - Appendix B: Protocol Schemas
 - Appendix C: Parsed Song Model (Normative)
@@ -1358,6 +1361,7 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
 - This is a modal overlay.
 - Title: `SELECT PLAYERS`
 - Subtitle: `<Artist> — <Title>`
+  - In medley mode: `<i>/<n>: <Artist> — <Title>` where `i` is the 1-based segment index and `n` is the medley playlist length.
 
 **Fields**
 - Player 1 device: required (dropdown list of connected phones).
@@ -1877,6 +1881,48 @@ Quit confirm (default focus Cancel)
 +--------------------------------------+
 ```
 
+### 10.5.1 Singing Screen (Medley mode)
+
+Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, but only the **medley window** of each song is played and scored.
+
+**Medley run context (normative)**
+- When starting medley playback, the implementation MUST create an immutable **medley run snapshot** from the current Medley playlist (Song List screen; Section 3.4).
+  - This avoids coupling medley playback to the Song List screen lifecycle (the Song List playlist may be cleared when the user leaves that screen).
+- The medley run snapshot MUST preserve the playlist order.
+
+**Per-song flow (normative)**
+For each song `i` in the medley run snapshot (1-based index):
+1. Show **Select Players** modal (Section 10.3) with:
+   - Title: `SELECT PLAYERS`
+   - Subtitle: `<i>/<n>: <Artist> — <Title>`
+   - Defaults: carry over the previous song's player selections.
+2. On **Start**, apply countdown rules (Countdown subsection in Section 10.5) and then begin playback.
+3. On segment end, automatically advance to the next song (or end medley if `i==n`).
+
+**Cancel behavior (normative)**
+- If the user selects **Cancel** in the Select Players modal during medley flow, the current medley run MUST be aborted and the app MUST return to the Song List.
+
+**Medley window playback (parity-aligned; normative)**
+- A song is only eligible for medley playback if `medleySource ∈ {tag, calculated}` (Section 3.4; `canMedley`).
+- The medley window is defined by the song's medley beats:
+  - `startBeat = ParsedSong.medley.startBeat`
+  - `endBeat = ParsedSong.medley.endBeat`
+- The implementation MUST play and display lyrics starting at a **pre-roll** time and stop at an **extended end** time:
+  - `fadeInSec` defaults to **8 seconds**.
+  - `fadeOutSec` defaults to **2 seconds**.
+  - `medleyStartSec = max(0, timeFromBeat(startBeat) - fadeInSec)`
+  - `medleyEndSec = timeFromBeat(endBeat) + fadeOutSec`
+- For video backgrounds (if present and enabled):
+  - The video position MUST be initialized to `videoGapSec + medleyStartSec` (USDX behavior).
+
+**Scoring scope (parity-aligned; normative)**
+- Only notes within the medley window contribute to score.
+  - Parity note: in USDX, entering medley mode converts notes outside `[startBeat, endBeat)` to **Freestyle**; Freestyle has `ScoreFactor=0`, so those notes contribute 0 points.
+
+**In-song header text (parity-aligned; normative)**
+- While singing in medley mode and `n>1`, the in-song artist/title label SHOULD render as:
+  - `<i>/<n>: <Artist> — <Title>`
+
 ## 10.6 Results
 
 ### 10.6.1 Results (post-song)
@@ -1911,6 +1957,52 @@ Actions:
 | [Play Again]   [Back to Song List]                                             |
 +--------------------------------------------------------------------------------+
 ```
+
+### 10.6.2 Results (post-medley)
+
+After a medley run finishes, show a results screen that allows the user to review scores for:
+- each medley segment (song)
+- the overall medley TOTAL
+
+**Aggregation (parity-aligned; normative)**
+- The medley TOTAL MUST be the **mean** (average) of the per-song results across the medley segments for each player.
+  - Parity note: USDX computes per-song results for each medley segment and then builds TOTAL as the average across segments.
+
+**Navigation within medley results (parity-aligned; normative)**
+- Left/Right MUST cycle through rounds:
+  - `1..n` show per-song results for that segment.
+  - `TOTAL` shows the aggregated result.
+- The header MUST show the currently selected round:
+  - For song rounds: `<i>/<n>: <Artist> — <Title>`
+  - For TOTAL: `TOTAL`
+
+**Actions**
+- Back to Song List
+
+**Back key (normative)**
+- Pressing TV remote **Back** on the Results screen MUST behave the same as selecting **Back to Song List**.
+
+**Wireframe (medley results; TV)**
+```text
++--------------------------------------------------------------------------------+
+| Results                                                                        |
+| 2/5: <Artist> — <Title>                                                        |
++--------------------------------------------------------------------------------+
+| P1: <PhoneName>                                  | Comparison |     P2: <PhoneName> |
+|                                                                                |
+| Notes score        00000                          |█████       |   Notes score        00000 |
+| Golden score       00000                          |███████     |   Golden score       00000 |
+| Line bonus         00000                          |████        |   Line bonus         00000 |
+|                                                                                |
+| TOTAL             00000                           |██████      |   TOTAL             00000 |
+|                                                                                |
++--------------------------------------------------------------------------------+
+| [Back to Song List]                                                            |
++--------------------------------------------------------------------------------+
+| Hints: Left/Right=Round   OK=Back to Song List   Back=Back to Song List         |
++--------------------------------------------------------------------------------+
+```
+
 
 # Appendix A: Supported Tags Reference
 
