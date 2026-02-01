@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.1
+Version: 2.2
 Date: 2026-02-01
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 15:01 CET | Assistant | Medley conflict resolution: no applause; fade/crossfade transitions; Select Players once per medley run; medley segment failure follows normal song play error; apply QR sizing rules to Connect Phones. |
 | 2026-02-01 14:42 CET | Assistant | Define medley singing + results flow (segment window playback, per-song cycling, TOTAL averaging) aligned to USDX medley mode. |
 | 2026-02-01 14:10 CET | Assistant | Add Medley support to Song Selection: medley eligibility flag (canMedley), M tag, transient medley playlist with reorder/delete, random song/duet, auto-medley (random 5), inline+advanced search filter behavior, and USDX-aligned non-muted preview + Select Players modal rules. |
 
@@ -299,7 +300,10 @@ Implementations MAY store additional fields (e.g., genre, year, cover/background
 - Playlist row rendering: `N. <Artist> — <Title>`.
 
 Playlist actions:
-- **Play Medley**: starts medley playback using the playlist order.
+- **Play Medley**:
+  - If the playlist is empty, this action MUST be disabled.
+  - Otherwise, it MUST open **Select Players** (Section 10.3) once for the entire medley run.
+  - On **Start**, it starts medley playback using the playlist order.
 - **Auto Medley (Random 5)**: replaces the playlist with up to **5** randomly selected songs from the currently visible (filtered) set where `canMedley=true`.
   - If fewer than 5 eligible songs exist, use all eligible songs.
   - If zero eligible songs exist, show a blocking modal with `OK` and do not change the playlist.
@@ -1355,13 +1359,15 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
 ## 10.3 Select Players modal (per-song)
 
 **Purpose**
-- On starting a song (including via Random actions) and on starting each medley segment, select which connected phone(s) sing.
+- On starting a song (including via Random actions) and on starting a medley run, select which connected phone(s) sing.
+- For medley playback, the selected players MUST remain assigned for the entire medley run (no additional prompts between segments).
 
 **Presentation (normative)**
 - This is a modal overlay.
 - Title: `SELECT PLAYERS`
-- Subtitle: `<Artist> — <Title>`
-  - In medley mode: `<i>/<n>: <Artist> — <Title>` where `i` is the 1-based segment index and `n` is the medley playlist length.
+- Subtitle:
+  - For single-song play: `<Artist> — <Title>`
+  - For medley play: `Medley — <n> songs`
 
 **Fields**
 - Player 1 device: required (dropdown list of connected phones).
@@ -1381,9 +1387,18 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
 **Empty/error states (normative)**
 - If no phones are connected, show a blocking message `No phones connected` and a primary action to open Settings > Connect Phones.
 
+**Song start failure (normative; used by medley too)**
+- If starting playback fails after the user selects **Start** (e.g., song missing/unloadable at runtime), the app MUST:
+  - Abort start,
+  - Return to Song List, and
+  - Show a blocking error modal with a single `OK` action (default focus):
+    - Title: `ERROR`
+    - Body line 1 (exact): `This song can't be played.`
+    - Body line 2: `See Settings > Song Library for diagnostics.`
+
 **Actions**
-- Start: begins countdown then singing.
-- Cancel/Back: returns to Song List.
+- Start: begins countdown then singing (single-song) or begins the medley run (medley play).
+- Cancel/Back: closes the modal and returns to the underlying screen (typically Song List).
 
 **Wireframes (TV modal, spec-only interactions)**
 ```text
@@ -1514,6 +1529,7 @@ Settings is a simple list of items; selecting one opens a sub-screen.
 
 **UI**
 - QR code + short code.
+  - The QR code and join code text MUST satisfy the **QR sizing** requirements from Section 3.4 (Song List).
 - Device roster list:
  - display name (editable label), connection status.
  - Optional: latency indicator.
@@ -1890,17 +1906,14 @@ Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, bu
   - This avoids coupling medley playback to the Song List screen lifecycle (the Song List playlist may be cleared when the user leaves that screen).
 - The medley run snapshot MUST preserve the playlist order.
 
-**Per-song flow (normative)**
-For each song `i` in the medley run snapshot (1-based index):
-1. Show **Select Players** modal (Section 10.3) with:
-   - Title: `SELECT PLAYERS`
-   - Subtitle: `<i>/<n>: <Artist> — <Title>`
-   - Defaults: carry over the previous song's player selections.
-2. On **Start**, apply countdown rules (Countdown subsection in Section 10.5) and then begin playback.
-3. On segment end, automatically advance to the next song (or end medley if `i==n`).
+**Medley start flow (normative)**
+- When the user starts a medley (Song List; **Play Medley**), the app MUST show **Select Players** once (Section 10.3) with subtitle `Medley — <n> songs`.
+- On **Start**, apply countdown rules (Countdown subsection in Section 10.5) and then begin playback of segment 1.
+- The selected players MUST remain assigned for the entire medley run; the app MUST NOT prompt again between segments.
+- On segment end, automatically advance to the next song (or end medley if the last segment finished).
 
 **Cancel behavior (normative)**
-- If the user selects **Cancel** in the Select Players modal during medley flow, the current medley run MUST be aborted and the app MUST return to the Song List.
+- If the user selects **Cancel** in Select Players before the medley begins, the medley start MUST be aborted and the app MUST return to the Song List without changing the current playlist.
 
 **Medley window playback (parity-aligned; normative)**
 - A song is only eligible for medley playback if `medleySource ∈ {tag, calculated}` (Section 3.4; `canMedley`).
@@ -1914,6 +1927,16 @@ For each song `i` in the medley run snapshot (1-based index):
   - `medleyEndSec = timeFromBeat(endBeat) + fadeOutSec`
 - For video backgrounds (if present and enabled):
   - The video position MUST be initialized to `videoGapSec + medleyStartSec` (USDX behavior).
+
+**Segment transitions (normative; TV UX)**
+- Between segments, the implementation MUST perform an audio fade transition and MUST NOT play applause SFX.
+- Default behavior:
+  - Fade out the current segment over `fadeOutSec`.
+  - Fade in the next segment over `fadeInSec` starting at that segment's `medleyStartSec`.
+- Implementations MAY overlap the tail of fade-out with the head of fade-in (crossfade) if audio mixing is available; if not, a sequential fade-out then fade-in is acceptable.
+
+**Segment failure handling (normative)**
+- If any segment fails to load or start playback, the current medley run MUST be aborted and the app MUST follow **Song start failure** behavior (Section 10.3): return to Song List and show the same blocking error modal.
 
 **Scoring scope (parity-aligned; normative)**
 - Only notes within the medley window contribute to score.
