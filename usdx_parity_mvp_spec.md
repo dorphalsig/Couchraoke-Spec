@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.13
+Version: 2.14
 Date: 2026-02-01
 Owner: SpecBot
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 16:56 CET | Assistant | Fully specify empty-filter behavior on Song List: disable Random/Auto Medley actions when no visible songs, keeping modal fallback for "no eligible" cases. |
 | 2026-02-01 16:54 CET | Assistant | Standardize error codes (snake_case), add `invalid_token`, and document aliasing for legacy `PROTOCOL_MISMATCH`. |
 | 2026-02-01 16:53 CET | Assistant | Specify phone-side semantics of `effectiveMicDelayMs` (informational only; TV applies mic delay to scoring timing). |
 | 2026-02-01 16:51 CET | Assistant | Extend pitchFrames fixture format to optionally include TV receive timestamps for deterministic lateness/jitter assertions. |
@@ -311,6 +312,7 @@ Implementations MAY store additional fields (e.g., genre, year, cover/background
 - The screen MUST provide:
   - **Sing Random Song**: selects a random **valid** song from the currently visible (filtered) set, then opens Select Players.
   - **Sing Random Duet**: selects a random **valid duet** song from the currently visible (filtered) set, then opens Select Players.
+- If the currently visible (filtered) set is empty (no grid results), the Random action buttons MUST be disabled (not focusable).
 - If no eligible songs exist for the chosen action, show a blocking modal with a single `OK` action and keep focus unchanged.
 
 **Medley playlist behavior (normative)**
@@ -324,6 +326,7 @@ Playlist actions:
   - Otherwise, it MUST open **Select Players** (Section 10.3) once for the entire medley run.
   - On **Start**, it starts medley playback using the playlist order.
 - **Auto Medley (Random 5)**: replaces the playlist with up to **5** randomly selected songs from the currently visible (filtered) set where `canMedley=true`.
+  - If the currently visible (filtered) set is empty (no grid results), this action MUST be disabled (not focusable).
   - If fewer than 5 eligible songs exist, use all eligible songs.
   - If zero eligible songs exist, show a blocking modal with `OK` and do not change the playlist.
 
