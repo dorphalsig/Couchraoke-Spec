@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.5
+Version: 2.6
 Date: 2026-02-01
 Owner: SpecBot
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 15:52 CET | Assistant | Specify medley TOTAL rounding (USDX: mean + round of per-segment scores, TOTAL may be non-multiple-of-10) and add an F11 fixture subcase to test it. |
 | 2026-02-01 15:47 CET | Assistant | Clarify medley fadeInSec/fadeOutSec as USDX-aligned fade envelope durations that also define pre-roll/post-roll window. |
 | 2026-02-01 15:45 CET | Assistant | Set spec owner to SpecBot. |
 | 2026-02-01 15:39 CET | Assistant | Fix internal contradiction: rename “Select Players modal (per-song)” to “Select Players modal” (title matches scope including medley runs). |
@@ -1995,6 +1996,10 @@ After a medley run finishes, show a results screen that allows the user to revie
 **Aggregation (parity-aligned; normative)**
 - The medley TOTAL MUST be the **mean** (average) of the per-song results across the medley segments for each player.
   - Parity note: USDX computes per-song results for each medley segment and then builds TOTAL as the average across segments.
+  - For each player and each score field shown on the Results screen (`score`, `scoreGolden`, `scoreLine`, `scoreInt`, `scoreGoldenInt`, `scoreLineInt`, `scoreTotalInt`):
+    - `TOTAL.field = round( sum(segment.field) / nSegments )`
+    - `round()` MUST use the same rounding primitive used elsewhere in this spec (Section 6.6); fixtures avoid exact .5 cases.
+  - Parity note (USDX): even though per-song `scoreTotalInt` is tens-rounded (Section 6.6), `TOTAL.scoreTotalInt` MAY be a non-multiple-of-10 because it is produced by averaging and rounding.
 
 **Navigation within medley results (parity-aligned; normative)**
 - Left/Right MUST cycle through rounds:
@@ -3059,11 +3064,13 @@ Inputs:
 Verifies:
 
 - normalization to 10,000; line bonus pool distribution; tens rounding and golden opposite rounding rule (Section 6.5–6.6; Appendix E)
+- medley TOTAL mean+round aggregation of per-song integer scores (Section 10.6.2)
 
 Inputs:
 
 - minimal chart with ≥2 lines
 - `expected.score.json` with intermediate values and final totals
+- `medley_segments.json` and `expected.medley_total.json` for the medley aggregation subcase
 
 ### F12 — Pitch stream message validation + semantics
 

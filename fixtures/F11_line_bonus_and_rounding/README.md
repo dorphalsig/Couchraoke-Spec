@@ -12,3 +12,9 @@ Expected perfect performance results:
 - Golden line (beats 4..7) yields 6000 points total (1500 per beat)
 - Line bonus yields 1000 total
 - Total displayed score = 10000
+
+Medley TOTAL aggregation subcase (Section 10.6.2):
+- `medley_segments.json` defines three per-segment integer score breakdowns.
+- `expected.medley_total.json` asserts the TOTAL fields computed as:
+  - `TOTAL.field = round(sum(segment.field) / nSegments)`
+- This subcase is constructed so the expected `scoreTotalInt` (9987) is a non-multiple-of-10, demonstrating that medley TOTAL is not tens-rounded.

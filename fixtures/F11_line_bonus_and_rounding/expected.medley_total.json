@@ -1,0 +1,9 @@
+{
+  "description": "Expected medley TOTAL aggregation for the segments in medley_segments.json (mean + round per field).",
+  "expectedTotals": {
+    "scoreInt": 2997,
+    "scoreGoldenInt": 5997,
+    "scoreLineInt": 993,
+    "scoreTotalInt": 9987
+  }
+}
