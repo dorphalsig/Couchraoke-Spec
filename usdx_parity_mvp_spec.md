@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.6
+Version: 2.7
 Date: 2026-02-01
 Owner: SpecBot
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 16:45 CET | Assistant | Fix Table of Contents: add missing 10.6.1 Results (post-song) entry. |
 | 2026-02-01 15:52 CET | Assistant | Specify medley TOTAL rounding (USDX: mean + round of per-segment scores, TOTAL may be non-multiple-of-10) and add an F11 fixture subcase to test it. |
 | 2026-02-01 15:47 CET | Assistant | Clarify medley fadeInSec/fadeOutSec as USDX-aligned fade envelope durations that also define pre-roll/post-roll window. |
 | 2026-02-01 15:45 CET | Assistant | Set spec owner to SpecBot. |
@@ -86,6 +87,7 @@ Conventions:
   - 10.5 Singing Screen
     - 10.5.1 Singing Screen (Medley mode)
   - 10.6 Results
+    - 10.6.1 Results (post-song)
     - 10.6.2 Results (post-medley)
 - Appendix A: Supported Tags Reference
 - Appendix B: Protocol Schemas
