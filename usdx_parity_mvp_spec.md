@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.11
+Version: 2.12
 Date: 2026-02-01
 Owner: SpecBot
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 16:53 CET | Assistant | Specify phone-side semantics of `effectiveMicDelayMs` (informational only; TV applies mic delay to scoring timing). |
 | 2026-02-01 16:51 CET | Assistant | Extend pitchFrames fixture format to optionally include TV receive timestamps for deterministic lateness/jitter assertions. |
 | 2026-02-01 16:50 CET | Assistant | Resolve ping/pong narrative conflict: MVP clock sync is TV-initiated; `nonce` and required fields match protocol schema. |
 | 2026-02-01 16:47 CET | Assistant | Define `relativeTxtPath` and make `songId` derivation consistent (songsFolderUri + relativeTxtPath) across index and ParsedSong model. |
@@ -1146,7 +1147,7 @@ Sent when the user starts a song (Select Players modal) and on reconnect while a
  - `playerId` (`"P1"` or `"P2"`)
  - `difficulty` (`"Easy" | "Medium" | "Hard"`)
  - `thresholdIndex` (0..7)
- - `effectiveMicDelayMs` (int)
+ - `effectiveMicDelayMs` (int; informational; mic delay is applied by the TV when selecting scoring sample timing)
  - `expectedPitchFps` (int; default 50)
  - `startMode` (`"countdown"` or `"live"`)
  - `countdownMs` (int; required if `startMode=="countdown"`)
@@ -1154,6 +1155,7 @@ Sent when the user starts a song (Select Players modal) and on reconnect while a
  - `role="singer"` instructs the phone to stream frames for the given `playerId` and `songInstanceId`:
    - If `startMode=="countdown"`: the phone MUST delay sending frames until the countdown completes (after `countdownMs`). The phone MAY warm up pitch detection locally during countdown, but MUST NOT send frames.
    - If `startMode=="live"`: begin sending frames immediately.
+   - The phone MUST treat `effectiveMicDelayMs` as informational only and MUST NOT offset `tCaptureMs` or DSP timing based on it.
  - `role="spectator"` instructs the phone to stop streaming frames (or the TV will ignore them).
  - On song end/quit, TV MUST send `assignSinger` with `role="spectator"` to selected phones (clears assignment).
 
