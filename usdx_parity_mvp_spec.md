@@ -1,7 +1,7 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 2.2
+Version: 2.3
 Date: 2026-02-01
 Owner: TBD
 
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-02-01 15:39 CET | Assistant | Fix internal contradiction: rename “Select Players modal (per-song)” to “Select Players modal” (title matches scope including medley runs). |
 | 2026-02-01 15:01 CET | Assistant | Medley conflict resolution: no applause; fade/crossfade transitions; Select Players once per medley run; medley segment failure follows normal song play error; apply QR sizing rules to Connect Phones. |
 | 2026-02-01 14:42 CET | Assistant | Define medley singing + results flow (segment window playback, per-song cycling, TOTAL averaging) aligned to USDX medley mode. |
 | 2026-02-01 14:10 CET | Assistant | Add Medley support to Song Selection: medley eligibility flag (canMedley), M tag, transient medley playlist with reorder/delete, random song/duet, auto-medley (random 5), inline+advanced search filter behavior, and USDX-aligned non-muted preview + Select Players modal rules. |
@@ -77,7 +78,7 @@ Conventions:
 - 10. UI Screens and Flows
   - 10.1 Global navigation and input
   - 10.2 Song preview playback
-  - 10.3 Select Players modal (per-song)
+  - 10.3 Select Players modal
   - 10.4 Settings Screen
   - 10.5 Singing Screen
     - 10.5.1 Singing Screen (Medley mode)
@@ -1356,7 +1357,7 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
 - Preview volume uses **Settings > Audio > Preview Volume**.
 - A value of 0 MUST result in silence (disables preview).
 
-## 10.3 Select Players modal (per-song)
+## 10.3 Select Players modal
 
 **Purpose**
 - On starting a song (including via Random actions) and on starting a medley run, select which connected phone(s) sing.
