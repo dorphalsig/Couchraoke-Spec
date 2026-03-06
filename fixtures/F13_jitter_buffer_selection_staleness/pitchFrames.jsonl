@@ -1,0 +1,3 @@
+{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":1,"tCaptureMs":1000,"toneValid":true,"midiNote":36}
+{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":2,"tCaptureMs":1050,"toneValid":true,"midiNote":37}
+{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":3,"tCaptureMs":1090,"toneValid":true,"midiNote":38}
