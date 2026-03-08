@@ -1,8 +1,8 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
 
-Version: 4.19
-Date: 2026-03-05
+Version: 4.20
+Date: 2026-03-08
 Owner: SpecBot
 
 Status: Draft
@@ -13,6 +13,7 @@ Status: Draft
 
 | Timestamp | Author | Changes |
 | --- | --- | --- |
+| 2026-03-09 1.10 CET | Assistant | Dropped Rust. Replaced it with native implementation. Added FFT deps |
 | 2026-03-05 CET | Assistant | v4.19: §5.2.5 added (Mic Capture and Pitch Detection Pipeline): full normative spec for Rust pYIN FFI integration on both platforms — Android (AudioRecord + JNI via cargo-ndk 4.1.2 + jni 0.21 crate) and iOS (AVAudioEngine installTap + cbindgen 0.27 + XCFramework static lib + bridging header). Includes thresholdTable (8 entries, index 3 default), midiNote computation formula, thread priority requirement (Android), AVAudioSession.Mode.measurement requirement (iOS). Appendix A.2 and A.3: added pitch detection rows. |
 | 2026-03-05 CET | Assistant | v4.18: Pivot companion app from Flutter/Dart to fully native (Kotlin/Android, Swift/iOS). §1: platform description updated. §3.1: scan implementation replaced — Android uses `DocumentFile`/`ContentResolver` directly in Kotlin; iOS uses `FileManager.enumerator` + security-scoped bookmarks in Swift. §7.3: folder picker APIs updated to `ActivityResultContracts.OpenDocumentTree` (Android) and `UIDocumentPickerViewController` (iOS); cloud storage note removes platform channel language; LAN discovery permission UX split into Android (runtime permission) and iOS (NSLocalNetworkUsageDescription); permission denied wireframe updated for both platforms. §8.1: iOS multicast note updated to reference `NWBrowser` instead of `multicast_dns`. §8.6: library table replaced — Android uses `ktor-server-cio` + `ktor-server-partial-content`; iOS uses Swifter `1.5.0`; all `shelf`/`saf_stream`/platform channel implementation text replaced with native `ContentResolver` (Android) and `NSFileCoordinator` (iOS) inline in request handlers. Appendix A: A.2 Flutter table replaced with A.2 Android Companion (Kotlin) and A.3 iOS Companion (Swift) tables; A.3 Prohibited Patterns renumbered to A.4 and updated to remove Flutter-specific entries, add `NSNetServiceBrowser` prohibition. |
 | 2026-03-01 18:00 CET | Assistant | v4.17: Comprehensive audit fixes. NAV: §3.4 normative DPAD map (initial focus, column count, panel traversal, inline search keyboard entry, reorder-mode escape); §3.5 Advanced Search deferred to post-MVP; §7.1 session lock moment normative; §7.3 Song Library merged into Phone Settings, Waiting/Connected wireframe updated, Active Mic exit policy documented, iOS permission timing note fixed; §10.1 Settings-from-modal clarification; §10.6.2 medley results replaced Left/Right navigation with static per-segment score table. SCORING: §6.1 scoring loop decoupled from render loop (10ms poll); §6.5 TrackScoreValue medley clarification; §5.2.4 auto-mic-delay dropped (manual only). PROTOCOL: §7.4 songListUpdate-during-Locked behavior; §8.2 endTimeTvMs formula; §8.3 binary field renamed songSeq→songInstanceSeq; §8.2 + B.2.9 medleySource "calculated" removed (algorithm undefined; tag-only for MVP). PLATFORM: §8.1 + §8.6 + §7.3 CHANGE_WIFI_MULTICAST_STATE added (Android TV + phone); §8.6 Info.plist NSMicrophoneUsageDescription + NSCameraUsageDescription added; §8.6 network_security_config.xml CIDR fixed to IP prefix wildcards; §8.6 iOS background HTTP server limitation documented; §A.2 shared_storage pinned. CONTENT: §4.2 YouTube/external #VIDEO detection rule added; §10.2 dead txtUrl-fetch reference removed; §10.3 Player 2 Difficulty hidden (not disabled) for non-duet; §10.4.4 auto mic delay removed; §10.5 endTimeTvMs computation formula added; §10.5.1 TrackScoreValue medley scope + Restart endTimeTvMs formula; §3.4 medley eligibility updated (tag-only). CF-02 (MergingMediaSource/ScalingAudioProcessor): §10.4.3 + §A.1 implementation note made normative with volume control spec. CI-03 join code wireframe corrected (ABCD-EFGH). CI-07 phone reconnect mid-medley endTimeTvMs clarified. |
@@ -450,7 +451,7 @@ DPAD navigation map (normative):
 |  - Song grid: OK = Sing   Long-Press OK = Add to Medley                                         |
 |  - Medley playlist: OK = Reorder   Long-Press OK = Delete                                       |
 +--------------------------------------------------------------------------------------------------+
-
+```
 **Medley eligibility: `canMedley` (normative; parity-aligned)**
 `canMedley` MUST be computed and stored in the in-memory song list built on scan/index.
 
@@ -733,274 +734,70 @@ Notes:
 - The `- 0.5` in `CurrentBeatD` is required to match USDX timing: it shifts scoring decisions half a beat earlier.
 
 
-## 5.2 Pitch Frame Timing, Jitter, and Mic Delay
+### 5.2.5 Mic Capture and FFT-YIN Pitch Detection Pipeline
 
-This section defines how phone pitch frames are mapped into the TV time domain, how the TV selects frames for scoring, and how microphone delay is applied.
+This section defines the normative implementation for the on-device pitch detector. Both Android and iOS companion apps MUST implement a custom Fast YIN (FFT-YIN) pipeline.
 
-### 5.2.1 Pitch frame rate and missing frames
+To ensure low latency and eliminate Garbage Collection (GC) pauses during gameplay, the implementation MUST use primitive arrays exclusively and strictly prohibit object allocation within the audio processing loop.
 
-- Phone pitch frames MUST be sent at the rate requested by `assignSinger.expectedPitchFps`. The **default is 50 fps** (20ms interval).
-  - Phones that support 100 fps MAY advertise `"pitchFps":100` in `hello.capabilities`. The TV MAY then set `expectedPitchFps=100` in `assignSinger` for those phones.
-  - If a phone cannot sustain the requested rate, it SHOULD reduce to 50 fps and the TV MUST tolerate the difference.
-- Missing or invalid frames MUST be treated as `toneValid=false` (no scoring; rap also requires `toneValid=true`).
+#### 5.2.5.1 Primitive Memory Management (Normative)
+The following buffers MUST be pre-allocated once during initialization and reused for every frame:
+- `audioBuffer`: 1024 floats (for the raw PCM input)
+- `paddedBuffer`: 2048 floats (for zero-padded FFT input)
+- `fftComplexBuffer`: 4096 floats (for in-place FFT interleaved real/imaginary parts, or split-complex equivalent on iOS)
+- `diffBuffer`: 1024 floats (for the d_t difference function)
+- `normBuffer`: 1024 floats (for the d' normalized function)
+- `medianHistory`: 3-byte circular buffer (for temporal smoothing)
 
-### 5.2.2 Pitch-frame timestamps in TV time
+#### 5.2.5.2 Algorithm Pipeline (Normative)
+The audio capture window is 1024 samples at 44100 Hz (~23 ms). For each window, the phone MUST execute the following pipeline synchronously:
 
-**`songStartTvMs` (normative):**
-The TV MUST record the TV monotonic clock value at the moment `lyricsTimeSec = 0` begins playing (i.e., when ExoPlayer starts audio playback for the current song, before any `#START` offset is applied). This value is used throughout scoring to convert audio positions to TV time.
+**Step 1: Voicing Gate (maxAmp)**
+Compute the peak amplitude of the window using a primitive loop:
+`maxAmp = max(abs(audioBuffer[i]))` for i in 0..1023.
+If `maxAmp < thresholdTable[thresholdIndex].maxAmpCutoff`, the frame is considered unvoiced. The pipeline MUST immediately set `rawMidiNote = 255`, skip Steps 2-4 to conserve battery, and proceed to Step 5.
 
-- `songStartTvMs`: TV monotonic ms at audio position 0 for the current song.
+**Step 2: Linear Autocorrelation via FFT**
+To avoid circular correlation artifacts, the signal MUST be zero-padded.
+1. Copy `audioBuffer` into the first half of `paddedBuffer`. Fill the second half with 0.0f.
+2. Compute the forward FFT of `paddedBuffer` in-place.
+3. Compute the Power Spectrum in-place: multiply each complex number by its conjugate (Real^2 + Imaginary^2), zeroing out the imaginary component.
+4. Compute the inverse FFT in-place. The first 1024 real elements represent the linear autocorrelation `r_t(tau)`.
 
-When a `pitchFrame` arrives:
-- `frameTimestampTvMs` = the `tvTimeMs` field from the binary frame header.
-- `arrivalTimeTvMs` = TV monotonic ms at receipt.
-- `latenessMs = arrivalTimeTvMs - frameTimestampTvMs`
+**Step 3: Squared Difference (d_t) and Normalization (d')**
+1. Compute `d_t(tau) = E_start + E_shift(tau) - 2 * r_t(tau)`, where `E_start` and `E_shift` are the window energy and shifted window energy, respectively.
+2. Compute the Cumulative Mean Normalized Difference `d'(tau)`:
+   - `d'(0) = 1.0`
+   - For `tau > 0`: `d'(tau) = d_t(tau) / ((1 / tau) * sum(d_t(1..tau)))`
 
-### 5.2.3 TV jitter buffer and scoring sample selection
+**Step 4: Candidate Selection**
+Iterate through `d'(tau)` to find local minima. Select the **first** local minimum where `d'(tau) < thresholdTable[thresholdIndex].dPrimeCutoff`. 
+- If no local minimum meets the cutoff, select the absolute minimum.
+- If the selected `d'(tau) > 0.40` (the hard limit for human vocal periodicity), the frame is unvoiced; set `rawMidiNote = 255`.
+- Otherwise, compute frequency: `hz = 44100.0 / tau`.
+- Compute MIDI note: `rawMidiNote = clamp(round(69 + 12 * log2(hz / 440.0)), 0, 127)`.
 
-**`detectionTimeTvMs` (normative):**
-When scoring beat cursor `CurrentBeatD` advances to beat `b`, the TV computes the detection timestamp as the TV monotonic time corresponding to the audio position of that beat:
+**Step 5: Temporal Smoothing**
+To prevent erratic octave jumping in noisy environments, the phone MUST maintain a 3-frame rolling median filter. 
+- Push `rawMidiNote` into the `medianHistory` buffer.
+- The `midiNote` transmitted in the 16-byte UDP `pitchFrame` MUST be the median of these 3 values. 
+- If any of the 3 frames in the history buffer are unvoiced (255), the transmitted `midiNote` MUST be 255 (silence interrupts the combo immediately).
 
-- `lyricsTimeSecForBeat = BeatInternalToTimeSec(b) + GAPms / 1000.0`
-  *(This is the audio-clock position at which beat `b` plays, before mic delay.)*
-- `detectionTimeTvMs = songStartTvMs + lyricsTimeSecForBeat × 1000`
+#### 5.2.5.3 Consolidated Sensitivity Table
+The `thresholdIndex` (0–7) from `assignSinger` determines both the volume required to open the noise gate (`maxAmpCutoff`) and the strictness of the pitch detection (`dPrimeCutoff`). 
 
-Jitter buffer (TV):
-- Target playout delay: **220 ms** — frames for a given `detectionTimeTvMs` are expected to arrive no later than 220 ms after `detectionTimeTvMs` in real TV-wall time.
-- Max playout delay cap: **450 ms** — frames arriving where `latenessMs > 450` MUST be dropped (treated as silence).
-
-Scoring sample selection (parity-critical):
-- For beat `b`, use the **most recent** frame in the buffer where `frameTimestampTvMs <= detectionTimeTvMs`.
-- If the most recent qualifying frame has `arrivalTimeTvMs > detectionTimeTvMs + 450`, it was too late and MUST be treated as `toneValid=false`.
-- If no qualifying frame exists at all, treat as `toneValid=false`.
-- If the newest qualifying frame is older than **120 ms** relative to `detectionTimeTvMs` (i.e., `detectionTimeTvMs - frameTimestampTvMs > 120`), treat as `toneValid=false` (prevents stale scoring after stalls).
-
-### 5.2.4 Effective mic delay (manual)
-
-The scoring beat cursor (Section 5.1) uses a mic delay to compensate for hardware audio pipeline latency:
-- `effectiveMicDelayMs = micDelayMs`
-
-Where `micDelayMs` is the user-configured per-session setting (Settings > Scoring Timing). Hardware audio latency (microphone → digital → network) is essentially constant for a given phone model and does not drift during a song, so adaptive adjustment adds complexity without benefit. Manual calibration before singing is sufficient.
-
-Default: `micDelayMs = 0` (adjustable in Settings > Scoring Timing; valid range 0–400 ms).
-
-### 5.2.5 Mic Capture and Pitch Detection Pipeline
-
-This section is normative for both companion app platforms. The pitch algorithm is the existing Rust pYIN implementation, called via FFI from Kotlin (Android) and Swift (iOS). The TV side is unaffected — it receives the same 16-byte binary `pitchFrame` regardless of platform.
-
-**Pipeline overview (both platforms)**
-
-```
-Mic hardware
-    ↓ PCM, 44100 Hz, 16-bit signed mono
-1024-sample window (~23 ms)
-    ↓
-maxAmp = max(abs(sample_i)) / 32768.0   [spec §8.3]
-    ↓ if maxAmp >= thresholdTable[thresholdIndex]
-Rust pYIN → fundamental Hz
-    ↓
-midiNote = clamp(round(69 + 12 × log₂(hz / 440.0)), 0, 127)
-    ↓ else
-midiNote = 255  (unvoiced)
-    ↓
-Pack + send 16-byte UDP pitchFrame (§8.3)
-```
-
-Window size of 1024 samples at 44100 Hz gives a ~23 ms analysis window. This is compatible with the 20 ms frame interval at 50 fps — frames MUST be sent immediately on window completion; no buffering between windows.
-
-**Rust FFI interface (normative)**
-
-The Rust crate MUST expose a single C-compatible function. The function operates on a pre-allocated window and returns Hz directly; it performs no memory allocation:
-
-```c
-// pyin_ffi.h  (generated by cbindgen)
-float pyin_detect(const float* samples, uintptr_t len, uint32_t sample_rate);
-// Returns fundamental frequency in Hz, or -1.0 if unvoiced.
-```
-
-`samples` is a float buffer normalized to [-1.0, 1.0]. The phone converts 16-bit PCM to float before calling. `len` is always 1024 for MVP. `sample_rate` is always 44100.
+| Index | maxAmpCutoff | dPrimeCutoff | Environment Profile |
+|---|---|---|---|
+| 0 | 0.01 | 0.10 | Very High Sensitivity (Whisper/Studio) |
+| 1 | 0.02 | 0.15 | High Sensitivity |
+| 2 | 0.04 | 0.20 | Medium-High |
+| 3 | 0.06 | 0.25 | **Medium (Default Karaoke Room)** |
+| 4 | 0.09 | 0.30 | Medium-Low (Noisy Room) |
+| 5 | 0.13 | 0.35 | Low |
+| 6 | 0.18 | 0.40 | Very Low (Loud Party) |
+| 7 | 0.25 | 0.45 | Lowest (Extreme Noise) |
 
 ---
-
-**Android — Kotlin implementation (normative)**
-
-*Build toolchain:*
-- Install `cargo-ndk` (`4.1.2`) and add NDK targets:
-  ```bash
-  rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-  cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 \
-      -o app/src/main/jniLibs build --release
-  ```
-  `cargo-ndk` outputs the correct `jniLibs/<abi>/libpyin.so` structure that the Android Gradle plugin picks up automatically. No manual path configuration is required.
-
-*Rust JNI entry point:*
-
-Add `jni = "0.21"` to the Rust crate's `[target.'cfg(target_os = "android")'.dependencies]`. Expose a JNI-mangled wrapper that delegates to the core pYIN function:
-
-```rust
-#[cfg(target_os = "android")]
-#[no_mangle]
-pub extern "system" fn Java_com_yourapp_PitchDetector_detectPitch(
-    env: JNIEnv,
-    _class: JClass,
-    samples: JFloatArray,
-    sample_rate: jint,
-) -> jfloat {
-    let buf = env.get_float_array_region(samples, 0, 1024);
-    pyin_detect(buf.as_ptr(), 1024, sample_rate as u32)
-}
-```
-
-*Kotlin wrapper:*
-
-```kotlin
-object PitchDetector {
-    init { System.loadLibrary("pyin") }
-    external fun detectPitch(samples: FloatArray, sampleRate: Int): Float
-}
-```
-
-*Mic capture (`AudioRecord`):*
-
-```kotlin
-val recorder = AudioRecord(
-    MediaRecorder.AudioSource.MIC,
-    44100,
-    AudioFormat.CHANNEL_IN_MONO,
-    AudioFormat.ENCODING_PCM_16BIT,
-    AudioRecord.getMinBufferSize(44100, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-)
-val pcm = ShortArray(1024)
-val floats = FloatArray(1024)
-recorder.startRecording()
-
-// On a dedicated thread (NOT the main thread):
-while (active) {
-    recorder.read(pcm, 0, 1024)
-    for (i in pcm.indices) floats[i] = pcm[i] / 32768f
-    val maxAmp = floats.maxOf { abs(it) }
-    val midiNote: Int
-    if (maxAmp >= thresholdTable[thresholdIndex]) {
-        val hz = PitchDetector.detectPitch(floats, 44100)
-        midiNote = if (hz > 0f) (69 + 12 * log2(hz / 440f)).roundToInt().coerceIn(0, 127) else 255
-    } else {
-        midiNote = 255
-    }
-    sendPitchFrame(midiNote)  // packs and sends §8.3 UDP datagram
-}
-```
-
-`AudioRecord` on Android delivers buffers with low latency when `CHANNEL_IN_MONO` + `ENCODING_PCM_16BIT` is used. No Oboe or AAudio required for this use case — `AudioRecord` is sufficient and avoids NDK complexity.
-
-The recording thread MUST have `android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)` set before the loop begins.
-
-Required permission in `AndroidManifest.xml`:
-```xml
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
-```
-Request at runtime (Android 6+) before starting the recorder.
-
----
-
-**iOS — Swift implementation (normative)**
-
-*Build toolchain:*
-
-```bash
-# Add iOS targets
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim
-
-# Build for device and simulator
-cargo build --release --target aarch64-apple-ios
-cargo build --release --target aarch64-apple-ios-sim
-
-# Generate C header (install cbindgen once: cargo install cbindgen)
-cbindgen --lang c --output pyin_ffi.h
-
-# Combine simulator slices (Apple Silicon sim + device are separate targets)
-# For device-only MVP, skip lipo and use aarch64-apple-ios directly.
-
-# Create XCFramework
-xcodebuild -create-xcframework \
-    -library target/aarch64-apple-ios/release/libpyin.a \
-    -headers include/ \
-    -library target/aarch64-apple-ios-sim/release/libpyin.a \
-    -headers include/ \
-    -output PYin.xcframework
-```
-
-Place `pyin_ffi.h` in the `include/` directory alongside a `module.modulemap`:
-```
-module PYin {
-    header "pyin_ffi.h"
-    export *
-}
-```
-
-Drag `PYin.xcframework` into the Xcode project. Under the target's **Frameworks, Libraries, and Embedded Content**, set it to **Do Not Embed** (static library). Add a bridging header (`App-Bridging-Header.h`) containing `#import "pyin_ffi.h"` — Xcode then makes the C function directly callable from Swift.
-
-*Mic capture (`AVAudioEngine`):*
-
-```swift
-let engine = AVAudioEngine()
-let inputNode = engine.inputNode
-let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                            sampleRate: 44100, channels: 1, interleaved: false)!
-
-inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-    guard let self, let data = buffer.floatChannelData?[0] else { return }
-    let len = Int(buffer.frameLength)          // always 1024 for MVP
-    let maxAmp = (0..<len).reduce(0.0) { max($0, abs(data[$1])) }
-
-    let midiNote: UInt8
-    if maxAmp >= self.thresholdTable[self.thresholdIndex] {
-        let hz = pyin_detect(data, UInt(len), 44100)
-        if hz > 0 {
-            let midi = Int((69.0 + 12.0 * log2(Double(hz) / 440.0)).rounded())
-            midiNote = UInt8(clamping: midi)
-        } else {
-            midiNote = 255
-        }
-    } else {
-        midiNote = 255
-    }
-    self.sendPitchFrame(midiNote)  // packs and sends §8.3 UDP datagram
-}
-
-try AVAudioSession.sharedInstance().setCategory(.record, mode: .measurement,
-                                                 options: .allowBluetooth)
-try AVAudioSession.sharedInstance().setActive(true)
-try engine.start()
-```
-
-`AVAudioSession.Mode.measurement` disables AGC and noise processing, which improves pitch detection accuracy. This is important — the default `.voiceChat` mode applies signal processing that distorts the amplitude envelope and can confuse the voicing threshold.
-
-The tap callback runs on an internal audio thread managed by `AVAudioEngine`. The `sendPitchFrame` call MUST be non-blocking (UDP send via a pre-opened `NWConnection` or POSIX socket — never call on main thread from here).
-
-Required `Info.plist` entry (already present from §8.6):
-```xml
-<key>NSMicrophoneUsageDescription</key>
-<string>The microphone is used to detect your singing pitch for scoring.</string>
-```
-
----
-
-**`thresholdTable` (normative; both platforms)**
-
-The voicing threshold is indexed by `thresholdIndex` (0–7) from `assignSinger`. The table maps index to `maxAmp` cutoff:
-
-| Index | `maxAmp` threshold | Sensitivity label |
-|---|---|---|
-| 0 | 0.01 | Very high (whisper) |
-| 1 | 0.02 | High |
-| 2 | 0.04 | Medium-high |
-| 3 | 0.06 | **Medium (default)** |
-| 4 | 0.09 | Medium-low |
-| 5 | 0.13 | Low |
-| 6 | 0.18 | Very low |
-| 7 | 0.25 | Lowest (loud room) |
-
-`thresholdIndex = 3` is the default (Settings > Audio > Mic Sensitivity default). The TV passes the selected index in `assignSinger.thresholdIndex`; the phone applies the corresponding cutoff locally without any further negotiation.
 
 ## 5.3 Beat-Time Conversion
 
@@ -2731,7 +2528,7 @@ This appendix is **normative**. Implementations MUST use the pinned libraries be
 | LAN discovery (NSD/mDNS) | `android.net.nsd.NsdManager` (platform API) | n/a — SDK built-in (API 16+) | No third-party dependency required. Browse `_karaoke._tcp` using `NsdManager.discoverServices`. |
 | HTTP file server | `io.ktor:ktor-server-cio` + `io.ktor:ktor-server-partial-content` | `2.3.12` | Same Ktor version as TV host. `ktor-server-partial-content` handles `Accept-Ranges` / `206 Partial Content` automatically. |
 | SAF directory listing | `androidx.documentfile:documentfile` | `1.0.1` | Transitive dependency of `androidx.core`. `DocumentFile.fromTreeUri()` for SAF tree traversal. No additional library needed. |
-| Pitch detection (Rust FFI) | `jni` (Rust crate) + `cargo-ndk` (build tool) | `jni = "0.21"`, `cargo-ndk = "4.1.2"` | `jni` provides JNI-safe type wrappers for the Rust entry point. `cargo-ndk` cross-compiles the Rust pYIN crate to `arm64-v8a`/`armeabi-v7a`/`x86_64` `.so` files and places them in the correct `jniLibs/` structure. No additional Android-side library — `System.loadLibrary` + `external fun` is sufficient. See §5.2.5. |
+| FFT Operations | `edu.emory.mathcs.jtransforms:jtransforms`| 2.4 | Fast, GC-free primitive float array FFT implementations for Java/Kotlin.|
 | Haptic feedback (200ms on assignSinger) | `android.os.VibrationEffect` (platform API) | n/a — SDK built-in (API 26+) | `VibrationEffect.createOneShot(200, DEFAULT_AMPLITUDE)`. No third-party library. |
 | Settings persistence | `androidx.datastore:datastore-preferences` | `1.1.1` | Same as TV host. |
 
@@ -2745,7 +2542,7 @@ This appendix is **normative**. Implementations MUST use the pinned libraries be
 | HTTP file server | `Swifter` | `1.5.0` | SPM: `https://github.com/httpswift/swifter`. Pure Swift, actively maintained, zero transitive dependencies. `Range` header handling is ~20 lines of explicit code in the request handler. |
 | Haptic feedback (on assignSinger) | `UIImpactFeedbackGenerator` (platform API) | n/a — UIKit built-in | `UIImpactFeedbackGenerator(style: .medium).impactOccurred()`. No third-party library. |
 | Settings persistence | `UserDefaults` (platform API) | n/a — Foundation built-in | Sufficient for flat key-value preferences (songs folder bookmark, mic delay). |
-| Pitch detection (Rust FFI) | `cbindgen` (build tool) + XCFramework (static lib) | `cbindgen = "0.27"` | `cbindgen` generates `pyin_ffi.h` from the Rust crate. The Rust library is compiled to a static `.a` for `aarch64-apple-ios` and `aarch64-apple-ios-sim`, then packaged as an XCFramework via `xcodebuild -create-xcframework`. Swift calls `pyin_detect()` directly via a bridging header — no additional iOS library. See §5.2.5. |
+| FFT Operations | Accelerate.framework (vDSP) |  | Native Apple framework, highly optimized for C-level primitive array operations. Zero third-party dependencies. |
 
 ## A.4 Prohibited Patterns
 

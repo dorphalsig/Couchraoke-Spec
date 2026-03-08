@@ -1,0 +1,25 @@
+{
+  "finalSessionState": {
+    "sessionId": "sess-1",
+    "inSong": true,
+    "slots": {
+      "P1": {
+        "connected": true,
+        "deviceName": "Phone-A",
+        "clientId": "client-A",
+        "activeConnectionId": 2
+      },
+      "P2": {
+        "connected": false,
+        "deviceName": "",
+        "clientId": null,
+        "activeConnectionId": null
+      }
+    }
+  },
+  "droppedConnectionIds": [1],
+  "sentAssignSinger": {
+    "songInstanceSeq": 2,
+    "endTimeTvMs": 50000
+  }
+}

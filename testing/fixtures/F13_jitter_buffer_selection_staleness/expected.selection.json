@@ -1,0 +1,50 @@
+{
+  "testCases": [
+    {
+      "description": "6.1 Most recent frame <= now",
+      "tvNowMs": 1060,
+      "expectedSeq": 2,
+      "expectedToneValid": true
+    },
+    {
+      "description": "6.2 Newer frame within range",
+      "tvNowMs": 1200,
+      "expectedSeq": 3,
+      "expectedToneValid": true
+    },
+    {
+      "description": "6.3 All eligible frames stale (>120ms)",
+      "tvNowMs": 1400,
+      "expectedSeq": null,
+      "expectedToneValid": false
+    },
+    {
+      "description": "6.4 Frame arrives late (>450ms)",
+      "tvNowMs": 1500,
+      "injectLatenessMs": 500,
+      "expectedSeq": null,
+      "expectedToneValid": false
+    },
+    {
+      "description": "6.5 Decreasing seq dropped",
+      "tvNowMs": 1250,
+      "injectSeqOrder": [5, 3],
+      "expectedSeq": 5,
+      "expectedToneValid": true
+    },
+    {
+      "description": "6.6 tvTimeMs regression > 200ms",
+      "tvNowMs": 1060,
+      "injectRegressionMs": 300,
+      "expectedSeq": null,
+      "expectedToneValid": false
+    },
+    {
+      "description": "6.7 tvTimeMs regression <= 200ms",
+      "tvNowMs": 1060,
+      "injectRegressionMs": 100,
+      "expectedSeq": 4,
+      "expectedToneValid": true
+    }
+  ]
+}
