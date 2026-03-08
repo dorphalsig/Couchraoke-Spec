@@ -2528,7 +2528,7 @@ This appendix is **normative**. Implementations MUST use the pinned libraries be
 | LAN discovery (NSD/mDNS) | `android.net.nsd.NsdManager` (platform API) | n/a — SDK built-in (API 16+) | No third-party dependency required. Browse `_karaoke._tcp` using `NsdManager.discoverServices`. |
 | HTTP file server | `io.ktor:ktor-server-cio` + `io.ktor:ktor-server-partial-content` | `2.3.12` | Same Ktor version as TV host. `ktor-server-partial-content` handles `Accept-Ranges` / `206 Partial Content` automatically. |
 | SAF directory listing | `androidx.documentfile:documentfile` | `1.0.1` | Transitive dependency of `androidx.core`. `DocumentFile.fromTreeUri()` for SAF tree traversal. No additional library needed. |
-| FFT Operations | `edu.emory.mathcs.jtransforms:jtransforms`| 2.4 | Fast, GC-free primitive float array FFT implementations for Java/Kotlin.|
+| FFT Operations | `com.github.wendykierp:JTransforms`| 3.2 | Fast, GC-free primitive float array FFT implementations for Java/Kotlin.|
 | Haptic feedback (200ms on assignSinger) | `android.os.VibrationEffect` (platform API) | n/a — SDK built-in (API 26+) | `VibrationEffect.createOneShot(200, DEFAULT_AMPLITUDE)`. No third-party library. |
 | Settings persistence | `androidx.datastore:datastore-preferences` | `1.1.1` | Same as TV host. |
 

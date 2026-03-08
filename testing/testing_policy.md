@@ -12,11 +12,7 @@ This document is the single source of rules governing how tests are written, run
 ## 2. Test Libraries 
 *(Note: Android testing libraries and version constraints are strictly defined in `android_constitution.md` under Technology Constraints.)*
 ### 2.1 iOS (Swift)
-| Purpose | Library | Notes |
-|---|---|---|
-| Unit + integration | `XCTest` | Xcode built-in; no external dependency |
-| Mocking | Protocol-based test doubles | No third-party mock library; define lightweight `protocol` facades |
-| JSON assertions | `JSONDecoder` + `Codable` | Decode and compare field-by-field; never string-compare JSON |
+*(Note: iOS testing libraries and version constraints are strictly defined in `ios_constitution.md` under Technology Constraints.)*
 ---
 ## 3. Coverage Requirements
 From **Appendix D.1** (normative, reproduced here for visibility):

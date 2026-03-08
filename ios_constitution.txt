@@ -27,6 +27,10 @@ iOS Companion App for a local-network karaoke game. Responsibilities:
 | **Storage Access** | `UIDocumentPicker` + `NSFileCoordinator` + Security Bookmarks | Direct path access to external URIs |
 | **Persistence** | `UserDefaults` (for path bookmarks/prefs) | CoreData, SwiftData, Realm |
 | **Testing** | XCTest + Swift Testing (2024+) | Reflection-based mocking |
+| Unit + integration | `XCTest` | Xcode built-in; no external dependency |
+| Mocking | Protocol-based test doubles | No third-party mock library; define lightweight `protocol` facades |
+| JSON assertions | `JSONDecoder` + `Codable` | Decode and compare field-by-field; never string-compare JSON |
+
 
 ---
 

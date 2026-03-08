@@ -1,4 +1,4 @@
-# Project Constitution — Karaoke TV Host App (Android)
+cl# Project Constitution — Karaoke TV Host App (Android)
 > Non-negotiable. Read before every task. Violations must be flagged, not silently worked around.
 
 ---
@@ -21,10 +21,10 @@ No backend. No local song library persistence. LAN only.
 | UI | Jetpack Compose for TV (`androidx.tv:tv-material`) | XML layouts (new code) |
 | Concurrency | Coroutines + `Flow` | RxJava, LiveData, raw `Thread` |
 | JSON Serialization | `kotlinx-serialization-json` (`1.7.3`) | Gson, Moshi, reflection-based parsing |
-| Media Playback | `androidx.media3` (`1.4.1`), `datasource-okhttp` | Legacy ExoPlayer, MediaPlayer |
+| Media Playback | `androidx.media3` (`1.6.1`), `datasource-okhttp` | Legacy ExoPlayer, MediaPlayer |
 | Image Loading | `coil-compose` + `coil-network-okhttp` (`3.4.0`) | Glide, Picasso |
 | Network Discovery | `jmdns` (`3.5.9`) with `MulticastLock` | Android `NsdManager` (unreliable on TV) |
-| Network Transport | `ktor-server-cio` + `websockets` (`2.3.12`) | Netty engine, Retrofit for WebSocket |
+| Network Transport | `ktor-server-cio` + `websockets` (`3.3.0`) | Netty engine, Retrofit for WebSocket |
 | UDP Receiver | `DatagramSocket` (fixed port at session start) | Batching frames, TCP for pitch |
 | Persistence | `DataStore` (prefs only, `1.1.1`) | Room, SQLite, persisted song lists |
 | QR Code | `zxing-android-embedded` (`4.3.0`) | Requesting Camera permission on TV |
@@ -71,10 +71,9 @@ Rules: ViewModels expose `StateFlow<UiState>` + `SharedFlow<UiEvent>`. No busine
 ---
 
 ## 6. Testing
-All code modifications require strict test coverage. **Before writing, modifying, or reviewing any tests, you MUST read and comply with the rules defined in `testing_policy.md`.**
-* **Coverage:** Unit test all domain logic (especially parsing, timing beats, and scoring normalizations).
-* **Clock Injection:** Never use `System.currentTimeMillis()`. Inject a `FakeClock` to deterministically test beat conversion.
-* **Network Mocks:** Use MockK/Fakes for Ktor, UDP, and Media3 behavior in unit tests.
+All code modifications require test coverage. Before writing, modifying, or 
+reviewing any tests, you MUST retrieve and read `testing_policy.md` first.
+Test library versions are pinned in §2 Technology Constraints above.
 
 ---
 
