@@ -36,12 +36,20 @@ Conventions:
 - 5. Timing and Beat Model
   - 5.1 Authoritative Beat Definitions
   - 5.2 Pitch Frame Timing, Jitter, and Mic Delay
+    - 5.2.1 Pitch frame rate and missing frames
+    - 5.2.2 Pitch-frame timestamps in TV time
+    - 5.2.3 TV jitter buffer and scoring sample selection
+    - 5.2.4 Effective mic delay (manual)
+    - 5.2.5 Mic Capture and FFT-YIN Pitch Detection Pipeline
+      - 5.2.5.1 Primitive Memory Management (Normative)
+      - 5.2.5.2 Algorithm Pipeline (Normative)
+      - 5.2.5.3 Consolidated Sensitivity Table
   - 5.3 Beat-Time Conversion
   - 5.4 START/END
 - 6. Scoring
   - 6.1 Scoring Overview
   - 6.2 Note Types
-  - 6.2.1 ScoreFactor constants
+    - 6.2.1 ScoreFactor constants
   - 6.3 Player Level / Tolerance
   - 6.4 Octave Normalization
   - 6.5 Line Bonus
@@ -56,24 +64,61 @@ Conventions:
   - 8.2 Control Messages
   - 8.3 Pitch Stream Messages
   - 8.4 Versioning and Compatibility
-  - 8.5 Authentication
-- 9. Time Sync and Jitter Handling
-  - 9.1 Defaults
-- 10. UI Screens and Flows
-  - 10.1 Global navigation and input
-  - 10.2 Song preview playback
-  - 10.3 Select Players modal
-  - 10.4 Settings Screen
-  - 10.5 Singing Screen
-    - 10.5.1 Singing Screen (Medley mode)
-  - 10.6 Results
-    - 10.6.1 Results (post-song)
-    - 10.6.2 Results (post-medley)
+  - 8.5 Sender Identification
+  - 8.6 Song File HTTP Server
+  - 8.7 Time Sync and Jitter Handling
+- 9. UI Screens and Flows
+  - 9.1 Global navigation and input
+  - 9.2 Song preview playback
+  - 9.3 Select Players modal
+  - 9.4 Settings Screen
+    - 9.4.1 Settings > Connect Phones
+    - 9.4.2 Settings > Song Library (TV)
+    - 9.4.3 Settings > Audio
+    - 9.4.4 Settings > Scoring Timing
+    - 9.4.5 Settings > Gameplay
+    - 9.4.6 Settings > Video
+  - 9.5 Singing Screen
+    - 9.5.1 Singing Screen (Medley mode)
+  - 9.6 Results
+    - 9.6.1 Results (post-song)
+    - 9.6.2 Results (post-medley)
 - Appendix A: Library Dependency Reference
+  - A.1 Android TV Host App (Kotlin)
+  - A.2 Android Companion App (Kotlin)
+  - A.3 iOS Companion App (Swift)
+  - A.4 Prohibited Patterns
 - Appendix B: Protocol Schemas
+  - B.1 Common envelope
+  - B.2 Schemas
+    - B.2.1 `hello`
+    - B.2.2 `sessionState`
+    - B.2.3 `ping` / `pong` (clock sync)
+    - B.2.4 `clockAck` (TV → phone)
+    - B.2.5 `error`
+    - B.2.6 `assignSinger`
+    - B.2.7 `pitchFrame` (binary; not JSON)
+    - B.2.8 `requestSongList`
+    - B.2.9 `songListUpdate`
 - Appendix C: Parsed Song Model
-- Appendix D: ParsedSongModel Fixture Serialization
+  - C.1 Core entities
+- Appendix D: Fixture Types, Testing Policy, and Coverage Requirements
+  - D.1 Testing Policy
+  - D.2 Fixture Conventions
+  - D.3 Fixture Types
+    - D.3.1 Parse-only fixture (`type: "parse"`)
+    - D.3.2 Scoring fixture (`type: "scoring"`)
+    - D.3.3 Discovery fixture (`type: "discovery"`)
+    - D.3.4 Protocol/session fixture (`type: "protocol"`)
+  - D.4 ParsedSong JSON Schema (structural)
+  - D.5 Expected Score JSON Schema
 - Appendix E: Worked Examples
+  - E.1 Static BPM beat cursors (highlight vs scoring)
+  - E.2 Beat-to-time and time-to-beat round-trip
+  - E.3 Beat stepping and note-window boundary convention
+  - E.4 Scoring normalization and line bonus (fully-worked minimal song)
+  - E.5 Golden rounding direction rule (fractional demonstration)
+  - E.6 Minimal fixture files for E.4 (reference layout)
 
 # 1. Product Contract
 - Goal: USDX-like karaoke gameplay (parity for parsing, timing, duet, rap, scoring, results).
