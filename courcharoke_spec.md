@@ -5,19 +5,7 @@ Date: 2026-03-08
 Owner: SpecBot
 Status: Draft
 
-# Change Record
-| Timestamp | Author | Changes |
-| --- | --- | --- |
-| 2026-03-09 1.10 CET | Assistant | Dropped Rust. Replaced it with native implementation. Added FFT deps |
-| 2026-03-05 CET | Assistant | v4.19: §5.2.5 added (Mic Capture and Pitch Detection Pipeline): full normative spec for Rust pYIN FFI integration on both platforms — Android (AudioRecord + JNI via cargo-ndk 4.1.2 + jni 0.21 crate) and iOS (AVAudioEngine installTap + cbindgen 0.27 + XCFramework static lib + bridging header). Includes thresholdTable (8 entries, index 3 default), midiNote computation formula, thread priority requirement (Android), AVAudioSession.Mode.measurement requirement (iOS). Appendix A.2 and A.3: added pitch detection rows. |
-| 2026-03-05 CET | Assistant | v4.18: Pivot companion app from Flutter/Dart to fully native (Kotlin/Android, Swift/iOS). §1: platform description updated. §3.1: scan implementation replaced — Android uses `DocumentFile`/`ContentResolver` directly in Kotlin; iOS uses `FileManager.enumerator` + security-scoped bookmarks in Swift. §7.3: folder picker APIs updated to `ActivityResultContracts.OpenDocumentTree` (Android) and `UIDocumentPickerViewController` (iOS); cloud storage note removes platform channel language; LAN discovery permission UX split into Android (runtime permission) and iOS (NSLocalNetworkUsageDescription); permission denied wireframe updated for both platforms. §8.1: iOS multicast note updated to reference `NWBrowser` instead of `multicast_dns`. §8.6: library table replaced — Android uses `ktor-server-cio` + `ktor-server-partial-content`; iOS uses Swifter `1.5.0`; all `shelf`/`saf_stream`/platform channel implementation text replaced with native `ContentResolver` (Android) and `NSFileCoordinator` (iOS) inline in request handlers. Appendix A: A.2 Flutter table replaced with A.2 Android Companion (Kotlin) and A.3 iOS Companion (Swift) tables; A.3 Prohibited Patterns renumbered to A.4 and updated to remove Flutter-specific entries, add `NSNetServiceBrowser` prohibition. |
-| 2026-03-01 18:00 CET | Assistant | v4.17: Comprehensive audit fixes. NAV: §3.4 normative DPAD map (initial focus, column count, panel traversal, inline search keyboard entry, reorder-mode escape); §3.5 Advanced Search deferred to post-MVP; §7.1 session lock moment normative; §7.3 Song Library merged into Phone Settings, Waiting/Connected wireframe updated, Active Mic exit policy documented, iOS permission timing note fixed; §10.1 Settings-from-modal clarification; §10.6.2 medley results replaced Left/Right navigation with static per-segment score table. SCORING: §6.1 scoring loop decoupled from render loop (10ms poll); §6.5 TrackScoreValue medley clarification; §5.2.4 auto-mic-delay dropped (manual only). PROTOCOL: §7.4 songListUpdate-during-Locked behavior; §8.2 endTimeTvMs formula; §8.3 binary field renamed songSeq→songInstanceSeq; §8.2 + B.2.9 medleySource "calculated" removed (algorithm undefined; tag-only for MVP). PLATFORM: §8.1 + §8.6 + §7.3 CHANGE_WIFI_MULTICAST_STATE added (Android TV + phone); §8.6 Info.plist NSMicrophoneUsageDescription + NSCameraUsageDescription added; §8.6 network_security_config.xml CIDR fixed to IP prefix wildcards; §8.6 iOS background HTTP server limitation documented; §A.2 shared_storage pinned. CONTENT: §4.2 YouTube/external #VIDEO detection rule added; §10.2 dead txtUrl-fetch reference removed; §10.3 Player 2 Difficulty hidden (not disabled) for non-duet; §10.4.4 auto mic delay removed; §10.5 endTimeTvMs computation formula added; §10.5.1 TrackScoreValue medley scope + Restart endTimeTvMs formula; §3.4 medley eligibility updated (tag-only). CF-02 (MergingMediaSource/ScalingAudioProcessor): §10.4.3 + §A.1 implementation note made normative with volume control spec. CI-03 join code wireframe corrected (ABCD-EFGH). CI-07 phone reconnect mid-medley endTimeTvMs clarified. |
-| 2026-03-01 12:00 CET | Assistant | v4.16: Round 8 consistency audit. C1: §7.4+§8.5 clarify reconnect `connectionId` delivery. C2: `medleySource` `"none"` → `null` throughout (§3.3, §8.2, B.2.9). C3: §3.3 `previewStartSec` medley condition updated to `medleySource != null`. C4: Drop `bpmChanges[]`/`BpmChange` — replace with `bpmFile (float)` in `SongTiming` (§4.3 already rejects variable-BPM songs; array was dead code); update Appendix C and D.4. C5: §6.6 add normative callout that `ScoreLineInt` rounding formula is intentionally asymmetric to `ScoreInt`/`ScoreGoldenInt`. C6: Medley Restart now restarts the **full medley run from segment 1** (not current segment only) — simplifies medley-as-single-song mental model; §10.5 and §10.5.1 updated. C7: §4.3 clarify `B` token reject-on-encounter vs end-of-parse. C8: Remove `tsTvMs` from `hello` JSON schema (B.2.1) — phones have no TV timestamp at hello time. C9: §3.4 empty-state hint corrected to reference QR scan, not `Settings > Song Library`. Changelog trimmed to last 5 entries. |
-| 2026-03-01 11:00 CET | Assistant | v4.15: §3.1 add normative scan implementation: Android uses `shared_storage` for SAF tree traversal + `saf_stream` for `.txt` reads; iOS uses `dart:io` after security-scope activation, no platform channel needed for scanning. Appendix A: add `shared_storage` entry. Cover/background fallback behavior confirmed correct (no change needed). |
-| 2026-03-01 10:00 CET | Assistant | v4.14: Full consistency audit — parity bug fix §6.4; §7.3/7.4/10.5.1 stale language; join code entropy; cover glob phone-side; medley restart endTimeTvMs; toneSemitone rename; E.2 restored. |
-| 2026-02-28 17:00 CET | Assistant | v4.13: Fix platform channel requirement for SAF/NSFileCoordinator (§8.6); add `saf_stream ^2.0.0`; fix ping interval to burst-on-connect; add normative mDNS advertisement (§8.1); add `jmdns:3.5.9` to TV Appendix A. |
-| 2026-02-28 16:00 CET | Assistant | v4.12: Add Coil 3 and media3-datasource-okhttp to TV library table; fix shelf/shelf_router version split; add platform setup requirements to §8.6 (network_security_config.xml, iOS Info.plist); clarify UDP socket lifecycle; resolve MergingMediaSource vocals volume ambiguity. |
-| 2026-02-28 15:00 CET | Assistant | v4.11: Replace HMAC-SHA256 auth (§8.3, §8.5) with 2-byte connectionId; pitchFrame shrinks 30→16 bytes; §8.2 sessionState and assignSinger updated; Appendix B schemas updated. |
+
 
 # How to Use This Spec
 This document defines the functional behavior required to implement a minimal Android karaoke game that behaves like UltraStar Deluxe (USDX) for the agreed MVP scope. It is designed to be sufficiently explicit for AI-driven implementation.
@@ -126,26 +114,27 @@ Phone is authoritative for: song file storage, song metadata scanning, song HTTP
 # 3. Songs and Library
 
 ## 3.1 Storage Access
-**Songs folder (phone-side)**
 Each phone app has a single configured songs folder — a directory on the phone's local storage that contains all song subdirectories. The user sets this folder once in the phone app settings. The phone scans this folder recursively for `.txt` files and makes them available to the TV.
-**Scan implementation (normative)**
+### 3.1.1 Scan implementation
 Scanning requires platform-specific file enumeration:
-*Android (SAF — Kotlin):*
+#### 3.1.1.1 Android (SAF — Kotlin):*
 The songs folder is selected via `ActivityResultContracts.OpenDocumentTree()` and represented as a persisted SAF tree URI (`content://...`). `java.io.File` cannot traverse SAF URIs. Recursive listing MUST use `DocumentFile.fromTreeUri(context, uri).listFiles()` directly (the `DocumentFile` API is part of `androidx.documentfile:documentfile`, already a transitive dependency of `androidx.core`). Recursion depth is bounded by the songs folder structure; no artificial depth limit is required.
 For each `.txt` file found: read its content via `contentResolver.openInputStream(uri)`, parse the header tags, resolve asset filenames to their SAF URIs via `DocumentFile.findFile(name)`, check file availability via `DocumentFile.exists()`, and build `coverUrl`/`audioUrl`/etc. from the HTTP server's URL scheme (Section 8.6).
-*iOS (security-scoped bookmarks — Swift):*
+#### 3.1.1.2 iOS (security-scoped bookmarks — Swift):*
 The songs folder is selected via `UIDocumentPickerViewController`. The chosen URL MUST be persisted as a security-scoped bookmark (`url.bookmarkData(options: .minimalBookmark)`). On subsequent launches, resolve the bookmark with `URL(resolvingBookmarkData:)` and call `url.startAccessingSecurityScopedResource()` before any file operation. Recursive enumeration uses `FileManager.default.enumerator(at: folderUrl, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])`. File reads for `.txt` content use `Data(contentsOf: fileUrl)`. Asset file availability checks use `FileManager.default.fileExists(atPath:)`. Call `url.stopAccessingSecurityScopedResource()` when scanning is complete.
-**Song file delivery (normative)**
+### 3.1.2 Song file delivery
 The phone runs a lightweight read-only HTTP server for the duration of its session connection (see Section 8.6). Song files are served directly from the phone's songs folder via HTTP. The TV fetches files on demand using URLs provided in `songListUpdate`. No ZIP building, no extraction, and no temporary storage on the TV are required.
-**TV-side library (normative)**
+
+### 3.1.3 TV-side library
 The TV aggregates song metadata received from all currently connected phones into an in-memory library index. The library index is never persisted between sessions. When a phone disconnects, its songs MUST be removed from the library index immediately — they become invisible and unselectable in the UI.
-**TV-side song file lifecycle (normative)**
+
+### 3.1.4 TV-side song file lifecycle
 The TV holds no song files. All media is streamed directly from the phone's HTTP server on demand. When a phone disconnects, its song URLs become unreachable; any in-progress playback must be handled per Section 7.4. No cleanup of downloaded files is required.
 
 ## 3.2 Discovery and Validation Rules
-**Phone-side discovery (normative)**
+### 3.2.1 Phone-side discovery (normative)**
 The phone scans for **all `.txt` files recursively** under its configured songs folder. Each `.txt` is treated as a distinct song entry, even if multiple `.txt` files exist in the same folder.
-**Validation (song acceptance)**
+### 3.2.2 Validation (song acceptance)**
 A song entry is accepted into the library if and only if all of the following checks pass. If any check fails, the song entry MUST be rejected and a diagnostic MUST be emitted (see Section 4.3).
 1) Required header tags present
 - `#TITLE` and `#ARTIST` MUST be present and non-empty.
@@ -167,11 +156,11 @@ After body parsing completes, validation MUST ensure each parsed track (single t
   - This cleanup is performed before the "no notes" check.
 - After removing empty sentences, the track MUST contain at least one remaining sentence/line.
   - If a track contains zero sentences after cleanup, reject with reason `ERROR_CORRUPT_SONG_NO_NOTES`.
-**Missing files**
+### 3.2.3 Missing files
 Audio/video/instrumental files are validated for existence at load time:
 - Missing required audio file -> load fails.
 - Missing optional video/instrumental -> logged; song can still load (but feature disabled).
-**MVP parity requirements**
+### 3.2.4 MVP parity requirements
 - Mirror the recursive `.txt` discovery behavior.
 - Reject songs missing the required header fields or required audio file.
 - Keep invalid song diagnostics (error line number + reason) for export/troubleshooting.
@@ -605,6 +594,17 @@ Notes:
 - `floor()` MUST be mathematical floor.
 - The `- 0.5` in `CurrentBeatD` is required to match USDX timing: it shifts scoring decisions half a beat earlier.
 nvalid frames MUST be treated as `toneValid=false` (no scoring; rap also requires `toneValid=true`).
+
+## 5.2 Pitch Frame Timing, Jitter, and Mic Delay
+
+This section defines how phone pitch frames are mapped into the TV time domain, how the TV selects frames for scoring, and how microphone delay is applied.
+
+### 5.2.1 Pitch frame rate and missing frames
+
+- Phone pitch frames MUST be sent at the rate requested by `assignSinger.expectedPitchFps`. The **default is 50 fps** (20ms interval).
+  - Phones that support 100 fps MAY advertise `"pitchFps":100` in `hello.capabilities`. The TV MAY then set `expectedPitchFps=100` in `assignSinger` for those phones.
+  - If a phone cannot sustain the requested rate, it SHOULD reduce to 50 fps and the TV MUST tolerate the difference.
+- Missing or invalid frames MUST be treated as `toneValid=false` (no scoring; rap also requires `toneValid=true`).
 
 ### 5.2.2 Pitch-frame timestamps in TV time
 
@@ -1374,12 +1374,12 @@ If the user backgrounds the phone app during a song, iOS may suspend the process
 - `requestSongPackage` / `songPackageError` WebSocket messages
 - Pre-fetch loading gates in Select Players and preview
 
-# 9. Time Sync and Jitter Handling
+## 8.7 Time Sync and Jitter Handling
 
-## 9.1 Defaults
+### 8.7.1 Defaults
 - Clock sync ping/pong: run **5 exchanges in rapid succession** (100ms apart) on connection to establish initial `clockOffsetMs`. Then **suspend** during active singing. Resume with a single exchange on song end or disconnect/reconnect. Do not run continuously — LAN clock drift over a 3-minute song is negligible (<1ms) once offset is established. Smooth using the minimum-RTT sample from the last 5 valid exchanges.
 
-### 9.1.1 Clock Sync (NTP-lite, deterministic)
+### 8.7.1.1 Clock Sync (NTP-lite, deterministic)
 Goal: calibrate the phone's estimate of TV monotonic time so that each pitch frame can include `tvTimeMs`.
 For this spec, the phone reports `tvTimeMs` directly in each `pitchFrame`. Ping/pong exists only to calibrate the phone's estimate of TV time.
 Clock model:
@@ -1417,10 +1417,10 @@ Sample selection/smoothing (normative; maintained by **phone**):
 - The TV does NOT need to compute `clockOffsetMs`; it uses `tvTimeMs` in each binary pitch frame directly.
 Pitch-frame mapping, jitter buffer behavior, scoring sample selection, and mic delay application are defined in Section 5.2.
 
-# 10. UI Screens and Flows
+# 9. UI Screens and Flows
 This section is normative for MVP UI and navigation on Android TV.
 
-## 10.1 Global navigation and input
+## 9.1 Global navigation and input
 - Primary input is TV remote (DPAD + OK/Enter + Back).
 **Navigation model (normative)**
 - The TV app uses a simple navigation stack.
@@ -1445,7 +1445,7 @@ This section is normative for MVP UI and navigation on Android TV.
 - When a screen defines a long-press action, the long-press MUST trigger that secondary action.
 - When no long-press action is defined, long-press MUST behave the same as a normal OK.
 
-## 10.2 Song preview playback
+## 9.2 Song preview playback
 This section defines the behavior for Song List preview playback (Section 3.4) and the related Preview Volume setting (10.4.3).
 **When preview plays (normative; USDX-aligned)**
 - A preview MAY start only when:
@@ -1479,7 +1479,7 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
 - Preview volume uses **Settings > Audio > Preview Volume**.
 - A value of 0 MUST result in silence (disables preview).
 
-## 10.3 Select Players modal
+## 9.3 Select Players modal
 **Purpose**
 - On starting a song (including via Random actions) and on starting a medley run, select which connected phone(s) sing.
 - For medley playback, the selected players MUST remain assigned for the entire medley run (no additional prompts between segments).
@@ -1591,7 +1591,7 @@ Blocking state (no phones connected)
  - If Ready countdown is ON: send `startMode="countdown"` and `countdownMs = countdownSeconds*1000`.
  - If OFF: send `startMode="live"` and omit `countdownMs`.
 
-## 10.4 Settings Screen
+## 9.4 Settings Screen
 Settings is a simple list of items; selecting one opens a sub-screen.
 - Connect Phones
 - Song Library
@@ -1644,7 +1644,7 @@ Settings is a simple list of items; selecting one opens a sub-screen.
 +--------------------------------------+
 ```
 
-### 10.4.1 Settings > Connect Phones
+### 9.4.1 Settings > Connect Phones
 **Purpose**
 - Allow phones to connect via QR/code.
 - Show list of connected devices.
@@ -1729,7 +1729,7 @@ Settings is a simple list of items; selecting one opens a sub-screen.
 +--------------------------------------+
 ```
 
-### 10.4.2 Settings > Song Library (TV)
+### 9.4.2 Settings > Song Library (TV)
 This screen shows the song contribution status of all currently connected phones. There is no persistent trust list or pairing — any connected phone automatically contributes its songs (see §8.1).
 **Connected sources list (normative)**
 For each connected phone the TV MUST show:
@@ -1761,7 +1761,7 @@ For each connected phone the TV MUST show:
 +--------------------------------------------------------------------------------+
 ```
 
-### 10.4.3 Settings > Audio
+### 9.4.3 Settings > Audio
 - **Preview Volume** (normative):
  - Slider 0–100.
  - Controls only Song List preview playback volume (Section 10.2). TV/music playback volume during singing uses Android system volume and is not controlled by this app.
@@ -1792,7 +1792,7 @@ For each connected phone the TV MUST show:
 +--------------------------------------+
 ```
 
-### 10.4.4 Settings > Scoring Timing
+### 9.4.4 Settings > Scoring Timing
 - Manual mic delay baseline (ms). This value compensates for hardware audio pipeline latency (microphone → digital → network). Hardware latency is constant for a given phone model, so a one-time manual calibration is sufficient. See §5.2.4.
 **Interaction rules (normative)**
 - Selecting **Manual mic delay** and pressing OK MUST open the numeric keypad dialog (see "Numeric setting edit" in Section 10.4).
@@ -1808,7 +1808,7 @@ For each connected phone the TV MUST show:
 +--------------------------------------+
 ```
 
-### 10.4.5 Settings > Gameplay
+### 9.4.5 Settings > Gameplay
 - Line bonus ON/OFF (default ON).
 - Ready countdown before song start: ON/OFF (default ON).
 - Countdown length (seconds): integer 1-10 (default 3). Countdown displays at 1 Hz: N, N-1, ... , 1. After displaying `1`, playback and scoring start.
@@ -1831,7 +1831,7 @@ For each connected phone the TV MUST show:
 +--------------------------------------+
 ```
 
-### 10.4.6 Settings > Video
+### 9.4.6 Settings > Video
 - Video enabled ON/OFF (if disabled, video playback is suppressed and the background fallback is used instead).
 **Background fallback order (normative)**
 When video is disabled or unavailable, the singing screen background is determined as follows:
@@ -1848,7 +1848,7 @@ When video is disabled or unavailable, the singing screen background is determin
 +--------------------------------------+
 ```
 
-## 10.5 Singing Screen
+## 9.5 Singing Screen
 **Minimum layout**
 - Lyrics line with progressive highlight.
 - Pitch bars (or equivalent) for each active singer.
@@ -2021,7 +2021,7 @@ Disconnect auto-pause overlay
 +--------------------------------------+
 ```
 
-### 10.5.1 Singing Screen (Medley mode)
+### 9.5.1 Singing Screen (Medley mode)
 Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, but only the **medley window** of each song is played and scored.
 **Medley run context (normative)**
 - When starting medley playback, the implementation MUST create an immutable **medley run snapshot** from the current Medley playlist (Song List screen; Section 3.4).
@@ -2070,9 +2070,9 @@ Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, bu
 |  ─────────────────────────────────────────────
 ```
 
-## 10.6 Results
+## 9.6 Results
 
-### 10.6.1 Results (post-song)
+### 9.6.1 Results (post-song)
 Show per singer:
 - Notes score, Golden score, Line bonus, **Song Total** (tens-rounded per USDX rules).
 Actions:
@@ -2099,7 +2099,7 @@ Actions:
 +--------------------------------------------------------------------------------+
 ```
 
-### 10.6.2 Results (post-medley)
+### 9.6.2 Results (post-medley)
 After a medley run finishes, show a single results screen with a static score table listing each segment score and the aggregate Medley Total. No Left/Right navigation between rounds is required.
 **Aggregation (parity-aligned; normative)**
 - The Medley Total MUST be the **mean** (average) of the per-song `scoreTotalInt` values across segments for each player.
