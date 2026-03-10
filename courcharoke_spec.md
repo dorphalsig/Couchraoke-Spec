@@ -125,10 +125,9 @@ The songs folder is selected via `UIDocumentPickerViewController`. The chosen UR
 ### 3.1.2 Song file delivery
 The phone runs a lightweight read-only HTTP server for the duration of its session connection (see Section 8.6). Song files are served directly from the phone's songs folder via HTTP. The TV fetches files on demand using URLs provided in `songListUpdate`. No ZIP building, no extraction, and no temporary storage on the TV are required.
 
-### 3.1.3 TV-side library
+### 3.1.3 TV-Side Library and Lifecycle
 The TV aggregates song metadata received from all currently connected phones into an in-memory library index. The library index is never persisted between sessions. When a phone disconnects, its songs MUST be removed from the library index immediately — they become invisible and unselectable in the UI.
 
-### 3.1.4 TV-side song file lifecycle
 The TV holds no song files. All media is streamed directly from the phone's HTTP server on demand. When a phone disconnects, its song URLs become unreachable; any in-progress playback must be handled per Section 7.4. No cleanup of downloaded files is required.
 
 ## 3.2 Discovery and Validation Rules
@@ -156,11 +155,13 @@ After body parsing completes, validation MUST ensure each parsed track (single t
   - This cleanup is performed before the "no notes" check.
 - After removing empty sentences, the track MUST contain at least one remaining sentence/line.
   - If a track contains zero sentences after cleanup, reject with reason `ERROR_CORRUPT_SONG_NO_NOTES`.
-### 3.2.3 Missing files
+
+**Missing files**
 Audio/video/instrumental files are validated for existence at load time:
 - Missing required audio file -> load fails.
 - Missing optional video/instrumental -> logged; song can still load (but feature disabled).
-### 3.2.4 MVP parity requirements
+
+**MVP parity requirements**
 - Mirror the recursive `.txt` discovery behavior.
 - Reject songs missing the required header fields or required audio file.
 - Keep invalid song diagnostics (error line number + reason) for export/troubleshooting.
@@ -587,13 +588,27 @@ Two beat cursors are used:
 1) Highlight beat cursor (UI timing)
 - `highlightTimeSec = lyricsTimeSec - (GAPms / 1000.0)`
 - `CurrentBeat = floor(TimeSecToMidBeatInternal(highlightTimeSec))`
-2) Scoring beat cursor (judgement timing)
-- `scoringTimeSec = lyricsTimeSec - ((GAPms + micDelayMs) / 1000.0)`
-- `CurrentBeatD = floor(TimeSecToMidBeatInternal(scoringTimeSec) - 0.5)`
-Notes:
-- `floor()` MUST be mathematical floor.
-- The `- 0.5` in `CurrentBeatD` is required to match USDX timing: it shifts scoring decisions half a beat earlier.
-nvalid frames MUST be treated as `toneValid=false` (no scoring; rap also requires `toneValid=true`).
+2) Note scoring windows (judgement timing)
+
+Scoring operates per **note**, not per beat. Each note defines a time window during which pitch frames are collected and evaluated.
+
+For a note with `startBeat` and `durationBeats` in the current track, the scoring window in TV monotonic time is:
+
+- `noteStartTvMs = songStartTvMs + (startBeat × 15000 / BPM_file) + GAPms + micDelayMs`
+- `noteEndTvMs   = songStartTvMs + ((startBeat + durationBeats) × 15000 / BPM_file) + GAPms + micDelayMs`
+
+Where:
+- `songStartTvMs` is defined in Section 5.2.2.
+- `BPM_file` is the raw `#BPM` value from the header (before ×4).
+- `GAPms` is the `#GAP` value in milliseconds.
+- `micDelayMs` is the effective mic delay (Section 5.2.4). Adding it shifts the collection window later to account for hardware audio pipeline latency.
+
+A pitch frame with timestamp `tvTimeMs` falls within a note's scoring window if:
+`noteStartTvMs <= tvTimeMs < noteEndTvMs`
+
+This uses the same start-inclusive, end-exclusive boundary convention as Section 5.3.
+
+Invalid or missing frames MUST be treated as `toneValid=false` (no scoring; rap also requires `toneValid=true`).
 
 ## 5.2 Pitch Frame Timing, Jitter, and Mic Delay
 
@@ -620,22 +635,23 @@ When a `pitchFrame` arrives:
 
 ### 5.2.3 TV jitter buffer and scoring sample selection
 
-**`detectionTimeTvMs` (normative):**
-When scoring beat cursor `CurrentBeatD` advances to beat `b`, the TV computes the detection timestamp as the TV monotonic time corresponding to the audio position of that beat:
-
-- `lyricsTimeSecForBeat = BeatInternalToTimeSec(b) + GAPms / 1000.0`
-  *(This is the audio-clock position at which beat `b` plays, before mic delay.)*
-- `detectionTimeTvMs = songStartTvMs + lyricsTimeSecForBeat × 1000`
-
 Jitter buffer (TV):
-- Target playout delay: **220 ms** — frames for a given `detectionTimeTvMs` are expected to arrive no later than 220 ms after `detectionTimeTvMs` in real TV-wall time.
-- Max playout delay cap: **450 ms** — frames arriving where `latenessMs > 450` MUST be dropped (treated as silence).
+- Target playout delay: **220 ms** — frames are expected to arrive no later than 220 ms after their `tvTimeMs` timestamp in real TV-wall time.
+- Max playout delay cap: **450 ms** — frames arriving where `latenessMs > 450` MUST be dropped (treated as if never received).
 
-Scoring sample selection (parity-critical):
-- For beat `b`, use the **most recent** frame in the buffer where `frameTimestampTvMs <= detectionTimeTvMs`.
-- If the most recent qualifying frame has `arrivalTimeTvMs > detectionTimeTvMs + 450`, it was too late and MUST be treated as `toneValid=false`.
-- If no qualifying frame exists at all, treat as `toneValid=false`.
-- If the newest qualifying frame is older than **120 ms** relative to `detectionTimeTvMs` (i.e., `detectionTimeTvMs - frameTimestampTvMs > 120`), treat as `toneValid=false` (prevents stale scoring after stalls).
+**Note-level frame collection (normative):**
+
+`NOTE_FINALIZATION_DELAY_MS = 450` (constant; matches max playout delay cap).
+
+A note is **finalized** when the TV monotonic clock reaches `noteEndTvMs + NOTE_FINALIZATION_DELAY_MS`. This delay ensures that late-arriving frames for the tail of the note have been received before scoring is computed.
+
+At finalization, the TV collects all frames in the jitter buffer satisfying both:
+1. `noteStartTvMs <= frame.tvTimeMs < noteEndTvMs` (within the note's scoring window; Section 5.1).
+2. `frame.arrivalTimeTvMs - frame.tvTimeMs <= 450` (frame was not excessively late; same max playout cap).
+
+Frames that fail condition (2) MUST be excluded (treated as if never received).
+
+The resulting set of qualifying frames is `samplesInNote`. Scoring proceeds per Section 6.1.
 
 ### 5.2.4 Effective mic delay (manual)
 
@@ -702,21 +718,20 @@ The `thresholdIndex` (0–7) from `assignSinger` determines both the volume requ
 | 7 | 0.25 | 0.45 | Lowest (Extreme Noise) |
 ---
 
-## 5.3 Beat-Time Conversion
-
-### Internal beat unit
+## 5.3 Beat-Time Conversion (TV/Host)
 USDX treats the beat numbers written in UltraStar `.txt` files as the authoritative beat grid (quarter-beat resolution). There is no additional beat scaling.
+
+**Internal beat unit**
 - File beats: the integers stored in note lines (`startBeat`, `duration`) and sentence lines (`- startBeat`) in the `.txt`.
 - Internal beats: identical to file beats (no scaling): `internalBeat = fileBeat`.
 Parsing rule:
 - Parsed beat values (note `startBeat`, note `duration`, sentence `startBeat`) MUST be used as-is (no `*4`).
 
-### Internal BPM
+**Internal BPM**
 - The `.txt` header `#BPM:` is expressed in file beats per minute.
-- The internal BPM is:
-  - `BPM_internal = BPM_file * 4`
+- The internal BPM is: `BPM_internal = BPM_file * 4`
 
-### TimeSecToMidBeatInternal
+**TimeSecToMidBeatInternal**
 `TimeSecToMidBeatInternal(tSec)` converts a time offset (seconds) into an internal beat position (float).
 Input:
 - `tSec` is measured relative to the chart origin (i.e., `lyricsTimeSec - GAPms/1000.0`), and MAY be negative.
@@ -725,7 +740,7 @@ Output:
 Static BPM:
 - `MidBeat_internal = tSec * (BPM_internal / 60.0)`
 
-### BeatInternalToTimeSec
+**BeatInternalToTimeSec**
 `BeatInternalToTimeSec(beatInt)` converts an internal beat index to a time offset in seconds, relative to the chart origin (i.e., `lyricsTimeSec - GAPms/1000.0`).
 Static BPM:
 - `tSec = beatInt * (60.0 / BPM_internal)`
@@ -749,13 +764,54 @@ Gameplay behaviors that depend on START/END (normative)
 # 6. Scoring
 
 ## 6.1 Scoring Overview
- Beat-based scoring, normalized to 10000 total. Line bonus ON reserves 1000 for line bonus and distributes remaining points via note value normalization.
-Scoring beat stepping (parity-critical)
-- Scoring evaluation MUST run on a **dedicated scoring coroutine**, independent of the UI render loop. The coroutine MUST poll `ExoPlayer.getCurrentPosition()` every **10 ms** (100 Hz effective rate) to obtain `lyricsTimeSec`, compute `currentBeatD`, and evaluate any new integer beats since the last poll. This decouples scoring accuracy from UI frame rate — render load, frame drops, or 30/60/120 Hz display differences MUST NOT affect beat evaluation timing.
-- Score state MUST be exposed via `StateFlow<PlayerScore>` and observed by the Compose UI.
-- Implementations MUST evaluate scoring for every integer detection beat `b` in the interval `(oldBeatD, currentBeatD]` (i.e., from `oldBeatD+1` through `currentBeatD`, inclusive). Each integer beat is evaluated exactly once.
-  - `oldBeatD` and `currentBeatD` are the scoring-beat cursors defined in Section 5.1 (CurrentBeatD is derived from scoring time and includes the `-0.5` offset before flooring).
-- For each evaluated beat `b`, the active note window test MUST use the boundary convention from Section 5.3: `noteActive if startBeat <= b < endBeat`.
+
+Note-based scoring, normalized to 10000 total. Line bonus ON reserves 1000 for line bonus and distributes remaining 9000 via note value normalization.
+
+**Scoring coroutine (normative)**
+
+Scoring evaluation MUST run on a **dedicated scoring coroutine**, independent of the UI render loop. The coroutine MUST:
+1. Poll `ExoPlayer.getCurrentPosition()` every **10 ms** (100 Hz) to track song progress and detect note finalization times.
+2. Maintain the jitter buffer of incoming pitch frames (Section 5.2.3).
+3. Finalize notes in chronological order within each track when the TV monotonic clock reaches `noteEndTvMs + NOTE_FINALIZATION_DELAY_MS` (Section 5.2.3).
+
+This decouples scoring accuracy from UI frame rate — render load, frame drops, or 30/60/120 Hz display differences MUST NOT affect scoring.
+
+Score state MUST be exposed via `StateFlow<PlayerScore>` and observed by the Compose UI.
+
+**Per-note scoring (normative)**
+
+When a note is finalized, its score is computed as follows:
+
+Let:
+- `samplesInNote` = the set of qualifying pitch frames collected for this note (Section 5.2.3).
+- `N = |samplesInNote|` (number of qualifying frames).
+
+If `N = 0` (no frames received during the note window — e.g., network drop or silence):
+- `note_score = 0`
+
+If `N > 0`:
+- Count hits: `hits = |{ s ∈ samplesInNote : isPitchMatch(s, note) }|`
+  - `isPitchMatch` is defined per note type in Section 6.2.
+- Compute maximum possible score for this note:
+  - `max_note_score = (MaxSongPoints / TrackScoreValue) × ScoreFactor[noteType] × durationBeats`
+  - Where `MaxSongPoints` and `TrackScoreValue` are defined in Section 6.5, and `ScoreFactor` in Section 6.2.1.
+- Compute the note's earned score:
+  - `note_score = max_note_score × (hits / N)`
+  - `hits / N` MUST use IEEE 754 double-precision float division.
+
+**Score accumulation (normative)**
+
+After computing `note_score`:
+- If `noteType` is Normal (`:`) or Rap (`R`): add `note_score` to `Player.Score`.
+- If `noteType` is Golden (`*`) or RapGolden (`G`): add `note_score` to `Player.ScoreGolden`.
+- Freestyle (`F`) notes: `ScoreFactor = 0`, so `max_note_score = 0`; no accumulation occurs.
+
+**Normalization check:** For a perfect performance (all frames are hits for every note), the total across all notes equals:
+`sum(max_note_score) = sum((MaxSongPoints / TrackScoreValue) × ScoreFactor × duration) = MaxSongPoints × (TrackScoreValue / TrackScoreValue) = MaxSongPoints` ✓
+
+**Sentence finalization (normative)**
+
+A sentence/line is considered complete when its last scorable note has been finalized. At that point, line bonus evaluation (Section 6.5) MUST run for that sentence. `Player.ScoreLast` MUST be updated after each sentence's line bonus is applied, as in the current spec.
 
 ## 6.2 Note Types
 Note-type tokens in the TXT file:
@@ -764,10 +820,16 @@ Note-type tokens in the TXT file:
 - Golden: `*`
 - Rap: `R`
 - RapGolden: `G`
-Per-detection-beat scoring eligibility:
-- Freestyle notes (`F`) are excluded from hit detection and contribute 0 points.
-- For Normal (`:`) and Golden (`*`) notes: a detection beat can score only if `toneValid=true` and pitch is within the tolerance Range after octave normalization (Sections 6.3-6.4).
-- For Rap (`R`) and RapGolden (`G`) notes: a detection beat can score if `toneValid=true`; pitch difference is ignored (presence-only).
+**Per-sample hit detection (`isPitchMatch`):**
+
+For each pitch frame `s` in `samplesInNote`, `isPitchMatch(s, note)` is defined as:
+- Freestyle (`F`): never evaluated — Freestyle notes are excluded from scoring entirely (`ScoreFactor = 0`).
+- Normal (`:`) and Golden (`*`): `s.toneValid = true` AND the detected pitch is within the tolerance Range of the target tone after octave normalization (Sections 6.3–6.4).
+  - Specifically: `abs(octaveNormalized(s.tone, note.toneSemitone) − note.toneSemitone) <= Range`
+- Rap (`R`) and RapGolden (`G`): `s.toneValid = true` (presence-only; pitch difference is ignored).
+
+Where `s.tone = s.midiNote − 36` (Section 6.4), `octaveNormalized` is the shift-by-12 loop in Section 6.4, and `Range` is the player's difficulty tolerance in Section 6.3.
+
 Definition of `toneValid` and how it is produced/transported is normative in Section 8.3 (Pitch Stream Messages).
 
 ## 6.2.1 ScoreFactor constants
@@ -817,7 +879,7 @@ Per-line max score (normative):
 - For a line, define the note-score budget available to that line as:
   `MaxLineScore = MaxSongPoints * (LineScoreValue / TrackScoreValue)`
 Line perfection (normative):
-At sentence end:
+At sentence completion (when the last scorable note in the sentence has been finalized; Section 6.1):
 - `LineScore = (Player.Score + Player.ScoreGolden) - Player.ScoreLast`
 - If `MaxLineScore <= 2` then `LinePerfection = 1`
 - Else `LinePerfection = clamp(LineScore / (MaxLineScore - 2), 0, 1)`
@@ -831,13 +893,14 @@ Rounding: see Section 6.6.
 Implement sentence-end scoring and line bonus exactly as above, including the `-2` forgiveness term.
 
 ## 6.6 Rounding and Display
-Per-beat note scoring (normative):
+Per-note scoring (normative):
 - Let `MaxSongPoints` be as defined in Section 6.5 (10000 if LineBonusEnabled=OFF; 9000 if ON).
 - Let `TrackScoreValue` be as defined in Section 6.5.
-- For each detection beat where the active note is considered hit (Section 6.2):
-  - `CurBeatPoints = (MaxSongPoints / TrackScoreValue) * ScoreFactor[noteType]`
-  - If noteType is Normal or Rap: add to `Player.Score`
-  - If noteType is Golden or RapGolden: add to `Player.ScoreGolden`
+- For each finalized note (Section 6.1):
+  - `max_note_score = (MaxSongPoints / TrackScoreValue) × ScoreFactor[noteType] × durationBeats`
+  - `note_score = max_note_score × (hits / N)` where `hits` and `N` are defined in Section 6.1. If `N = 0`, `note_score = 0`.
+  - If noteType is Normal or Rap: add `note_score` to `Player.Score`
+  - If noteType is Golden or RapGolden: add `note_score` to `Player.ScoreGolden`
 Line score rounding (normative):
 - `Player.ScoreLineInt = floor(round(Player.ScoreLine) / 10) * 10`
 Tens rounding (normative):
@@ -1374,12 +1437,11 @@ If the user backgrounds the phone app during a song, iOS may suspend the process
 - `requestSongPackage` / `songPackageError` WebSocket messages
 - Pre-fetch loading gates in Select Players and preview
 
-## 8.7 Time Sync and Jitter Handling
+## 8.7 Time Sync and Jitter Handling (Cross-Platform)
 
-### 8.7.1 Defaults
-- Clock sync ping/pong: run **5 exchanges in rapid succession** (100ms apart) on connection to establish initial `clockOffsetMs`. Then **suspend** during active singing. Resume with a single exchange on song end or disconnect/reconnect. Do not run continuously — LAN clock drift over a 3-minute song is negligible (<1ms) once offset is established. Smooth using the minimum-RTT sample from the last 5 valid exchanges.
+### 8.7.1 Clock Sync (NTP-lite, deterministic)
+**Defaults:** Clock sync ping/pong MUST run **5 exchanges in rapid succession** (100ms apart) on connection to establish initial `clockOffsetMs`. Then **suspend** during active singing. Resume with a single exchange on song end or disconnect/reconnect. Do not run continuously — LAN clock drift over a 3-minute song is negligible (<1ms) once offset is established. Smooth using the minimum-RTT sample from the last 5 valid exchanges.
 
-### 8.7.1.1 Clock Sync (NTP-lite, deterministic)
 Goal: calibrate the phone's estimate of TV monotonic time so that each pitch frame can include `tvTimeMs`.
 For this spec, the phone reports `tvTimeMs` directly in each `pitchFrame`. Ping/pong exists only to calibrate the phone's estimate of TV time.
 Clock model:
@@ -2070,9 +2132,9 @@ Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, bu
 |  ─────────────────────────────────────────────
 ```
 
-## 9.6 Results
+## 9.6 Results Screen (TV)
 
-### 9.6.1 Results (post-song)
+### Post-song results
 Show per singer:
 - Notes score, Golden score, Line bonus, **Song Total** (tens-rounded per USDX rules).
 Actions:
@@ -2099,7 +2161,7 @@ Actions:
 +--------------------------------------------------------------------------------+
 ```
 
-### 9.6.2 Results (post-medley)
+### Post-medley results
 After a medley run finishes, show a single results screen with a static score table listing each segment score and the aggregate Medley Total. No Left/Right navigation between rounds is required.
 **Aggregation (parity-aligned; normative)**
 - The Medley Total MUST be the **mean** (average) of the per-song `scoreTotalInt` values across segments for each player.
@@ -2635,6 +2697,7 @@ When `expected.parsedSong.json` is present in a parse fixture, it MUST conform t
 - `MaxSongPoints` (int)
 - `MaxLineBonusPool` (int)
 - `TrackScoreValue` (int or float)
+- Per-note entries with `max_note_score`, `hits`, `N` (sample count), `note_score`
 - Per-line entries with `LinePerfection`, `LineBonusAwarded`
 - Final player fields: `Score` (float), `ScoreGolden` (float), `ScoreLine` (float), `ScoreInt` (int), `ScoreGoldenInt` (int), `ScoreLineInt` (int), `ScoreTotalInt` (int)
 Fixtures MUST NOT assert unstable intermediate values that are not normatively defined by this spec.
@@ -2649,24 +2712,30 @@ These examples are intended to be copied into fixtures by providing:
 - optional `pitchFrames.jsonl` (MIDI-based detection stream)
 - `expected.score.json` (authoritative intermediate values + expected totals)
 
-## E.1 Static BPM beat cursors (highlight vs scoring)
+## E.1 Static BPM — highlight cursor and note scoring windows
+
 Given:
 - `BPM_file = 120.0`
-- `BPM_internal = BPM_file * 4 = 480.0`
+- `BPM_internal = BPM_file × 4 = 480.0`
 - `beatsPerSec = BPM_internal / 60.0 = 8.0`
 - `GAPms = 2000`
 - `micDelayMs = 100`
+- `songStartTvMs = 50000` (example TV monotonic value)
 - `lyricsTimeSec = 5.0`
-Compute (Section 5.1):
-- `highlightTimeSec = lyricsTimeSec - (GAPms/1000) = 5.0 - 2.0 = 3.0`
-- `scoringTimeSec  = lyricsTimeSec - ((GAPms+micDelayMs)/1000) = 5.0 - 2.1 = 2.9`
-Convert time to beats (Section 5.3, static BPM):
-- `MidBeat_internal(highlight) = 3.0 * 8.0 = 24.0`
+
+Highlight cursor (Section 5.1 — unchanged):
+- `highlightTimeSec = lyricsTimeSec − (GAPms / 1000) = 5.0 − 2.0 = 3.0`
+- `MidBeat_internal(highlight) = 3.0 × 8.0 = 24.0`
 - `CurrentBeat = floor(24.0) = 24`
-- `MidBeat_internal(scoring) = 2.9 * 8.0 = 23.2`
-- `CurrentBeatD = floor(23.2 - 0.5) = floor(22.7) = 22`
-Implication:
-- A scoring update from `oldBeatD=19` to `currentBeatD=22` MUST evaluate beats `b = 20, 21, 22` (Section 6.1).
+
+Note scoring window example (Section 5.1):
+
+Consider a note with `startBeat = 20`, `durationBeats = 4`:
+- `noteStartTvMs = 50000 + (20 × 15000 / 120) + 2000 + 100 = 50000 + 2500 + 2000 + 100 = 54600`
+- `noteEndTvMs   = 50000 + (24 × 15000 / 120) + 2000 + 100 = 50000 + 3000 + 2000 + 100 = 55100`
+
+All pitch frames with `54600 <= tvTimeMs < 55100` are collected for this note.
+The note is finalized at TV clock `55100 + 450 = 55550` (Section 5.2.3).
 
 ## E.2 Beat-to-time and time-to-beat round-trip
 Given:
@@ -2681,66 +2750,120 @@ Round-trip: convert `lyricsTimeSec=5.0` back to internal beat (Section 5.3):
 - `MidBeat = 3.0 * (480.0 / 60.0) = 3.0 * 8.0 = 24.0`
 - `CurrentBeat = floor(24.0) = 24` ✓
 
-## E.3 Beat stepping and note-window boundary convention
-Given:
-- `oldBeatD = 10`
-- `currentBeatD = 13`
-Then (Section 6.1):
-- Evaluate beats `b = 11, 12, 13` only.
+## E.3 Note-window boundary convention
+
 If a note has:
-- `startBeatFile = 11`
+- `startBeat = 11`
 - `durationBeats = 2`
-- `endBeatExclusive = startBeatFile + durationBeats = 13`
+- `endBeat = startBeat + durationBeats = 13`
+
 Then (Section 5.3 boundary convention):
-- active at `b=11` and `b=12`
-- NOT active at `b=13` (end exclusive)
+- A pitch frame falls within this note's window if its corresponding beat position `b` satisfies `11 <= b < 13`.
+- A frame at beat position `b = 13` belongs to the **next** note (end exclusive).
+
+In TV time (given `songStartTvMs`, `BPM_file`, `GAPms`, `micDelayMs`):
+- `noteStartTvMs = songStartTvMs + (11 × 15000 / BPM_file) + GAPms + micDelayMs`
+- `noteEndTvMs   = songStartTvMs + (13 × 15000 / BPM_file) + GAPms + micDelayMs`
+- Frame included if `noteStartTvMs <= frame.tvTimeMs < noteEndTvMs`.
 
 ## E.4 Scoring normalization and line bonus (fully-worked minimal song)
+
 Assume:
 - Line bonus: ON
 - `MaxSongPoints = 9000`
 - `MaxLineBonusPool = 1000`
+- `BPM_file = 120.0`, `GAPms = 0`, `micDelayMs = 0`, `songStartTvMs = 10000`
+- Pitch frame rate: 50 fps (one frame every 20 ms)
+
 Create a minimal SOLO track (trackIndex=0) with two non-empty lines:
+
 Line 1:
-- `: 0 4 0 la`
+- `: 0 4 0 la`  (Normal, startBeat=0, duration=4, tone=0)
 - `- 4`
+
 Line 2:
-- `* 4 4 0 la`
+- `* 4 4 0 la`  (Golden, startBeat=4, duration=4, tone=0)
 - `- 8`
 - `E`
+
 Where (Section 6.2.1):
-- Normal (`:`) has `ScoreFactor=1`
-- Golden (`*`) has `ScoreFactor=2`
-Compute `TrackScoreValue` (Section 6.5):
-- Line1 ScoreValue = `4 * 1 = 4`
-- Line2 ScoreValue = `4 * 2 = 8`
+- Normal (`:`) has `ScoreFactor = 1`
+- Golden (`*`) has `ScoreFactor = 2`
+
+**Compute `TrackScoreValue` (Section 6.5):**
+- Line1 ScoreValue = `4 × 1 = 4`
+- Line2 ScoreValue = `4 × 2 = 8`
 - `TrackScoreValue = 4 + 8 = 12`
-Per-beat points (Section 6.6):
-- For Normal hit-beat: `CurBeatPoints = (MaxSongPoints / TrackScoreValue) * 1 = (9000/12) = 750`
-- For Golden hit-beat: `CurBeatPoints = (MaxSongPoints / TrackScoreValue) * 2 = (9000/12) * 2 = 1500`
-Perfect performance (all eligible beats hit; `toneValid=true`; pitch in range for Normal/Golden):
-- Line 1 beats b=0..3: `Player.Score = 4 * 750 = 3000`
-- Line 2 beats b=4..7: `Player.ScoreGolden = 4 * 1500 = 6000`
-- Note totals = 9000
-Line bonus (Section 6.5):
+
+**Note scoring windows (Section 5.1):**
+
+Note 1 (Normal, beats 0–4):
+- `noteStartTvMs = 10000 + (0 × 15000 / 120) + 0 + 0 = 10000`
+- `noteEndTvMs   = 10000 + (4 × 15000 / 120) + 0 + 0 = 10000 + 500 = 10500`
+- Window duration: 500 ms → at 50 fps, expect ~25 frames
+
+Note 2 (Golden, beats 4–8):
+- `noteStartTvMs = 10000 + (4 × 15000 / 120) = 10500`
+- `noteEndTvMs   = 10000 + (8 × 15000 / 120) = 11000`
+- Window duration: 500 ms → at 50 fps, expect ~25 frames
+
+**Per-note max scores (Section 6.1):**
+- Note 1 (Normal): `max_note_score = (9000 / 12) × 1 × 4 = 3000`
+- Note 2 (Golden): `max_note_score = (9000 / 12) × 2 × 4 = 6000`
+- Sum = 9000 ✓
+
+**Perfect performance** (all frames have `toneValid=true` and pitch matching tone 0):
+
+Note 1: N=25 frames, hits=25 → `note_score = 3000 × (25/25) = 3000` → added to `Player.Score`
+Note 2: N=25 frames, hits=25 → `note_score = 6000 × (25/25) = 6000` → added to `Player.ScoreGolden`
+
+Note totals: `Player.Score = 3000`, `Player.ScoreGolden = 6000`, sum = 9000
+
+**Partial performance example** (Note 1: 20 of 25 hit; Note 2: 15 of 25 hit):
+
+Note 1: `note_score = 3000 × (20/25) = 2400` → `Player.Score = 2400`
+Note 2: `note_score = 6000 × (15/25) = 3600` → `Player.ScoreGolden = 3600`
+
+Note totals: sum = 6000
+
+**Line bonus (Section 6.5) — perfect performance case:**
+
 - `NonEmptyLines = 2`
 - `LineBonusPerLine = MaxLineBonusPool / NonEmptyLines = 1000 / 2 = 500`
+
+Line 1 (at sentence completion):
+- `MaxLineScore = MaxSongPoints × (Line1ScoreValue / TrackScoreValue) = 9000 × (4/12) = 3000`
+- `LineScore = (Player.Score + Player.ScoreGolden) − Player.ScoreLast = 3000 − 0 = 3000`
+- `LinePerfection = clamp(3000 / (3000 − 2), 0, 1) = clamp(3000 / 2998, 0, 1) = 1`
+- `Player.ScoreLine += 500 × 1 = 500`
+
+Line 2 (at sentence completion):
+- `MaxLineScore = 9000 × (8/12) = 6000`
+- `LineScore = (3000 + 6000) − 3000 = 6000`
+- `LinePerfection = clamp(6000 / (6000 − 2), 0, 1) = clamp(6000 / 5998, 0, 1) = 1`
+- `Player.ScoreLine += 500 × 1 = 500`
+
+`Player.ScoreLine = 1000`
+
+**Rounding (Section 6.6):**
+- `Player.ScoreLineInt = floor(round(1000) / 10) × 10 = 1000`
+- `ScoreInt = round(3000 / 10) × 10 = 3000`
+- Since `ScoreInt < Player.Score` is FALSE, `ScoreGoldenInt = floor(6000 / 10) × 10 = 6000`
+- `ScoreTotalInt = 3000 + 6000 + 1000 = 10000`
+
+**Line bonus — partial performance case:**
+
 Line 1:
-- `MaxLineScore = MaxSongPoints * (Line1ScoreValue / TrackScoreValue) = 9000 * (4/12) = 3000`
-- At sentence end: `LineScore = (Score + ScoreGolden) - ScoreLast = 3000 - 0 = 3000`
-- `LinePerfection = clamp(LineScore / (MaxLineScore - 2), 0, 1) = clamp(3000/2998, 0, 1) = 1`
-- `ScoreLine += LineBonusPerLine * LinePerfection = 500`
+- `LineScore = 2400 − 0 = 2400`
+- `LinePerfection = clamp(2400 / 2998, 0, 1) = 0.8005...`
+- `Player.ScoreLine += 500 × 0.8005 = 400.26...`
+
 Line 2:
-- `MaxLineScore = 9000 * (8/12) = 6000`
-- `LineScore = 9000 - 3000 = 6000`
-- `LinePerfection = clamp(6000/5998, 0, 1) = 1`
-- `ScoreLine += 500`
-So: `Player.ScoreLine = 1000`
-Rounding (Section 6.6):
-- `Player.ScoreLineInt = floor(round(ScoreLine)/10)*10 = 1000`
-- `ScoreInt = round(Player.Score/10)*10 = 3000`
-- Since `ScoreInt < Player.Score` is FALSE, `ScoreGoldenInt = floor(Player.ScoreGolden/10)*10 = 6000`
-- `ScoreTotalInt = ScoreInt + ScoreGoldenInt + ScoreLineInt = 10000`
+- `LineScore = (2400 + 3600) − 2400 = 3600`
+- `LinePerfection = clamp(3600 / 5998, 0, 1) = 0.6002...`
+- `Player.ScoreLine += 500 × 0.6002 = 300.10...`
+
+`Player.ScoreLine = 700.36...`
 
 ## E.5 Golden rounding direction rule (fractional demonstration)
 This example exists only to demonstrate the “golden rounds opposite” rule (Section 6.6).
@@ -2753,12 +2876,13 @@ Compute:
   - `ScoreGoldenInt = ceil(100.909/10)*10 = 110`
 
 ## E.6 Minimal fixture files for E.4 (reference layout)
+
 Fixture directory example: `E4_score_linebonus_perfect/`
 - `song.txt` contains the exact 2-line chart from E.4.
 - `expected.score.json` contains at least:
   - `MaxSongPoints`, `MaxLineBonusPool`
   - `TrackScoreValue`
-  - per-note `CurBeatPoints` values
+  - per-note `max_note_score`, `hits`, `N`, `note_score` values
   - `Score`, `ScoreGolden`, `ScoreLine`, and the tens-rounded ints
   - `ScoreTotalInt`
-`pitchFrames.jsonl` is OPTIONAL for E.4 if the harness can inject per-beat hit/miss booleans. If the fixture uses the full scoring pipeline, provide `pitchFrames.jsonl` with `toneValid=true` and `midiNote` matching the target tone for each scoring beat.
+`pitchFrames.jsonl` is OPTIONAL for E.4 if the harness can inject per-note hit counts directly. If the fixture uses the full scoring pipeline, provide `pitchFrames.jsonl` with frames at 50 fps covering each note's time window, with `toneValid=true` and `midiNote` matching the target tone for hit frames, or `toneValid=false` / mismatched `midiNote` for miss frames.
