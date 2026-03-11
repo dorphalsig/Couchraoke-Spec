@@ -116,7 +116,6 @@ Phone is authoritative for: song file storage, song metadata scanning, song HTTP
 ## 3.1 Storage Access
 Each phone app has a single configured songs folder — a directory on the phone's local storage that contains all song subdirectories. The user sets this folder once in the phone app settings. The phone scans this folder recursively for `.txt` files and makes them available to the TV.
 ### 3.1.1 Scan implementation
-Scanning requires platform-specific file enumeration:
 #### 3.1.1.1 Android (SAF — Kotlin):*
 The songs folder is selected via `ActivityResultContracts.OpenDocumentTree()` and represented as a persisted SAF tree URI (`content://...`). `java.io.File` cannot traverse SAF URIs. Recursive listing MUST use `DocumentFile.fromTreeUri(context, uri).listFiles()` directly (the `DocumentFile` API is part of `androidx.documentfile:documentfile`, already a transitive dependency of `androidx.core`). Recursion depth is bounded by the songs folder structure; no artificial depth limit is required.
 For each `.txt` file found: read its content via `contentResolver.openInputStream(uri)`, parse the header tags, resolve asset filenames to their SAF URIs via `DocumentFile.findFile(name)`, check file availability via `DocumentFile.exists()`, and build `coverUrl`/`audioUrl`/etc. from the HTTP server's URL scheme (Section 8.6).
@@ -131,7 +130,7 @@ The TV aggregates song metadata received from all currently connected phones int
 The TV holds no song files. All media is streamed directly from the phone's HTTP server on demand. When a phone disconnects, its song URLs become unreachable; any in-progress playback must be handled per Section 7.4. No cleanup of downloaded files is required.
 
 ## 3.2 Discovery and Validation Rules
-### 3.2.1 Phone-side discovery (normative)**
+### 3.2.1 Phone-side discovery (normative)
 The phone scans for **all `.txt` files recursively** under its configured songs folder. Each `.txt` is treated as a distinct song entry, even if multiple `.txt` files exist in the same folder.
 ### 3.2.2 Validation (song acceptance)**
 A song entry is accepted into the library if and only if all of the following checks pass. If any check fails, the song entry MUST be rejected and a diagnostic MUST be emitted (see Section 4.3).
@@ -211,7 +210,7 @@ Normative minimum index record (per song)
   - `vocalsUrl` (string|null): URL to the vocals audio file.
 Implementations MAY store additional fields (e.g., genre, year, videoGapSec) but the above is the minimum required for MVP behavior.
 
-## 3.4 Song List (Landing Screen)
+## 3.4 Song List (Landing Screen) - TV
 **Purpose**
 - Always the landing screen (even if library is empty).
 - Displays songs sorted by **Artist -> Album -> Title**.
@@ -370,10 +369,6 @@ Definition details (USDX parity):
   - If valid tags exist, `medleySource="tag"` and those beats are used.
   - If valid tags do not exist, `medleySource=null` and `canMedley=false`.
 **Note — medley auto-calc deferred:** USDX supports a refrain-finding algorithm (`#CALCMEDLEY`) that produces `medleySource="calculated"` when no explicit tags exist. This algorithm is not specified for MVP. `medleySource="calculated"` is therefore not a valid value in this implementation. Only songs with explicit `#MEDLEYSTARTBEAT`/`#MEDLEYENDBEAT` tags are medley-eligible.
-
-## 3.5 Advanced Search (Overlay) [POST-MVP]
-> **This section is deferred to post-MVP.** The inline search in §3.4 covers the primary use case. The `[Advanced]` button is removed from the Song List wireframe for MVP. This section is retained as a design reference for future implementation.
-Advanced Search is a scoped search overlay that would be opened from Song List via an **Advanced** action. It adds scope selection (Artist / Album / Song / Everywhere) and a live-results list. Implementation requires additional focus management, overlay lifecycle, and filter-state propagation back to Song List. These are non-trivial for TV remote navigation and are not required for MVP parity.
 
 # 4. USDX TXT Format Support
 
@@ -1142,255 +1137,422 @@ Protocol mismatch
 
 # 8. Network Protocol
 
-## 8.1 Transport
-**Implementation requirements (MVP)**
-This system uses two transports:
-- **WebSocket** (control channel): all control messages (`hello`, `sessionState`, `ping`, `pong`, `clockAck`, `assignSinger`, `error`, `requestSongList`, `songListUpdate`). TV host exposes a single path:
-  - `ws://<host-ip>:<port>/` — session connection path (requires `?token=<sessionToken>`)
-- **HTTP** (song file delivery): the phone runs a read-only HTTP file server on `httpPort` (reported in `hello`). The TV fetches song assets directly from `http://<phone-ip>:<httpPort>/...` using URLs provided in `songListUpdate`. See Section 8.6.
-- **UDP** (pitch channel): all `pitchFrame` datagrams. The TV MUST bind a `DatagramSocket` on a fixed port at session start (before any phone connects), so `udpPort` is stable for the session lifetime. This port MUST be included in the `assignSinger` message as a required field `udpPort` (int). The phone targets `<tv-ip>:<udpPort>` for all pitch UDP datagrams. Frames MUST NOT be batched.
+---
+
+## 8.1 Transport Channels (Common)
+
+This system uses three transports:
+
+- **WebSocket** (control channel): all control messages (`hello`, `sessionState`, `ping`, `pong`, `clockAck`, `assignSinger`, `error`, `requestSongList`, `songListUpdate`). The TV host exposes a single path:
+  - `ws://<host-ip>:<port>/` — requires `?token=<sessionToken>`
+- **HTTP** (song file delivery): the phone runs a read-only HTTP file server on `httpPort` (reported in `hello`). The TV fetches song assets directly from `http://<phone-ip>:<httpPort>/...` using URLs provided in `songListUpdate`. See §8.7.
+- **UDP** (pitch channel): all `pitchFrame` datagrams. The TV MUST bind a `DatagramSocket` on a fixed port at session start (before any phone connects), so `udpPort` is stable for the session lifetime. This port MUST be included in the `assignSinger` message as the required field `udpPort` (int). The phone targets `<tv-ip>:<udpPort>` for all pitch datagrams. Frames MUST NOT be batched.
+
 **Song source policy (normative)**
 Any phone that successfully joins a session (presents a valid session token) MUST be sent a `requestSongList` message immediately after the `hello` handshake. The phone's songs appear in the TV library for the duration of the connection. No separate pairing or trust approval is required. The session token already gates who can join.
+
 **Session token / join code (normative)**
- - Random token to prevent accidental joins on the LAN; minimum 32 bits entropy (recommended 64+).
- - The same token MUST be shown to the user as the join code and MUST be the value of the `token` query parameter.
- - The join code MUST be human-enterable: implementations SHOULD use a case-insensitive alphabet and MAY display the code in groups (e.g., `ABCD-EFGH`).
- - When the user types the join code, the phone MUST normalize it by removing spaces/hyphens and applying case-insensitive comparison.
- - Generated per Session start; invalidated when Session ends.
- - Reuse across sessions is NOT allowed.
-- Host MUST reject WebSocket connections with missing/incorrect session token and send `error(code="invalid_token")` before closing.
-**mDNS advertisement (normative)**
+- Random token to prevent accidental joins on the LAN; minimum 32 bits entropy (recommended 64+).
+- The same token MUST be shown to the user as the join code and MUST be the value of the `token` query parameter.
+- The join code MUST be human-enterable: implementations SHOULD use a case-insensitive alphabet and MAY display the code in groups (e.g., `ABCD-EFGH`).
+- When the user types the join code, the phone MUST normalize it by removing spaces/hyphens and applying case-insensitive comparison.
+- Generated per session start; invalidated when the session ends.
+- Reuse across sessions is NOT allowed.
+- The TV MUST reject WebSocket connections with a missing or incorrect session token and send `error(code="invalid_token")` before closing.
+
+---
+
+## 8.2 Session Discovery
+
+### 8.2.1 Service Advertisement — Android TV
+
 The TV MUST advertise itself via mDNS for the duration of the session so phones can locate it by typed join code without knowing the TV's IP address.
+
 - Service type: `_karaoke._tcp`
 - Instance name: `KaraokeTV-<last4>` where `<last4>` is the last 4 characters of the normalized join code (e.g., `KaraokeTV-EFGH` for code `ABCDEFGH`). Instance names MUST be unique on the LAN.
 - Port: the WebSocket server port.
 - TXT record (normative; all fields required):
   - `code=<normalizedJoinCode>` — the full join code, uppercase, no hyphens or spaces (e.g., `code=ABCDEFGH`). This is what the phone matches against.
   - `v=1` — protocol version.
-**Phone join-code resolution (normative)**
+
+**jmDNS library (normative)**
+Add `jmdns:3.5.9` to the TV app's dependencies. This is the only mature, pure-Java mDNS implementation suitable for Android TV. NSD Manager on Android TV has known unreliability on some OEM firmware.
+
+**Multicast lock (normative)**
+Android's Wi-Fi hardware filters multicast packets by default to save battery. The TV app MUST:
+1. Declare `<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />` in `AndroidManifest.xml`.
+2. Acquire a `WifiManager.MulticastLock` (tag: `"jmdns_lock"`) on session start, before starting jmDNS.
+3. Release the lock on session end.
+
+Without this lock, incoming multicast packets are silently dropped by the Wi-Fi driver on many Android TV devices, making the mDNS advertisement invisible to phones.
+
+---
+
+### 8.2.2 Service Discovery — Phone (Android & iOS)
+
 When the user enters a join code manually:
+
 1. Phone normalizes input: strip spaces/hyphens, uppercase.
 2. Phone performs mDNS browse for `_karaoke._tcp`.
-3. For each discovered service, phone resolves TXT records and compares `code` field against normalized input.
+3. For each discovered service, the phone resolves TXT records and compares the `code` field against the normalized input.
 4. If exactly one match: connect directly to that service's host/port with the token.
-5. If multiple matches (two TVs with the same code, extremely unlikely): prompt user to select by instance name.
+5. If multiple matches (two TVs with the same code — extremely unlikely): prompt the user to select by instance name.
 6. If no match after 5 seconds: show `TV not found. Make sure your phone is on the same Wi-Fi network.`
-**TV-side mDNS library (normative; Android TV)**
-Add `jmdns:3.5.9` to the TV app's dependencies. This is the only mature, pure-Java mDNS implementation suitable for Android TV (NSD Manager on Android TV has known unreliability on some OEM firmware). Add to Appendix A.
-**Multicast lock (normative; Android TV)**
-Android's Wi-Fi hardware filters multicast packets by default to save battery. The TV app MUST declare `<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />` in `AndroidManifest.xml`. On session start, the TV MUST acquire a `WifiManager.MulticastLock` (tag: `"jmdns_lock"`) before starting jmDNS. The lock MUST be released on session end. Without this lock, incoming multicast packets are silently dropped by the Wi-Fi driver and mDNS advertisement is invisible to phones on many Android TV devices.
 
-## 8.2 Control Messages
-**Implementation requirements (MVP)**
-All messages are JSON objects with fields:
-- `type` (string), `protocolVersion` (int), `tsTvMs` (optional; TV may include).
-Required control messages:
-1) `hello` (phone -> TV) 
-- Fields: `clientId` (stable UUID), `deviceName`, `appVersion`, `protocolVersion`, `capabilities` (e.g., `{"pitchFps":100}`), `httpPort` (int; the port on which the phone's HTTP file server is listening)
-2) `sessionState` (TV -> phone, and optional phone -> TV ack) 
-- Fields: `sessionId`, `slots` (`{"P1":{connected,deviceName}, "P2":{...}}`), `inSong` (bool), `songTimeSec` (float, optional), `connectionId` (uint16; assigned by TV per connection; present **only in the initial `sessionState` sent in response to `hello`**; see Section 8.5)
-3) `ping` / `pong` / `clockAck` (clock sync; MVP is TV-initiated)
-- For MVP clock sync, `ping` MUST be sent **TV → phone**, `pong` MUST be sent **phone → TV**, and `clockAck` MUST be sent **TV → phone** immediately after receiving `pong`. See Section 9.1.1 for full flow and why `clockAck` is required.
-- Envelope semantics:
-  - `ping` fields: `pingId`, `tTvSendMs` (TV monotonic ms at send)
-  - `pong` fields: `pingId` (echo), `tTvSendMs` (echo), `tPhoneRecvMs` (phone monotonic ms at receive), `tPhoneSendMs` (phone monotonic ms at send of pong)
-  - `clockAck` fields: `pingId` (echo), `tTvRecvMs` (TV monotonic ms at receipt of pong)
-4) `error` (TV -> phone) 
-- Fields: `code` (string), `message` (string). After sending, TV MAY close.
-- `code` (normative; snake_case):
-  - `invalid_token`: join token is missing/incorrect.
-  - `protocol_mismatch`: `protocolVersion` mismatch.
-  - `session_full`: session roster is full.
-  - `session_locked`: session is in Locked state.
-  - Implementations MAY add additional codes in the future; unknown codes MUST be displayed as a generic error.
-5) `assignSinger` (TV -> phone)
-Sent to phones that are assigned to sing (one message per singer) when the user starts a song (Select Players modal) and on reconnect while a song is in progress.
-- Fields:
- - `sessionId` (string)
- - `songInstanceSeq` (uint32; increments by 1 on every song start, including Restart; used in binary pitchFrame to identify the active song)
- - `playerId` (`"P1"` or `"P2"`)
- - `difficulty` (`"Easy" | "Medium" | "Hard"`)
- - `thresholdIndex` (0..7; derived from Settings > Audio > Mic sensitivity)
- - `effectiveMicDelayMs` (int; informational; mic delay applied by TV when selecting scoring sample timing)
- - `expectedPitchFps` (int; default 50)
- - `startMode` (`"countdown"` or `"live"`)
- - `countdownMs` (int; required if `startMode=="countdown"`)
- - `endTimeTvMs` (int; TV monotonic ms when the song or medley ends). **Computation (normative):** `endTimeTvMs = songStartTvMs + effectiveSongDurationMs`, where `songStartTvMs` is the TV monotonic ms at audio position `startSec`. For `#END`-bounded songs: `effectiveSongDurationMs = (endMs/1000.0 - startSec) * 1000`. Otherwise: audio file duration minus `startSec`, in ms. For medley runs: `endTimeTvMs` is the TV monotonic ms at the end of the final segment's fade-out (`medleyEndSec` of the last segment). When re-sending `assignSinger` after Restart or reconnect, `endTimeTvMs` MUST be recomputed from `tvMonotonicNowMs` plus the remaining duration.
- - `udpPort` (int; the TV's UDP listener port for pitchFrame datagrams)
- - `connectionId` (uint16; the sender ID the phone MUST include in every pitchFrame datagram; matches the value from the initial sessionState)
- - `songTitle` (string; informational display on phone)
- - `songArtist` (string; informational display on phone)
-6) `requestSongList` (TV -> phone)
-- Fields: `sessionId` (string)
-- Semantics: TV requests the phone to scan its songs folder and reply with a `songListUpdate`. The TV sends this on connection and whenever it needs a library refresh.
-7) `songListUpdate` (phone -> TV)
-- Fields:
-  - `sessionId` (string)
-  - `songs` (array of `SongEntry`; may be empty)
-- `SongEntry` fields:
-  - `relativeTxtPath` (string): path to the `.txt` file relative to the songs folder root.
-  - `isValid` (bool)
-  - `invalidReasonCode` (string|null): present when `isValid=false`; stable code from Section 4.3.
-  - `modifiedTimeMs` (int): last-modified timestamp of the `.txt` file.
-  - `title`, `artist` (string): required display fields.
-  - `isDuet` (bool), `hasRap` (bool), `hasVideo` (bool), `hasInstrumental` (bool): derived flags.
-  - `canMedley` (bool), `medleySource` (`null` | `"tag"`; `null` means not medley-eligible), `medleyStartBeat` (int|null), `medleyEndBeat` (int|null): medley eligibility fields.
-  - `startSec` (float), `previewStartSec` (float): timing metadata.
-  - Optional display fields: `album` (string|null), `year` (int|null), `genre` (string|null).
-  - Asset URLs (all are full `http://` URLs; null if the file does not exist locally on the phone at scan time):
-    - `txtUrl` (string): URL to the `.txt` file. Required if `isValid=true`.
-    - `audioUrl` (string|null): URL to the audio file (`#AUDIO`/`#MP3`).
-    - `videoUrl` (string|null): URL to a local video file (`#VIDEO` plain filename only; YouTube references are `null`).
-    - `coverUrl` (string|null): URL to the cover image (`#COVER`).
-    - `backgroundUrl` (string|null): URL to the background image (`#BACKGROUND`).
-    - `instrumentalUrl` (string|null): URL to the instrumental audio file (`#INSTRUMENTAL`).
-    - `vocalsUrl` (string|null): URL to the vocals audio file (`#VOCALS`).
-- Semantics: the phone responds to `requestSongList` with the complete list of songs found in its songs folder (including invalid entries for diagnostics). The TV replaces all songs attributed to this phone's `clientId` with the contents of this message.
-- The phone MUST also send an unsolicited `songListUpdate` when its scan completes after a manual rescan triggered by the user in the phone app.
-Validation rules:
-- Unknown `type`: ignore + warn (except during handshake; handshake failures are fatal).
-- `protocolVersion` mismatch: send `error(code="protocol_mismatch")` and close.
-**assignSinger semantics**
-- This message instructs the phone to begin the Active Mic screen, warm up pitch detection, and stream binary `pitchFrame` UDP datagrams tagged with the given `playerId` and `songInstanceSeq` to `<tv-ip>:<udpPort>`.
-- If `startMode=="countdown"`: the phone MUST delay sending frames until the countdown completes (after `countdownMs`). The phone MAY warm up pitch detection locally during countdown, but MUST NOT send frames.
-- If `startMode=="live"`: begin sending frames immediately.
+**Android phone — multicast lock**
+The phone app MUST acquire a `WifiManager.MulticastLock` (tag: `"karaoke_multicast"`) when performing mDNS browsing and release it when discovery completes. See §8.7.5 for the required `CHANGE_WIFI_MULTICAST_STATE` permission declaration.
+
+**iOS phone — multicast lock**
+The iOS phone app does not require an explicit multicast lock. The OS handles multicast internally; no additional permission or lock is required for mDNS browsing via `Network.framework` (`NWBrowser`).
+
+---
+
+## 8.3 Control Messages
+
+### 8.3.1 Message Envelope (Common)
+
+All messages are JSON objects. Every message carries:
+- `type` (string) — message type identifier.
+- `protocolVersion` (int) — see §8.4.
+- `tsTvMs` (int, optional) — TV may include its monotonic timestamp for diagnostics.
+
+---
+
+### 8.3.2 Message Definitions (Common)
+
+Sender direction is noted per message. Both sides MUST understand all messages; unknown `type` values MUST be ignored with a warning (except during handshake — see §8.3.3).
+
+---
+
+#### Handshake
+
+**`hello`** (Phone → TV)
+
+Fields: `clientId` (stable UUID), `deviceName`, `appVersion`, `protocolVersion`, `capabilities` (e.g., `{"pitchFps":100}`), `httpPort` (int; the port on which the phone's HTTP file server is listening).
+
+**`sessionState`** (TV → Phone; optional Phone → TV ack)
+
+Fields: `sessionId`, `slots` (`{"P1":{connected, deviceName}, "P2":{...}}`), `inSong` (bool), `songTimeSec` (float, optional), `connectionId` (uint16; assigned by TV per connection; **present only in the initial `sessionState` sent in response to `hello`**; see §8.5).
+
+**`error`** (TV → Phone)
+
+Fields: `code` (string), `message` (string). After sending, the TV MAY close the connection.
+
+Normative error codes (snake_case):
+- `invalid_token` — join token is missing or incorrect.
+- `protocol_mismatch` — `protocolVersion` mismatch.
+- `session_full` — session roster is full.
+- `session_locked` — session is in Locked state.
+
+Implementations MAY add additional codes in the future; unknown codes MUST be displayed as a generic error.
+
+---
+
+#### Song Library
+
+**`requestSongList`** (TV → Phone)
+
+Fields: `sessionId` (string).
+
+Semantics: TV requests the phone to scan its songs folder and reply with a `songListUpdate`. Sent on connection and whenever the TV needs a library refresh.
+
+**`songListUpdate`** (Phone → TV)
+
+Fields:
+- `sessionId` (string)
+- `songs` (array of `SongEntry`; may be empty)
+
+`SongEntry` fields:
+- `relativeTxtPath` (string): path to the `.txt` file relative to the songs folder root.
+- `isValid` (bool)
+- `invalidReasonCode` (string|null): present when `isValid=false`; stable code from §4.3.
+- `modifiedTimeMs` (int): last-modified timestamp of the `.txt` file.
+- `title`, `artist` (string): required display fields.
+- `isDuet` (bool), `hasRap` (bool), `hasVideo` (bool), `hasInstrumental` (bool): derived flags.
+- `canMedley` (bool), `medleySource` (`null` | `"tag"`), `medleyStartBeat` (int|null), `medleyEndBeat` (int|null): medley eligibility fields.
+- `startSec` (float), `previewStartSec` (float): timing metadata.
+- Optional display fields: `album` (string|null), `year` (int|null), `genre` (string|null).
+- Asset URLs (all are full `http://` URLs; `null` if the file does not exist locally on the phone at scan time):
+  - `txtUrl` (string): URL to the `.txt` file. Required if `isValid=true`.
+  - `audioUrl` (string|null)
+  - `videoUrl` (string|null): local video file only; YouTube references are `null`.
+  - `coverUrl` (string|null)
+  - `backgroundUrl` (string|null)
+  - `instrumentalUrl` (string|null)
+  - `vocalsUrl` (string|null)
+
+Semantics: the phone responds to `requestSongList` with the complete list of songs in its songs folder (including invalid entries for diagnostics). The TV replaces all songs attributed to this phone's `clientId` with the contents of this message. The phone MUST also send an unsolicited `songListUpdate` when a manual rescan triggered by the user in the phone app completes.
+
+---
+
+#### Singing
+
+**`assignSinger`** (TV → Phone)
+
+Sent to phones assigned to sing (one message per singer) when the user starts a song (Select Players modal), and on reconnect while a song is in progress.
+
+Fields:
+- `sessionId` (string)
+- `songInstanceSeq` (uint32; increments by 1 on every song start, including Restart; used in binary `pitchFrame` to identify the active song)
+- `playerId` (`"P1"` or `"P2"`)
+- `difficulty` (`"Easy" | "Medium" | "Hard"`)
+- `thresholdIndex` (0..7; derived from Settings > Audio > Mic sensitivity)
+- `effectiveMicDelayMs` (int; informational; mic delay applied by TV when selecting scoring sample timing)
+- `expectedPitchFps` (int; default 50)
+- `startMode` (`"countdown"` or `"live"`)
+- `countdownMs` (int; required if `startMode == "countdown"`)
+- `endTimeTvMs` (int; TV monotonic ms when the song or medley ends)
+- `udpPort` (int; the TV's UDP listener port for `pitchFrame` datagrams)
+- `connectionId` (uint16; the sender ID the phone MUST include in every `pitchFrame` datagram; matches the value from the initial `sessionState`)
+- `songTitle` (string; informational display on phone)
+- `songArtist` (string; informational display on phone)
+
+**`endTimeTvMs` computation (normative):** `endTimeTvMs = songStartTvMs + effectiveSongDurationMs`, where `songStartTvMs` is the TV monotonic ms at audio position `startSec`. For `#END`-bounded songs: `effectiveSongDurationMs = (endMs/1000.0 - startSec) * 1000`. Otherwise: audio file duration minus `startSec`, in ms. For medley runs: `endTimeTvMs` is the TV monotonic ms at the end of the final segment's fade-out (`medleyEndSec` of the last segment). When re-sending `assignSinger` after Restart or reconnect, `endTimeTvMs` MUST be recomputed from `tvMonotonicNowMs` plus the remaining duration.
+
+**`assignSinger` semantics:** this message instructs the phone to begin the Active Mic screen, warm up pitch detection, and stream binary `pitchFrame` UDP datagrams tagged with the given `playerId` and `songInstanceSeq` to `<tv-ip>:<udpPort>`.
+- If `startMode == "countdown"`: the phone MUST delay sending frames until the countdown completes (after `countdownMs`). The phone MAY warm up pitch detection locally during countdown, but MUST NOT send frames.
+- If `startMode == "live"`: begin sending frames immediately.
 - The phone MUST treat `effectiveMicDelayMs` as informational only and MUST NOT offset `tvTimeMs` based on it.
-- End-of-song behavior is defined in Section 10.5 (Singing Screen lifecycle).
+- End-of-song behavior is defined in §10.5.
 
-## 8.3 Pitch Stream Messages
-Normative MVP rule: phones MUST NOT send any computed scoring, judgement, combo, or rating values.
-Phones send only DSP-derived observations (pitch frames and optional confidence/level telemetry).
-The TV is the single source of truth for timeline alignment, note matching, and scoring.
-**Implementation requirements (MVP)**
-`pitchFrame` (phone -> TV, via **UDP — binary format**)
-Each frame is a **16-byte fixed-size binary datagram** with the following layout. All multi-byte integers are **little-endian**:
-```
-Offset  Size  Type     Field
-  0      4    uint32   seq              — frame counter, increments by 1 per frame
-  4      4    int32    tvTimeMs         — phone's estimate of TV monotonic ms for this frame
-  8      4    uint32   songInstanceSeq  — matches `songInstanceSeq` from assignSinger; TV drops frames that don't match
- 12      1    uint8    playerId         — 0=P1, 1=P2
- 13      1    uint8    midiNote         — 0..127 (voiced); 255 = unvoiced/toneValid=false
- 14      2    uint16   connectionId     — assigned by TV at hello handshake; identifies the sender
-```
-Total: **16 bytes per frame**.
-`toneValid` is implicit: `toneValid = (midiNote != 255)`. There is no separate toneValid field.
-TV validation (normative):
-- On receipt of each UDP datagram, the TV MUST check that `connectionId` matches the registered value for the `playerId` in byte 12.
-- Any datagram that fails this check or is not exactly 16 bytes MUST be silently dropped.
-- If no registration is found for the `playerId`, the datagram MUST be silently dropped.
-MIDI domain (normative):
-- `midiNote` is a MIDI note number [0..127] using standard MIDI numbering.
-- The TV converts to USDX semitone scale via `Tone = midiNote - 36` (C2=36 → Tone=0). This value is used directly as input to the octave normalization loop in §6.4.
-Phone-side note derivation (non-normative):
-- Implementation-defined. The protocol carries only `midiNote` (and the implicit `toneValid`).
-Voicing/thresholding (normative):
-- `maxAmp` definition (normative): normalized peak amplitude for the audio window that produced the pitch estimate for this frame.
-  - If input is 16-bit signed PCM, compute `maxAmp = clamp(max(abs(sample_i)) / 32768.0, 0, 1)` over the window.
-  - If input is floating-point samples in [-1..1], compute `maxAmp = clamp(max(abs(sample_i)), 0, 1)`.
-- The TV selects a noise threshold via `thresholdIndex` (0..7) and sends it in `assignSinger`.
-- The phone MUST compute `toneValid` using the following thresholds on normalized peak amplitude `maxAmp` (0..1):
-  - thresholdValueByIndex = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.60]
-  - `toneValid = (maxAmp >= thresholdValueByIndex[thresholdIndex]) AND (pitch_estimate_succeeded)`
-- When `toneValid=false`, the phone MUST set `midiNote=255`.
-Rate:
-- Default **50 fps** (one frame every 20 ms). Phones capable of 100 fps MAY advertise `"pitchFps":100` in `capabilities` and send at 100 fps if the TV requests it in `assignSinger`.
-- Frames MUST NOT be batched.
-Validation:
-- Drop frames with decreasing `seq` or `tvTimeMs` regressions > 200 ms.
-- If no valid frame exists for a scoring beat window, treat as `toneValid=false` (silence).
+---
 
-## 8.4 Versioning and Compatibility
-**Implementation requirements (MVP)**
+#### Clock Sync
+
+**`ping`** (TV → Phone), **`pong`** (Phone → TV), **`clockAck`** (TV → Phone)
+
+These messages are part of the NTP-lite clock synchronization protocol. Fields and per-sample computation are defined in §8.8.
+
+---
+
+### 8.3.3 Validation Rules (Common)
+
+- **Unknown `type`**: ignore and warn. Exception: during the handshake sequence, an unexpected message type is a fatal error.
+- **`protocolVersion` mismatch**: send `error(code="protocol_mismatch")` and close.
+
+---
+
+## 8.4 Versioning & Compatibility (Common)
+
 - Define `protocolVersion = 1` for this MVP.
 - TV host MUST reject clients whose `hello.protocolVersion != 1` with `error(code="protocol_mismatch")` and close.
 - Backward/forward compatibility is out of scope for MVP; future versions must increment `protocolVersion` and maintain a compatibility table.
 
+---
+
 ## 8.5 Sender Identification
-**Purpose**: identify which phone a `pitchFrame` UDP datagram came from, so the TV can route it to the correct player slot and discard datagrams from unknown sources.
-**`connectionId` assignment (normative)**
+
+Purpose: identify which phone a `pitchFrame` UDP datagram came from, so the TV can route it to the correct player slot and discard datagrams from unknown sources.
+
+### 8.5.1 connectionId Assignment — TV
+
 - The TV assigns a `connectionId` (uint16) to each phone when it successfully completes the `hello` handshake. The value MUST be unique among currently active connections. A simple incrementing counter starting at 1 is sufficient.
 - The TV delivers `connectionId` to the phone as an integer in the initial `sessionState` message sent in response to `hello`.
-- The phone MUST include this value in every `pitchFrame` datagram (see §8.3).
-- If a phone disconnects and reconnects, the reconnect follows the full `hello` handshake path. The TV MUST assign a **new** `connectionId` and deliver it in the `sessionState` response to the reconnect `hello`. See Section 7.4 for the full reconnect flow.
-**TV validation (normative)**
+- If a phone disconnects and reconnects, the reconnect follows the full `hello` handshake path. The TV MUST assign a **new** `connectionId` and deliver it in the `sessionState` response to the reconnect `hello`. See §7.4 for the full reconnect flow.
+
+### 8.5.2 connectionId Usage — Phone
+
+- The phone MUST include its assigned `connectionId` in every `pitchFrame` datagram (bytes 14–15; see §8.6.1).
+
+### 8.5.3 Datagram Validation — TV
+
 - On receipt of a UDP datagram, the TV looks up the `connectionId` (bytes 14–15) in its active connection table.
 - If the `connectionId` does not match any active connection, or does not match the expected connection for the `playerId` in byte 12, the datagram MUST be silently dropped.
 - This is a best-effort routing mechanism, not a security control. Datagrams from misconfigured or stale senders are discarded without error.
 
-## 8.6 Song File HTTP Server
-**Purpose**: serve song asset files from the phone to the TV over HTTP so ExoPlayer can stream them progressively without any ZIP building, extraction, or temporary storage.
-**Libraries**
-| Platform | Library | Pinned Version | Justification |
-|---|---|---|---|
-| Android HTTP server (Kotlin) | `io.ktor:ktor-server-cio` + `io.ktor:ktor-server-partial-content` | `2.3.12` | Same Ktor version as TV host; CIO engine; `ktor-server-partial-content` handles `Accept-Ranges` / `206 Partial Content` automatically. |
-| iOS HTTP server (Swift) | `Swifter` | `1.5.0` | Pure Swift, SPM-compatible (`https://github.com/httpswift/swifter`). `Range` header parsing is manual (~20 lines) but fully under implementation control. |
-**Server lifecycle (normative)**
-- The HTTP server MUST start before the phone sends `hello` to the TV, so `httpPort` is valid when `hello` is sent.
-- The server MUST remain running for the duration of the session connection.
-- Port `34781` is the default. If that port is unavailable, the phone MUST bind to any available ephemeral port and report the actual port in `hello.httpPort`.
-- **Android**: no OS restriction on binding a server socket. Required permissions in `AndroidManifest.xml` (normative):
-  ```xml
-  <uses-permission android:name="android.permission.INTERNET" />
-  <uses-permission android:name="android.permission.CAMERA" />
-  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-  <!-- Android 12+ (API 31+) for NSD/mDNS browsing -->
-  <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
-      android:usesPermissionFlags="neverForLocation" />
-  ```
-  The phone app MUST acquire a `WifiManager.MulticastLock` (tag: `"karaoke_multicast"`) when performing mDNS browsing and release it when discovery completes. `CAMERA` is required at runtime for QR scanning — request it before opening the scanner.
-- **iOS**: `UIApplication.shared.isIdleTimerDisabled` MUST be set to `true` for the duration of the session to prevent the OS from dimming the screen. Reset to `false` on session end. See "iOS background HTTP server" note below for backgrounding limitations.
-**URL scheme (normative)**
+---
+
+## 8.6 Pitch Stream
+
+### 8.6.1 Wire Format (Common)
+
+`pitchFrame` is a **16-byte fixed-size binary UDP datagram**. All multi-byte integers are **little-endian**:
+
+```
+Offset  Size  Type     Field
+  0      4    uint32   seq              — frame counter, increments by 1 per frame
+  4      4    int32    tvTimeMs         — phone's estimate of TV monotonic ms for this frame
+  8      4    uint32   songInstanceSeq  — matches `songInstanceSeq` from assignSinger
+ 12      1    uint8    playerId         — 0=P1, 1=P2
+ 13      1    uint8    midiNote         — 0..127 (voiced); 255 = unvoiced / toneValid=false
+ 14      2    uint16   connectionId     — assigned by TV at hello handshake; identifies the sender
+```
+
+Total: **16 bytes per frame**.
+
+`toneValid` is implicit: `toneValid = (midiNote != 255)`. There is no separate `toneValid` field.
+
+**MIDI numbering (common):** `midiNote` uses standard MIDI note numbers [0..127].
+
+---
+
+### 8.6.2 Frame Generation & Transmission (Phone — Android & iOS)
+
+**Normative rule:** Phones MUST NOT send any computed scoring, judgement, combo, or rating values. Phones send only DSP-derived observations. The TV is the single source of truth for timeline alignment, note matching, and scoring.
+
+**Rate:**
+- Default **50 fps** (one frame every 20 ms).
+- Phones capable of 100 fps MAY advertise `"pitchFps": 100` in `capabilities` and send at 100 fps if the TV requests it via `expectedPitchFps` in `assignSinger`.
+- Frames MUST NOT be batched.
+
+**Phone-side pitch derivation (non-normative):** Implementation-defined. The protocol carries only `midiNote` and the implicit `toneValid`.
+
+**Voicing / noise thresholding (normative):**
+
+The TV selects a noise gate threshold via `thresholdIndex` (0..7) and delivers it to the phone in `assignSinger`. The phone applies it locally before deciding whether a frame is voiced.
+
+`maxAmp` definition (normative): normalized peak amplitude of the audio window that produced the pitch estimate for this frame.
+- 16-bit signed PCM input: `maxAmp = clamp(max(abs(sample_i)) / 32768.0, 0, 1)`
+- Float PCM input in [−1..1]: `maxAmp = clamp(max(abs(sample_i)), 0, 1)`
+
+Threshold table:
+```
+thresholdValueByIndex = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.60]
+```
+
+Decision rule:
+```
+toneValid = (maxAmp >= thresholdValueByIndex[thresholdIndex]) AND (pitch_estimate_succeeded)
+```
+
+When `toneValid = false`, the phone MUST set `midiNote = 255`.
+
+**Frame drop rules (normative):**
+- Do not send frames with decreasing `seq`.
+- When `startMode == "countdown"`: do not send frames until the countdown completes. The phone MAY warm up pitch detection locally during this period.
+
+---
+
+### 8.6.3 Frame Ingestion & Validation (TV)
+
+**Datagram validation (normative):**
+- Any datagram that is not exactly 16 bytes MUST be silently dropped.
+- On receipt, the TV MUST check `connectionId` (bytes 14–15) against the registered value for the `playerId` in byte 12. Mismatches MUST be silently dropped. See §8.5.3.
+- Datagrams whose `songInstanceSeq` does not match the active song MUST be silently dropped.
+- If no registration is found for the `playerId`, the datagram MUST be silently dropped.
+- Drop frames with `tvTimeMs` regressions > 200 ms relative to the previous accepted frame for that player.
+- If no valid frame exists for a scoring beat window, treat as `toneValid = false` (silence).
+
+**MIDI-to-scoring conversion (normative):**
+The TV converts `midiNote` to the USDX semitone scale via:
+```
+Tone = midiNote - 36    (C2=36 → Tone=0)
+```
+This value is used directly as input to the octave normalization loop in §6.4.
+
+---
+
+## 8.7 Song File Delivery
+
+Purpose: serve song asset files from the phone to the TV over HTTP so ExoPlayer can stream them progressively without ZIP building, extraction, or temporary storage.
+
+### 8.7.1 URL Scheme (Common)
+
 Song asset URLs are constructed by the phone at scan time and included in each `SongEntry` in `songListUpdate`. URL form:
+
 ```
 http://<phone-ip>:<httpPort>/songs/<percent-encoded-relative-path>
 ```
+
 Where `<relative-path>` is the asset file's path relative to the phone's songs folder root (e.g., `Queen/Bohemian%20Rhapsody/bohemian.ogg`). The phone's IP is inferred by the TV from the WebSocket connection's remote address.
-**Range requests (normative)**
+
+**Range requests (normative):**
 The server MUST support HTTP `Range` requests for all audio and video files. ExoPlayer requires range support for seeking without re-downloading from the start. The server MUST respond with:
 - `Accept-Ranges: bytes` on all audio/video responses.
-- `206 Partial Content` with correct `Content-Range` header when a `Range` request is received.
-- `Content-Length` MUST be set on all responses. See "Storage access" below for how to obtain file size.
-**Storage access and cloud file handling (normative)**
-Song files may reside in cloud-provider sync folders outside the app's sandbox. The HTTP server maintains an **internal URI map** (`relativePath → platformURI`) built at scan time. When a request arrives, the handler looks up the `relativePath` in this map and opens the file via the native platform API — no `java.io.File(path)` or Swift `URL(fileURLWithPath:)` call from an arbitrary string is ever made.
-*Android SAF reads (Kotlin):*
-- File reads use `contentResolver.openAssetFileDescriptor(uri, "r")`. File size is obtained via `contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), ...)`.
-- Range reads (required for `Accept-Ranges`): open the `AssetFileDescriptor`, obtain a `FileInputStream`, skip to `offset`, read `length` bytes. If the underlying provider does not support `seek`, skip by sequential read.
+- `206 Partial Content` with a correct `Content-Range` header when a `Range` request is received.
+- `Content-Length` MUST be set on all responses.
+
+---
+
+### 8.7.2 HTTP File Server — Android Phone
+
+**Library**
+
+| Library | Pinned Version | Justification |
+|---|---|---|
+| `io.ktor:ktor-server-cio` + `io.ktor:ktor-server-partial-content` | `2.3.12` | CIO engine; `ktor-server-partial-content` handles `Accept-Ranges` / `206 Partial Content` automatically. |
+
+**Server lifecycle (normative):**
+- The HTTP server MUST start before the phone sends `hello` to the TV, so `httpPort` is valid when `hello` is sent.
+- The server MUST remain running for the duration of the session connection.
+- Default port: `34781`. If unavailable, the phone MUST bind to any available ephemeral port and report the actual port in `hello.httpPort`.
+
+**Storage access and SAF reads (normative):**
+
+The HTTP server maintains an **internal URI map** (`relativePath → platformURI`) built at scan time. When a request arrives, the handler looks up the `relativePath` in this map and opens the file via the Android ContentResolver — `java.io.File(path)` MUST NOT be used on Android 10+ scoped storage.
+
+- File reads: `contentResolver.openAssetFileDescriptor(uri, "r")`. File size: `contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), ...)`.
+- Range reads: open the `AssetFileDescriptor`, obtain a `FileInputStream`, skip to `offset`, read `length` bytes. If the underlying provider does not support `seek`, skip by sequential read.
 - **Cloud file availability**: if `contentResolver.query()` returns null or `SIZE = 0`, treat the file as absent and return `null` for the corresponding URL in `SongEntry`. The handler MUST NOT trigger cloud downloads from within the HTTP request handler.
-- **Direct SAF access**: `uri.path` MUST NOT be used to open files on Android 10+ scoped storage. Use `ContentResolver` exclusively.
 - Ktor's `ktor-server-partial-content` plugin handles `Accept-Ranges` / `206 Partial Content` automatically when the response body is a `ByteReadChannel`. Provide the channel from the `AssetFileDescriptor` input stream and set `Content-Length` from the queried file size.
-*iOS file reads (Swift):*
-- Files selected via `UIDocumentPickerViewController` are accessed via their bookmarked `URL`. Call `url.startAccessingSecurityScopedResource()` before opening the file and `url.stopAccessingSecurityScopedResource()` after the response is written.
-- All file reads in the Swifter request handler MUST go through `NSFileCoordinator` to prevent conflicts with the iCloud sync daemon:
-  ```swift
-  var error: NSError?
-  NSFileCoordinator().coordinate(readingItemAt: fileURL, options: .withoutChanges, error: &error) { url in
-      // open FileHandle and read byte range here
-  }
-  ```
-- **Range requests**: parse the `Range: bytes=X-Y` header manually in the Swifter handler. Open a `FileHandle`, `seek(toFileOffset: offset)`, `readData(ofLength: length)`. Respond with `206 Partial Content`, `Content-Range: bytes X-Y/total`, and `Content-Length: length`.
-- **iCloud Drive files**: before including a file URL in `SongEntry`, check `(try? fileURL.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?.ubiquitousItemDownloadingStatus == .current`. If not `.current`, treat the file as absent and return `null`. Call `FileManager.default.startDownloadingUbiquitousItem(at:)` as a background hint only — do not block on it.
-**TV-side usage (normative)**
+
+---
+
+### 8.7.3 HTTP File Server — iOS Phone
+
+**Library**
+
+| Library | Pinned Version | Justification |
+|---|---|---|
+| `Swifter` | `1.5.0` | Pure Swift, SPM-compatible (`https://github.com/httpswift/swifter`). `Range` header parsing is manual (~20 lines) but fully under implementation control. |
+
+**Server lifecycle (normative):**
+- The HTTP server MUST start before the phone sends `hello`, so `httpPort` is valid at send time.
+- Default port: `34781`. Bind to any available ephemeral port if unavailable; report actual port in `hello.httpPort`.
+- `UIApplication.shared.isIdleTimerDisabled` MUST be set to `true` for the duration of the session to prevent screen dimming. Reset to `false` on session end.
+
+**File reads (normative):**
+
+Files selected via `UIDocumentPickerViewController` are accessed via their bookmarked `URL`. All file reads in the Swifter request handler MUST go through `NSFileCoordinator` to prevent conflicts with the iCloud sync daemon:
+
+```swift
+var error: NSError?
+NSFileCoordinator().coordinate(readingItemAt: fileURL, options: .withoutChanges, error: &error) { url in
+    // open FileHandle and read byte range here
+}
+```
+
+Call `url.startAccessingSecurityScopedResource()` before opening and `url.stopAccessingSecurityScopedResource()` after the response is written.
+
+**Range requests (normative):**
+Parse the `Range: bytes=X-Y` header manually in the Swifter handler. Open a `FileHandle`, `seek(toFileOffset: offset)`, `readData(ofLength: length)`. Respond with `206 Partial Content`, `Content-Range: bytes X-Y/total`, and `Content-Length: length`.
+
+**iCloud Drive files (normative):**
+Before including a file URL in `SongEntry`, check:
+```swift
+(try? fileURL.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?
+    .ubiquitousItemDownloadingStatus == .current
+```
+If not `.current`, treat the file as absent and return `null`. Call `FileManager.default.startDownloadingUbiquitousItem(at:)` as a background hint only — do not block on it.
+
+**Known limitation — iOS backgrounding:**
+If the user backgrounds the phone app during a song, iOS may suspend the process after approximately 30 seconds, terminating the HTTP server socket. ExoPlayer on the TV will then stall. `isIdleTimerDisabled = true` prevents screen dimming but does not prevent backgrounding. Implementations MUST document this: users must keep the phone app in the foreground during a song.
+
+---
+
+### 8.7.4 Asset Consumption — TV
+
 - The TV constructs the phone's base URL as `http://<ws-remote-ip>:<hello.httpPort>`.
-- Song asset URLs from `songListUpdate` are handed directly to ExoPlayer (`MediaItem.fromUri(audioUrl)`) or to an image-loading library (Coil) for cover/background images. No intermediate storage step.
-- The TV MUST configure the Android TV app's `network_security_config.xml` to permit cleartext HTTP to RFC-1918 address ranges (see §8.1 note).
+- Song asset URLs from `songListUpdate` are handed directly to ExoPlayer (`MediaItem.fromUri(audioUrl)`) or to Coil for cover/background images. No intermediate storage step.
 - ExoPlayer begins buffering and playback after approximately 2–4 seconds of audio is buffered. Playback MUST NOT wait for the full file to download.
 - If an HTTP request to the phone fails (connection refused, 404, timeout), the TV MUST treat it the same as a missing optional asset: suppress for images, show a recoverable error for audio.
-**Platform setup requirements (normative)**
-*Android TV — `network_security_config.xml`*
-The TV app MUST include the following file at `res/xml/network_security_config.xml` and reference it in `AndroidManifest.xml` via `android:networkSecurityConfig="@xml/network_security_config"`. Without it, all `http://` requests to phone IPs will throw `CLEARTEXT_NOT_PERMITTED` on API 28+:
+
+---
+
+### 8.7.5 Platform Configuration
+
+#### Android TV — `network_security_config.xml`
+
+The TV app MUST include the following file at `res/xml/network_security_config.xml` and reference it in `AndroidManifest.xml` via `android:networkSecurityConfig="@xml/network_security_config"`. Without it, all `http://` requests to phone IPs throw `CLEARTEXT_NOT_PERMITTED` on API 28+:
+
 ```xml
 <!-- res/xml/network_security_config.xml -->
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
         <!-- RFC-1918 class C: 192.168.x.x -->
         <domain includeSubdomains="false">192.168.0.0</domain>
-        <!-- RFC-1918 class A: 10.x.x.x — use a base-domain wildcard approach;
-             Android domain-config does not support CIDR. Enumerate common prefixes
-             or use the base-class approach below. For broad 10.x.x.x coverage the
-             recommended approach is a custom trust anchor or using a broader
-             cleartextTrafficPermitted scope scoped to a debug build. For MVP,
-             enumerate the common home subnets explicitly: -->
+        <!-- RFC-1918 class A: 10.x.x.x — Android domain-config does not support CIDR.
+             Enumerate common home subnets explicitly: -->
         <domain includeSubdomains="false">10.0.0.0</domain>
         <domain includeSubdomains="false">10.0.1.0</domain>
         <!-- RFC-1918 class B: 172.16.x.x – 172.31.x.x -->
@@ -1401,9 +1563,28 @@ The TV app MUST include the following file at `res/xml/network_security_config.x
     </domain-config>
 </network-security-config>
 ```
-> **Implementation note:** Android `<domain>` entries match by host string, not CIDR. They cannot express subnet ranges. The entries above cover the most common home and corporate Wi-Fi subnets. For a production release, use the `<base-config cleartextTrafficPermitted="false">` pattern with a debug-only override, or accept the limitation that phones on unusual subnets may fail with `CLEARTEXT_NOT_PERMITTED`. A simpler but less secure alternative acceptable for MVP LAN-only play is to use `<base-config cleartextTrafficPermitted="true">` and restrict via Play Store internal track instead.
-*iOS phone — `Info.plist`*
+
+> **Implementation note:** Android `<domain>` entries match by host string, not CIDR and cannot express subnet ranges. The entries above cover the most common home and corporate Wi-Fi subnets. For a production release, use the `<base-config cleartextTrafficPermitted="false">` pattern with a debug-only override. A simpler but less secure alternative acceptable for MVP LAN-only play is `<base-config cleartextTrafficPermitted="true">` restricted via Play Store internal track instead.
+
+#### Android Phone — `AndroidManifest.xml`
+
+Required permissions (normative):
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+<!-- Android 12+ (API 31+) for NSD/mDNS browsing -->
+<uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+    android:usesPermissionFlags="neverForLocation" />
+```
+
+`CAMERA` is required at runtime for QR scanning — request it before opening the scanner.
+
+#### iOS Phone — `Info.plist`
+
 Four entries are mandatory. Without them the phone app cannot function:
+
 ```xml
 <!-- App Transport Security: permit cleartext HTTP to LAN hosts -->
 <key>NSAppTransportSecurity</key>
@@ -1425,61 +1606,82 @@ Four entries are mandatory. Without them the phone app cannot function:
 <key>NSMicrophoneUsageDescription</key>
 <string>The microphone is used to detect your singing pitch for scoring.</string>
 ```
+
 `NSAllowsLocalNetworking` permits cleartext HTTP to RFC-1918 addresses without opening ATS globally. `NSLocalNetworkUsageDescription` triggers the one-time system permission prompt (iOS 14+) that gates all LAN TCP connections; without it, connections to TV IPs are silently blocked. iOS triggers this prompt automatically on the first connection attempt — the app cannot control the exact moment it appears.
-**Multicast lock (normative; iOS phone)**
-The phone app on iOS does not require an explicit multicast lock. The OS handles multicast internally. No additional permission or lock is required for mDNS browsing via `Network.framework` (`NWBrowser`) on iOS.
-**iOS background HTTP server (known limitation)**
-If the user backgrounds the phone app during a song, iOS may suspend the process after approximately 30 seconds, terminating the HTTP server socket. ExoPlayer on the TV will then stall. `UIApplication.shared.isIdleTimerDisabled = true` (set for the session duration) prevents screen dimming but does not prevent backgrounding. MVP implementations MUST document this as a known limitation: users must keep the phone app in the foreground during a song.
-**What this design eliminates**
-- ZIP archive building on the phone
-- ZIP extraction on the TV
-- Temporary storage management on the TV (`cacheDir/song_packages/`)
-- `requestSongPackage` / `songPackageError` WebSocket messages
-- Pre-fetch loading gates in Select Players and preview
 
-## 8.7 Time Sync and Jitter Handling (Cross-Platform)
+---
 
-### 8.7.1 Clock Sync (NTP-lite, deterministic)
-**Defaults:** Clock sync ping/pong MUST run **5 exchanges in rapid succession** (100ms apart) on connection to establish initial `clockOffsetMs`. Then **suspend** during active singing. Resume with a single exchange on song end or disconnect/reconnect. Do not run continuously — LAN clock drift over a 3-minute song is negligible (<1ms) once offset is established. Smooth using the minimum-RTT sample from the last 5 valid exchanges.
+## 8.8 Clock Sync
 
-Goal: calibrate the phone's estimate of TV monotonic time so that each pitch frame can include `tvTimeMs`.
-For this spec, the phone reports `tvTimeMs` directly in each `pitchFrame`. Ping/pong exists only to calibrate the phone's estimate of TV time.
-Clock model:
-- Phone and TV clocks are independent monotonic timers.
-- The phone maintains a mapping such that it can emit `tvTimeMs` per pitch frame.
-Messages (normative):
-- `ping` (TV → phone):
-  - `pingId` (string; random per sample; echoed by all subsequent messages)
-  - `tTvSendMs` (TV monotonic ms at send)
-- `pong` (phone → TV):
-  - `pingId` (echo)
-  - `tTvSendMs` (echo)
-  - `tPhoneRecvMs` (phone monotonic ms at receipt of ping)
-  - `tPhoneSendMs` (phone monotonic ms at send of pong)
-- `clockAck` (TV → phone): **sent immediately after receiving pong**
-  - `pingId` (echo)
-  - `tTvRecvMs` (TV monotonic ms at receipt of pong)
-The `clockAck` message is what closes the loop for the phone. Without it the phone has only `t1, t2, t3` and cannot compute `clockOffsetMs`.
-Per-sample computation (normative; 4-timestamp NTP-lite; computed by **phone** after receiving `clockAck`):
-- Let:
-  - `t1 = tTvSendMs` (from `ping`, already echoed in `pong`)
-  - `t2 = tPhoneRecvMs` (phone's own record)
-  - `t3 = tPhoneSendMs` (phone's own record)
-  - `t4 = tTvRecvMs` (from `clockAck`)
-- Round-trip time (subtracting phone processing time):
-  - `RTT = (t4 - t1) - (t3 - t2)`
-- Clock offset (TV time minus phone time):
-  - `clockOffsetMs = ((t2 - t1) + (t3 - t4)) / 2`
-- Phone estimates TV time as:
-  - `tvTimeEstMs = phoneMonotonicMs + clockOffsetMs`
-Sample selection/smoothing (normative; maintained by **phone**):
+Goal: calibrate each phone's estimate of TV monotonic time so that each pitch frame can include a valid `tvTimeMs`.
+
+### 8.8.1 Clock Model & Sync Schedule (Common)
+
+Phone and TV clocks are independent monotonic timers. The phone maintains an offset (`clockOffsetMs`) that maps its own monotonic time to estimated TV monotonic time:
+
+```
+tvTimeEstMs = phoneMonotonicMs + clockOffsetMs
+```
+
+**Sync schedule (normative):**
+- Run **5 exchanges in rapid succession** (100 ms apart) on connection to establish the initial `clockOffsetMs`.
+- **Suspend** during active singing. LAN clock drift over a 3-minute song is negligible (<1 ms) once the offset is established.
+- Resume with a single exchange on song end or disconnect/reconnect.
+
+---
+
+### 8.8.2 Message Flow (Common)
+
+Clock sync is always **TV-initiated**.
+
+**`ping`** (TV → Phone)
+- `pingId` (string; random per sample; echoed by all subsequent messages)
+- `tTvSendMs` (TV monotonic ms at send)
+
+**`pong`** (Phone → TV)
+- `pingId` (echo)
+- `tTvSendMs` (echo)
+- `tPhoneRecvMs` (phone monotonic ms at receipt of `ping`)
+- `tPhoneSendMs` (phone monotonic ms at send of `pong`)
+
+**`clockAck`** (TV → Phone) — sent **immediately** after receiving `pong`
+- `pingId` (echo)
+- `tTvRecvMs` (TV monotonic ms at receipt of `pong`)
+
+`clockAck` closes the loop for the phone. Without it, the phone has only `t1, t2, t3` and cannot compute `clockOffsetMs`.
+
+---
+
+### 8.8.3 Per-Sample Computation — Phone
+
+Computed by the phone after receiving `clockAck`:
+
+Let:
+- `t1 = tTvSendMs` (from `ping`, echoed in `pong`)
+- `t2 = tPhoneRecvMs` (phone's own record)
+- `t3 = tPhoneSendMs` (phone's own record)
+- `t4 = tTvRecvMs` (from `clockAck`)
+
+Round-trip time (subtracting phone processing time):
+```
+RTT = (t4 - t1) - (t3 - t2)
+```
+
+Clock offset (TV time minus phone time):
+```
+clockOffsetMs = ((t2 - t1) + (t3 - t4)) / 2
+```
+
+**Sample selection and smoothing (normative):**
 - Keep the last 5 samples.
 - Discard samples with `RTT < 0` or `RTT > 2000`.
-- Choose the sample with the smallest `RTT` as the active `clockOffsetMs` (best-of-N reduces WiFi jitter).
-- The TV does NOT need to compute `clockOffsetMs`; it uses `tvTimeMs` in each binary pitch frame directly.
-Pitch-frame mapping, jitter buffer behavior, scoring sample selection, and mic delay application are defined in Section 5.2.
+- Choose the sample with the smallest `RTT` as the active `clockOffsetMs` (best-of-N reduces Wi-Fi jitter).
 
-# 9. UI Screens and Flows
+The TV does NOT need to compute `clockOffsetMs`; it uses `tvTimeMs` from each binary pitch frame directly.
+
+Pitch-frame time mapping, jitter buffer behavior, scoring sample selection, and mic delay application are defined in §5.2.
+
+# 9. UI Screens and Flows - TV
 This section is normative for MVP UI and navigation on Android TV.
 
 ## 9.1 Global navigation and input
