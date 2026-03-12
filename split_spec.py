@@ -25,6 +25,7 @@ Inheritance rules (in priority order):
 import csv
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 SPEC_FILE = Path("couchraoke_spec.md")
@@ -32,9 +33,9 @@ CSV_FILE = Path("split_plan.csv")
 OUTPUT_DIR = Path("spec")
 
 OUTPUT_FILES = {
-    "tv":      OUTPUT_DIR / "tv_spec.md",
-    "android": OUTPUT_DIR / "android_spec.md",
-    "ios":     OUTPUT_DIR / "ios_spec.md",
+    "tv":      OUTPUT_DIR / "tv" / "tv_spec.md",
+    "android": OUTPUT_DIR / "android" / "android_spec.md",
+    "ios":     OUTPUT_DIR / "ios" / "ios_spec.md",
 }
 
 PLATFORM_ROUTES = {
@@ -46,6 +47,16 @@ PLATFORM_ROUTES = {
 }
 
 PREAMBLE_HEADERS = {"how to use this spec", "table of contents"}
+
+
+@dataclass
+class GeneratedHeading:
+    line_index: int
+    level: int
+    kind: str
+    identifier: str | None
+    title: str
+    original_line: str
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +192,164 @@ def update_stack(stack: list, level: int, section_num, platform: str):
     stack.append((level, section_num, platform))
 
 
+def parse_generated_heading(line: str, line_index: int) -> GeneratedHeading | None:
+    m = re.match(r"^(#+)\s+(.*)$", line.rstrip("\r\n"))
+    if not m:
+        return None
+
+    level = len(m.group(1))
+    text = m.group(2).strip()
+
+    m_num = re.match(r"^(\d+(?:\.\d+)*)(?:\.)?\s+(.*)$", text)
+    if m_num:
+        return GeneratedHeading(line_index, level, "numeric", m_num.group(1), m_num.group(2), line)
+
+    m_appendix = re.match(r"^Appendix\s+([A-Z])\s*:\s*(.*)$", text)
+    if m_appendix:
+        return GeneratedHeading(line_index, level, "appendix", m_appendix.group(1), m_appendix.group(2), line)
+
+    m_appendix_sub = re.match(r"^([A-Z]\.\d+(?:\.\d+)*)\s+(.*)$", text)
+    if m_appendix_sub:
+        return GeneratedHeading(line_index, level, "appendix_subsection", m_appendix_sub.group(1), m_appendix_sub.group(2), line)
+
+    return GeneratedHeading(line_index, level, "unnumbered", None, text, line)
+
+
+def load_lines(path: Path) -> list[str]:
+    return path.read_text(encoding="utf-8").splitlines(keepends=True)
+
+
+def find_toc_bounds(lines: list[str]) -> tuple[int, int] | None:
+    start = None
+    for i, line in enumerate(lines):
+        if line.rstrip("\r\n") == "Table of Contents":
+            start = i
+            break
+    if start is None:
+        return None
+
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        parsed = parse_generated_heading(lines[i], i)
+        if parsed and parsed.kind != "unnumbered":
+            end = i
+            break
+    return (start, end)
+
+
+def render_heading(heading: GeneratedHeading, new_identifier: str | None, appendix_letter: str | None = None) -> str:
+    hashes = "#" * heading.level
+    if heading.kind == "numeric" and new_identifier:
+        suffix = "." if heading.level == 1 else ""
+        return f"{hashes} {new_identifier}{suffix} {heading.title}\n"
+    if heading.kind == "appendix" and appendix_letter:
+        return f"{hashes} Appendix {appendix_letter}: {heading.title}\n"
+    if heading.kind == "appendix_subsection" and new_identifier:
+        return f"{hashes} {new_identifier} {heading.title}\n"
+    return heading.original_line if heading.original_line.endswith("\n") else heading.original_line + "\n"
+
+
+def renumber_generated_file(path: Path):
+    lines = load_lines(path)
+    parsed = [parse_generated_heading(line, idx) for idx, line in enumerate(lines)]
+    headings = [h for h in parsed if h]
+
+    counters: dict[int, int] = {}
+    appendix_letter_index = 0
+    current_appendix_letter = None
+    appendix_sub_counters: dict[int, int] = {}
+    toc_entries: list[tuple[int, str]] = []
+
+    for heading in headings:
+        if heading.kind == "numeric":
+            counters[heading.level] = counters.get(heading.level, 0) + 1
+            for deeper in list(counters.keys()):
+                if deeper > heading.level:
+                    del counters[deeper]
+            parts = [str(counters[level]) for level in sorted(counters) if level <= heading.level]
+            new_id = ".".join(parts)
+            lines[heading.line_index] = render_heading(heading, new_id)
+            toc_entries.append((heading.level, f"{new_id} {heading.title}"))
+        elif heading.kind == "appendix":
+            appendix_letter_index += 1
+            current_appendix_letter = chr(ord("A") + appendix_letter_index - 1)
+            appendix_sub_counters = {}
+            lines[heading.line_index] = render_heading(heading, None, current_appendix_letter)
+            toc_entries.append((heading.level, f"Appendix {current_appendix_letter}: {heading.title}"))
+        elif heading.kind == "appendix_subsection" and current_appendix_letter:
+            sub_depth = heading.level
+            appendix_sub_counters[sub_depth] = appendix_sub_counters.get(sub_depth, 0) + 1
+            for deeper in list(appendix_sub_counters.keys()):
+                if deeper > sub_depth:
+                    del appendix_sub_counters[deeper]
+            suffix = ".".join(str(appendix_sub_counters[level]) for level in sorted(appendix_sub_counters) if level <= sub_depth)
+            new_id = f"{current_appendix_letter}.{suffix}"
+            lines[heading.line_index] = render_heading(heading, new_id)
+            toc_entries.append((heading.level, f"{new_id} {heading.title}"))
+
+    toc = find_toc_bounds(lines)
+    if toc:
+        start, end = toc
+        toc_lines = ["Table of Contents\n"]
+        for level, entry in toc_entries:
+            indent = "    " * max(level - 1, 1)
+            toc_lines.append(f"{indent}{entry}\n")
+        toc_lines.append("\n")
+        lines[start:end] = toc_lines
+
+    path.write_text("".join(lines), encoding="utf-8")
+
+
+def verify_local_numbering(path: Path) -> list[str]:
+    errors: list[str] = []
+    lines = load_lines(path)
+    parsed = [parse_generated_heading(line, idx) for idx, line in enumerate(lines)]
+    headings = [h for h in parsed if h]
+
+    expected_numeric: dict[int, int] = {}
+    appendix_letter_index = 0
+    current_appendix_letter = None
+    appendix_sub_counters: dict[int, int] = {}
+    toc_entries: list[str] = []
+
+    for heading in headings:
+        if heading.kind == "numeric":
+            expected_numeric[heading.level] = expected_numeric.get(heading.level, 0) + 1
+            for deeper in list(expected_numeric.keys()):
+                if deeper > heading.level:
+                    del expected_numeric[deeper]
+            expected = ".".join(str(expected_numeric[level]) for level in sorted(expected_numeric) if level <= heading.level)
+            if heading.identifier != expected:
+                errors.append(f"{path}: line {heading.line_index + 1} expected numeric heading {expected}, found {heading.identifier}")
+            toc_entries.append(f"{'    ' * max(heading.level - 1, 1)}{expected} {heading.title}")
+        elif heading.kind == "appendix":
+            appendix_letter_index += 1
+            current_appendix_letter = chr(ord('A') + appendix_letter_index - 1)
+            appendix_sub_counters = {}
+            if heading.identifier != current_appendix_letter:
+                errors.append(f"{path}: line {heading.line_index + 1} expected appendix {current_appendix_letter}, found {heading.identifier}")
+            toc_entries.append(f"{'    ' * max(heading.level - 1, 1)}Appendix {current_appendix_letter}: {heading.title}")
+        elif heading.kind == "appendix_subsection" and current_appendix_letter:
+            sub_depth = heading.level
+            appendix_sub_counters[sub_depth] = appendix_sub_counters.get(sub_depth, 0) + 1
+            for deeper in list(appendix_sub_counters.keys()):
+                if deeper > sub_depth:
+                    del appendix_sub_counters[deeper]
+            suffix = ".".join(str(appendix_sub_counters[level]) for level in sorted(appendix_sub_counters) if level <= sub_depth)
+            expected = f"{current_appendix_letter}.{suffix}"
+            if heading.identifier != expected:
+                errors.append(f"{path}: line {heading.line_index + 1} expected appendix subsection {expected}, found {heading.identifier}")
+            toc_entries.append(f"{'    ' * max(heading.level - 1, 1)}{expected} {heading.title}")
+
+    toc = find_toc_bounds(lines)
+    if toc:
+        start, end = toc
+        actual_toc = [line.rstrip("\r\n") for line in lines[start + 1:end] if line.strip()]
+        if actual_toc != toc_entries:
+            errors.append(f"{path}: TOC entries do not match renumbered headings")
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # Split
 # ---------------------------------------------------------------------------
@@ -203,6 +372,8 @@ def split_spec(verbose: bool = False):
             for line in f:
                 if line.startswith("#"):
                     level, section_num = extract_heading_info(line)
+                    if level is None:
+                        continue
                     if heading_text_lower(line) in PREAMBLE_HEADERS:
                         platform = "general"
                     else:
@@ -254,6 +425,8 @@ def verify_split() -> bool:
             if not line.startswith("#"):
                 continue
             level, section_num = extract_heading_info(line)
+            if level is None:
+                continue
             if heading_text_lower(line) in PREAMBLE_HEADERS:
                 platform = "general"
             else:
@@ -304,9 +477,31 @@ def main():
         print("Splitting spec...")
         split_spec(verbose=verbose)
 
-    print("\nVerifying...")
+    print("\nVerifying split routing...")
     ok = verify_split()
-    sys.exit(0 if ok else 1)
+    if not ok:
+        sys.exit(1)
+
+    if not verify_only:
+        print("\nRenumbering generated specs...")
+        for path in OUTPUT_FILES.values():
+            renumber_generated_file(path)
+
+    print("\nVerifying renumbered outputs...")
+    renumber_errors: list[str] = []
+    for path in OUTPUT_FILES.values():
+        renumber_errors.extend(verify_local_numbering(path))
+
+    if renumber_errors:
+        print(f"Renumber verification FAILED ({len(renumber_errors)} error(s)):")
+        for error in renumber_errors[:30]:
+            print(f"  {error}")
+        if len(renumber_errors) > 30:
+            print(f"  ... and {len(renumber_errors) - 30} more")
+        sys.exit(1)
+
+    print("Renumber verification PASSED")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
