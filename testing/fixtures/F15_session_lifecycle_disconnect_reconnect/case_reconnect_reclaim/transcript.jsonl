@@ -1,7 +1,0 @@
-{"direction": "phone_to_tv", "message": {"type": "hello", "protocolVersion": 1, "clientId": "client-A", "deviceName": "Phone-A", "appVersion": "1.0.0", "httpPort": 34781, "capabilities": {}}}
-{"direction": "tv_to_phone", "message": {"type": "sessionState", "protocolVersion": 1, "sessionId": "sess-1", "connectionId": 1, "slots": {"P1": {"connected": true, "deviceName": "Phone-A"}, "P2": {"connected": false, "deviceName": ""}}, "inSong": false}}
-{"direction": "tv_to_phone", "message": {"type": "requestSongList", "protocolVersion": 1, "sessionId": "sess-1"}}
-{"direction": "phone_to_tv", "message": {"type": "hello", "protocolVersion": 1, "clientId": "client-A", "deviceName": "Phone-A", "appVersion": "1.0.0", "httpPort": 34781, "capabilities": {}}}
-{"direction": "tv_to_phone", "message": {"type": "sessionState", "protocolVersion": 1, "sessionId": "sess-1", "connectionId": 2, "slots": {"P1": {"connected": true, "deviceName": "Phone-A"}, "P2": {"connected": false, "deviceName": ""}}, "inSong": true}}
-{"direction": "tv_to_phone", "message": {"type": "requestSongList", "protocolVersion": 1, "sessionId": "sess-1"}}
-{"direction": "tv_to_phone", "message": {"type": "assignSinger", "protocolVersion": 1, "sessionId": "sess-1", "songInstanceSeq": 2, "playerId": "P1", "difficulty": "Medium", "thresholdIndex": 3, "effectiveMicDelayMs": 0, "expectedPitchFps": 50, "startMode": "live", "endTimeTvMs": 50000, "udpPort": 12345}}

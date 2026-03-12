@@ -1,4 +1,0 @@
-{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":1,"tCaptureMs":0,"toneValid":true,"midiNote":36}
-{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":2,"tCaptureMs":250,"toneValid":true,"midiNote":36}
-{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":3,"tCaptureMs":500,"toneValid":false,"midiNote":null}
-{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":4,"tCaptureMs":750,"toneValid":false,"midiNote":null}

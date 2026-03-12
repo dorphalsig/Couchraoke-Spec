@@ -1,5 +1,13 @@
-# Ignore everything by default
-superpowers/
-venv/
-.worktrees/
-spec/
+# Ignore everything by default; only explicitly listed files are tracked.
+*
+!*/
+
+# Core spec tooling
+!.gitignore
+!split_spec.py
+!couchraoke_spec.md
+!couchraoke_spec_split_plan.csv
+
+# Serena project config
+!.serena/.gitignore
+!.serena/project.yml

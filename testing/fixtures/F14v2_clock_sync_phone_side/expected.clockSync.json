@@ -1,8 +1,0 @@
-{
-"samples": [
-	{"pingId":"a1","rttMs":40,  "clockOffsetMs":-500.0},
-	{"pingId":"a2","rttMs":180, "clockOffsetMs":-490.0},
-	{"pingId":"a3","rttMs":30,  "clockOffsetMs":-500.0}
-],
-"chosen": {"pingId":"a3","rttMs":30,"clockOffsetMs":-500.0}
-}
