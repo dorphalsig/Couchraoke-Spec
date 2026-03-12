@@ -114,7 +114,7 @@ Parity MVP PASS requires all parity-critical behaviors in this spec to be met, p
 - **Phone Mic Client**: song storage (single songs folder on the phone), song metadata scanning, lightweight read-only HTTP file server for song asset delivery, mic capture + DSP (pitch), toneValid thresholding, pitch frame streaming.
 
 ## 2.2 Data Responsibilities
-**Songs live on the phones.** Each phone has a single songs folder. The TV does not store or own song files. When a phone connects, the TV requests its song list; the phone scans its folder and returns song metadata. The TV aggregates the library from all connected phones.
+**Songs live on the phones.** Each phone has a single songs folder. The TV does not store or own song files. When a phone connects, the TV fetches `GET /manifest.json` from that phone's HTTP server after the `hello`/`sessionState` handshake succeeds. The phone scans its folder independently and serves the resulting song metadata from `/manifest.json`. The TV aggregates the library from all connected phones.
 When a song is needed for playback or preview, the TV uses the HTTP URLs provided in each `SongEntry` from `/manifest.json` to fetch files directly from the phone's HTTP server. The TV passes audio and video URLs directly to ExoPlayer, which streams and buffers them progressively. No ZIP building, no extraction, no temporary storage on the TV.
 TV is authoritative for: song timeline, beats, scoring, rendering, session state.
 Phone is authoritative for: song file storage, song metadata scanning, song HTTP file serving, mic capture and pitch extraction.
@@ -138,6 +138,18 @@ The TV aggregates song metadata received from all currently connected phones int
 
 The TV holds no song files. All media is streamed directly from the phone's HTTP server on demand. When a phone disconnects, its song URLs become unreachable; any in-progress playback must be handled per Section 7.4. No cleanup of downloaded files is required.
 
+**Catalog fetch triggers (normative):**
+
+The TV rebuilds its in-memory song library by fetching `GET /manifest.json` from each connected phone's HTTP server. Fetches occur at exactly three points:
+
+1. **Phone connection**: after a successful `hello`/`sessionState` handshake, the TV MUST fetch the new phone's manifest before making its songs visible in the library.
+2. **Results screen**: when the Results screen is displayed (after any single song or medley run), the TV MUST re-fetch manifests from all connected phones and rebuild the library. This ensures any catalog changes (e.g., a rescan triggered on the phone during the song) are reflected before the next song selection.
+3. **Manual refresh**: when the user triggers **Refresh** or **Refresh all** in Settings > Song Library (§9.4.2), the TV MUST fetch manifests from the targeted phone(s).
+
+On fetch, the TV replaces all songs attributed to that phone's `clientId` with the entries from the fetched manifest. If a fetch fails (HTTP error, timeout, phone unreachable), the TV MUST retain the previous catalog for that phone and show a brief error toast.
+
+**Phone disconnect:** When a phone's WebSocket connection drops, the TV MUST immediately remove all songs attributed to that phone's `clientId` from the library.
+
 **Tests**
 
 These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
@@ -148,7 +160,8 @@ These are the mandatory acceptance tests for this section. Complement with addit
 | T3.1.2 | `songId` = `phoneClientId + "::" + relativeTxtPath` | `inline` | Format matches |
 | T3.1.3 | Sort order: Artist → Album → Title | `inline` | Sorted correctly |
 | T3.1.4 | Phone disconnects → songs removed | `inline` | Immediate removal |
-| T3.1.5 | `songListUpdate` replaces, not appends | `inline` | Old entries gone |
+| T3.1.5 | Manifest fetch replaces, not appends | `inline` | Old entries gone |
+
 
 ## 3.2 Discovery and Validation Rules
 ### 3.2.1 Phone-side discovery (normative)
@@ -2343,7 +2356,7 @@ For each connected phone the TV MUST show:
 ```
 
 ### 9.4.6 Settings > Video
-- Video enabled ON/OFF (if disabled, video playback is suppressed and the background fallback is used instead).
+- Video enabled ON/OFF (if disabled, video playback is suppressed on the Singing screen and the background fallback is used instead).
 **Background fallback order (normative)**
 When video is disabled or unavailable, the singing screen background is determined as follows:
 1. If the song has a valid `#BACKGROUND` image file: use it as full-screen background.

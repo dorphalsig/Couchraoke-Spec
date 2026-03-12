@@ -2,7 +2,7 @@
 
 Updated in spec v4.19: `assignPlayer` removed; `hello` now includes `httpPort`;
 `sessionState` (carrying `connectionId`) replaces `assignPlayer` as the TV's response
-to `hello`; `requestSongList` is sent immediately after each `sessionState`;
+to `hello`; the TV now fetches `GET /manifest.json` after each `sessionState`;
 `assignSinger` now uses `songInstanceSeq` (uint32), `endTimeTvMs`, and `udpPort`;
 `connectionId` is NOT present in `assignSinger`.
 
