@@ -138,6 +138,18 @@ The TV aggregates song metadata received from all currently connected phones int
 
 The TV holds no song files. All media is streamed directly from the phone's HTTP server on demand. When a phone disconnects, its song URLs become unreachable; any in-progress playback must be handled per Section 7.4. No cleanup of downloaded files is required.
 
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T3.1.1 | Two phones each add 3 songs → library = 6 | `inline` | Count correct |
+| T3.1.2 | `songId` = `phoneClientId + "::" + relativeTxtPath` | `inline` | Format matches |
+| T3.1.3 | Sort order: Artist → Album → Title | `inline` | Sorted correctly |
+| T3.1.4 | Phone disconnects → songs removed | `inline` | Immediate removal |
+| T3.1.5 | `songListUpdate` replaces, not appends | `inline` | Old entries gone |
+
 ## 3.2 Discovery and Validation Rules
 ### 3.2.1 Phone-side discovery (normative)
 The phone scans for **all `.txt` files recursively** under its configured songs folder. Each `.txt` is treated as a distinct song entry, even if multiple `.txt` files exist in the same folder.
@@ -173,6 +185,22 @@ Audio/video/instrumental files are validated for existence at load time:
 - Mirror the recursive `.txt` discovery behavior.
 - Reject songs missing the required header fields or required audio file.
 - Keep invalid song diagnostics (error line number + reason) for export/troubleshooting.
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T3.2.1 | Missing `#ARTIST` tag | F01/`a/invalid_missing_required_header` | `isValid=false`, code `ERROR_CORRUPT_SONG_MISSING_REQUIRED_HEADER` |
+| T3.2.2 | `#AUDIO` file missing on disk | F01/`b/invalid_missing_audio` | `isValid=false`, code `ERROR_CORRUPT_SONG_FILE_NOT_FOUND`, `invalidLineNumber=4` |
+| T3.2.3 | v1.0.0: `#AUDIO` beats `#MP3` | F01/`c/v1_audio_precedence` | `isValid=true`, `resolvedAudio=audio.ogg` |
+| T3.2.4 | Legacy: `#MP3` required, `#AUDIO` ignored | F01/`c/legacy_mp3_preferred` | `isValid=true`, `resolvedAudio=audio.mp3` |
+| T3.2.5 | Legacy: no `#MP3` | F01/`c/legacy_missing_mp3_invalid` | `isValid=false`, code `ERROR_CORRUPT_SONG_MISSING_REQUIRED_HEADER` |
+| T3.2.6 | Missing optional `#VIDEO` | F01/`c/v1_missing_optional_video` | `isValid=true`, `hasVideo=false` |
+| T3.2.7 | `#BPM:0` | `inline` | `isValid=false`, code `ERROR_CORRUPT_SONG_MALFORMED_HEADER` |
+| T3.2.8 | Non-numeric `#BPM` | F02/`b/invalid_malformed_bpm` | `isValid=false`, code `ERROR_CORRUPT_SONG_MALFORMED_HEADER`, `invalidLineNumber=5` |
+| T3.2.9 | Recursive scan finds all `.txt` | F01/`songs_root/` | All entries discovered, validity matches `expected.discovery.json` |
 
 ## 3.3 Index Fields (Functional)
 The TV's in-memory library index MUST store enough information to render Song Select and Search. The index is rebuilt from connected phones each session; it is not persisted between sessions.
@@ -218,6 +246,18 @@ Normative minimum index record (per song)
   - `instrumentalUrl` (string|null): URL to the instrumental audio file.
   - `vocalsUrl` (string|null): URL to the vocals audio file.
 Implementations MAY store additional fields (e.g., genre, year, videoGapSec) but the above is the minimum required for MVP behavior.
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T3.3.1 | `isDuet` detected from P1/P2 in body | `inline` (duet song) | `isDuet=true` |
+| T3.3.2 | `hasRap` detected from R/G notes | `inline` (body with `R 0 4 0 ra`) | `hasRap=true` |
+| T3.3.3 | `canMedley=false` for duet songs | `inline` (`isDuet=true`) | `canMedley=false` |
+| T3.3.4 | `canMedley=true` via medley tags | `inline` (`#MEDLEYSTARTBEAT:10`, `#MEDLEYENDBEAT:80`, non-duet) | `canMedley=true`, `medleySource="tag"` |
+| T3.3.5 | `canMedley=false` when no medley tags | `inline` | `canMedley=false`, `medleySource=null` |
 
 ## 3.4 Song List (Landing Screen) - TV
 **Purpose**
@@ -374,6 +414,19 @@ Definition details (USDX parity):
   - If valid tags do not exist, `medleySource=null` and `canMedley=false`.
 **Note — medley auto-calc deferred:** USDX supports a refrain-finding algorithm (`#CALCMEDLEY`) that produces `medleySource="calculated"` when no explicit tags exist. This algorithm is not specified for MVP. `medleySource="calculated"` is therefore not a valid value in this implementation. Only songs with explicit `#MEDLEYSTARTBEAT`/`#MEDLEYENDBEAT` tags are medley-eligible.
 
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T3.4.1 | No phones connected → message + hint text | `inline` [U widget] | "No phones connected." displayed |
+| T3.4.2 | Phones connected, no valid songs | `inline` [U widget] | "No songs found." displayed |
+| T3.4.3 | `canMedley=false` long-press → blocking modal | `inline` [U widget] | Exact text per §3.4 |
+| T3.4.4 | Play Medley with empty playlist | `inline` [U widget] | Button disabled |
+| T3.4.5 | Back with active filter → filter cleared | `inline` [U widget] | Remain on screen |
+| T3.4.6 | Back with no filter → app exit | `inline` [U widget] | Exit triggered |
+
 # 4. USDX TXT Format Support
 
 ## 4.1 Supported Note Tokens
@@ -402,6 +455,15 @@ For note tokens (`:`, `*`, `F`, `R`, `G`) USDX parses:
 - A `P1`/`P2` marker sets the active track (0/1).
 - Notes and `-` sentence breaks are assigned to the current active track.
 - The file ends with a single `E` after all notes.
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T4.1.1 | P1/P2 track routing | F04/`a/valid_duet_interleaved` | 2 tracks, notes assigned per track per `expected.parsedSong.json` |
+| T4.1.2 | Invalid `P3` marker | F04/`b/invalid_duet_marker_p3` | `isValid=false`, `ERROR_CORRUPT_SONG_INVALID_DUET_MARKER`, `invalidLineNumber=6` |
 
 ## 4.2 Supported Header Tags and Semantics
 
@@ -438,6 +500,19 @@ Singer labels (stored and available via `ParsedSong.header.p1Name` / `p2Name`; n
 
 ### 4.2.5 In-song BPM changes
 Variable-BPM charts (body `B` lines) are **not supported**. If any `B` line is present, the song MUST be rejected as invalid (use `ERROR_CORRUPT_SONG_UNSUPPORTED_VARIABLE_BPM`).
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T4.2.1 | Duplicate tags → last wins | F02/`a/dup_bpm_last_wins` | `bpmFile=120.0` |
+| T4.2.2 | Unknown tags preserved and ordered | F02/`a/unknown_tags_variants` | `customTags=[{FOO,bar},{EMPTY,""},{"",.JUSTTEXT}]` ordered |
+| T4.2.3 | `#VERSION:1.0.0` forces UTF-8, ignores `#ENCODING` | F02/`c/encoding_utf8_forced` | `title="Tést ✓ UTF8"` |
+| T4.2.4 | `previewStartSec` from `#PREVIEWSTART` | F02/`d/preview_from_previewstart` | `previewStartSec=12.5` |
+| T4.2.5 | `previewStartSec` medley fallback | F02/`d/preview_from_medley` | `previewStartSec=2.0` (`timeFromBeat(16)=2.0s`) |
+| T4.2.6 | `previewStartSec` defaults to 0 | F02/`d/preview_from_start` | `previewStartSec=0.0` |
 
 ## 4.3 Error Handling
 **Implementation requirements (MVP, parity-aligned)**
@@ -521,6 +596,22 @@ Minimum invalidation codes (parity-aligned)
 - `ERROR_CORRUPT_SONG_UNSUPPORTED_RELATIVE`: a sentence (`-`) body line includes the legacy extra numeric beat-delta parameter (the RELATIVE format). Note: `#RELATIVE` as a header tag is treated as an unknown tag (stored in `customTags`; no semantic effect) and does NOT trigger this error — but songs originally authored with `#RELATIVE` will be parsed as if they are absolute-beat format, which may produce incorrect note timing.
 - `ERROR_CORRUPT_SONG_INVALID_VERSION`: VERSION exists but fails to parse, or VERSION >= 2.0.0.
 - `ERROR_CORRUPT_SONG_INVALID_DUET_MARKER`: `P` token present with value other than P1/P2.
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T4.3.1 | Unknown body token ignored | F03/`a/unknown_token_ignored` | `isValid=true`, note type = Normal |
+| T4.3.2 | Malformed numeric in body | F03/`b/invalid_malformed_numeric` | `isValid=false`, `ERROR_CORRUPT_SONG_MALFORMED_BODY`, `invalidLineNumber=7` |
+| T4.3.3 | `duration=0` converts to Freestyle | F03/`c/duration_zero_converts_to_freestyle` | Note stored as `Freestyle` |
+| T4.3.4 | No `-` lines → single implicit sentence | `inline` | `isValid=true`, 1 line, 1 note |
+| T4.3.5 | No notes after cleanup | `inline` | `isValid=false`, `ERROR_CORRUPT_SONG_NO_NOTES` |
+| T4.3.6 | `B` token (variable BPM) rejected | F03/`d/variable_bpm_rejected` | `isValid=false`, `ERROR_CORRUPT_SONG_UNSUPPORTED_VARIABLE_BPM` |
+| T4.3.7 | `#RELATIVE:YES` treated as unknown custom tag | F03/`e/relative_header_as_custom_tag` | `isValid=true`, `customTags` contains `{RELATIVE, YES}` |
+| T4.3.8 | RELATIVE body format (`- 16 4`) rejected | F03/`f/relative_body_rejected` | `isValid=false`, `ERROR_CORRUPT_SONG_UNSUPPORTED_RELATIVE` |
+| T4.3.9 | Legacy RELATIVE semantics fixture remains rejected in MVP | F05 | `isValid=false`, `ERROR_CORRUPT_SONG_UNSUPPORTED_RELATIVE` |
 
 ## 4.4 Header Tags Reference
 This section consolidates the supported UltraStar `.txt` header tags and their semantics. Tags are introduced here so that later timing (Chapter 5) and scoring (Chapter 6) rules can reference them directly.
@@ -652,6 +743,20 @@ Frames that fail condition (2) MUST be excluded (treated as if never received).
 
 The resulting set of qualifying frames is `samplesInNote`. Scoring proceeds per Section 6.1.
 
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T5.2.3.1 | Most recent frame ≤ now selected | F13 (`tvNowMs=1060`) | seq=2 (`tvTimeMs=1050`) |
+| T5.2.3.2 | Newer frame within range preferred | F13 (`tvNowMs=1200`) | seq=3 (`tvTimeMs=1090`) |
+| T5.2.3.3 | All eligible frames stale (>120ms) | F13 (`tvNowMs=1400`) | `toneValid=false` (silence) |
+| T5.2.3.4 | Frame too late: `latenessMs > 450` | F13 (inject `latenessMs=500`) | Dropped; `toneValid=false` |
+| T5.2.3.5 | Decreasing `seq` → drop | F13 (inject seq=5 then seq=3) | seq=3 dropped |
+| T5.2.3.6 | `tvTimeMs` regression >200ms | F13 (regression=300ms) | Dropped |
+| T5.2.3.7 | `tvTimeMs` regression ≤200ms accepted | F13 (regression=100ms) | Accepted |
+
 ### 5.2.4 Effective mic delay (manual)
 
 The scoring beat cursor (Section 5.1) uses a mic delay to compensate for hardware audio pipeline latency:
@@ -700,8 +805,20 @@ Iterate through `d'(tau)` to find local minima. Select the **first** local minim
 **Step 5: Temporal Smoothing**
 To prevent erratic octave jumping in noisy environments, the phone MUST maintain a 3-frame rolling median filter. 
 - Push `rawMidiNote` into the `medianHistory` buffer.
-- The `midiNote` transmitted in the 16-byte UDP `pitchFrame` MUST be the median of these 3 values. 
+- The `midiNote` transmitted in the 16-byte UDP `pitchFrame` MUST be the median of these 3 values.
 - If any of the 3 frames in the history buffer are unvoiced (255), the transmitted `midiNote` MUST be 255 (silence interrupts the combo immediately).
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T5.2.5.1 | Pure A4 sine → MIDI 69 | F17/`A4_Pure_Sine` | `midiNote=69` |
+| T5.2.5.2 | Amplitude below thresholdIndex=3 → unvoiced | F17/`Below_Threshold_Index_3` | `midiNote=255` (voicing gate rejects) |
+| T5.2.5.3 | Median filter: silence interrupts combo | F17/`Median_Filter_Stabilization` (sequence [60, 255, 60]) | `midiNote=255` |
+| T5.2.5.4 | Zero-padded FFT produces linear (not circular) autocorrelation | `inline` | Validate `paddedBuffer` second half is zeros; FFT output length = 1024 real values |
+| T5.2.5.5 | `d'(0) = 1.0` always | `inline` | First element of normBuffer is exactly 1.0 |
 
 #### 5.2.5.3 Consolidated Sensitivity Table
 The `thresholdIndex` (0–7) from `assignSinger` determines both the volume required to open the noise gate (`maxAmpCutoff`) and the strictness of the pitch detection (`dPrimeCutoff`). 
@@ -746,6 +863,18 @@ Static BPM:
 To convert this chart-relative time back to `lyricsTimeSec` (audio-start relative), add `GAPms/1000.0`.
 Boundary conventions:
 - When comparing a time to a note window converted from beats, implementations MUST use: `noteActive if startBeat <= beat < endBeat` (start inclusive, end exclusive).
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T5.3.1 | Highlight cursor: `lyricsTimeSec=5.0`, `GAP=2000`, `BPM_file=120` | F06/`expected.beat_cursors.json` | `currentBeat=24` |
+| T5.3.2 | Scoring cursor: same inputs, `micDelayMs=100` | F06/`expected.beat_cursors.json` | `currentBeatD=22` |
+| T5.3.3 | Round-trip: `BeatInternalToTimeSec(TimeSecToMidBeatInternal(t)) ≈ t` | `inline` | Match to 1e-9s (Appendix E.2) |
+| T5.3.4 | Note window: `startBeat=11`, `duration=2` | `inline` (Appendix E.3) | Active at b=11,12; NOT at b=13 |
+| T5.3.5 | Medley: notes outside `[medleyStartBeat, medleyEndBeat)` | `inline` | Treated as Freestyle (ScoreFactor=0) at scoring time; parsed note unmodified |
 
 ## 5.4 START/END
 This section defines how the optional TXT headers `#START` and `#END` affect playback.
@@ -812,6 +941,19 @@ After computing `note_score`:
 
 A sentence/line is considered complete when its last scorable note has been finalized. At that point, line bonus evaluation (Section 6.5) MUST run for that sentence. `Player.ScoreLast` MUST be updated after each sentence's line bonus is applied, as in the current spec.
 
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T6.1.1 | Per-note scoring: perfect performance → `scoreTotalInt=10000` | F08/`expected.score.json` | All notes: `hits=N`, `note_score=max_note_score`; `scoreTotalInt=10000` |
+| T6.1.2 | Per-note scoring: N=0 (no frames) → `note_score=0` | F08 (note with zero qualifying frames) | `note_score=0` |
+| T6.1.3 | Per-note scoring: partial hits → `note_score = max_note_score × (hits/N)` | F08 | Per-note `hits`, `N`, `note_score` match `expected.score.json` |
+| T6.1.4 | Score accumulation: Normal/Rap → `Player.Score`; Golden/RapGolden → `Player.ScoreGolden` | F08 | Accumulation fields match fixture |
+| T6.1.5 | Freestyle notes excluded: `ScoreFactor=0` → `note_score=0` even with `toneValid=true` | F03/`scoring/freestyle_only` | `scoreTotalInt=0` |
+| T6.1.6 | Sentence finalization triggers line bonus evaluation | F11 | Line bonus applied at sentence boundary |
+
 ## 6.2 Note Types
 Note-type tokens in the TXT file:
 - Freestyle: `F`
@@ -840,6 +982,16 @@ Normative constants:
 - Rap (`R`): ScoreFactor=1
 - RapGolden (`G`): ScoreFactor=2
 
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T6.2.1 | Rap note: `toneValid=true` → scores regardless of pitch | F10/`expected.score.json` | Hit counted |
+| T6.2.2 | Rap note: `toneValid=false` → no score | F10/`expected.score.json` | Hit not counted |
+| T6.2.3 | Rap scoring end-to-end | F10/`expected.score.json` | `scoreTotalInt` matches fixture |
+
 ## 6.3 Player Level / Tolerance
 Each singer/player has a Difficulty setting: Easy, Medium, or Hard.
 Define the pitch tolerance Range (in semitones) as:
@@ -864,6 +1016,20 @@ while (Tone - TargetTone < -6) Tone := Tone + 12
 - After octave normalization, the value compared/scored is the shifted `Tone`.
 **Parity requirement**
 Implement octave normalization exactly as above (shift detected `tone` by 12 until it is within 6 semitones of the target note).
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T6.4.1 | Easy (±2): midiNote=47, target=0 → diff=1 after octave norm | F09/`easy_hit_diff1` | Hit; `scoreTotalInt` matches fixture |
+| T6.4.2 | Medium (±1): midiNote=47, target=0 → diff=1 | F09/`medium_hit_diff1` | Hit |
+| T6.4.3 | Medium (±1): midiNote=38, target=0 → diff=2 | F09/`medium_miss_diff2` | Miss |
+| T6.4.4 | Hard (±0): midiNote=47, target=0 → diff=1 | F09/`hard_miss_diff1` | Miss |
+| T6.4.5 | Octave norm loop: `Tone - Target > 6` → subtract 12 | `inline` | Tone shifted down |
+| T6.4.6 | Octave norm loop: `Tone - Target < -6` → add 12 | `inline` | Tone shifted up |
+| T6.4.7 | Do NOT reduce to pitch class (mod 12) before loop | `inline` | Verify full semitone value preserved |
 
 ## 6.5 Line Bonus
 Line bonus is a scoring mode that reserves 1000 points of the 10000-point total for sentence/line completion.
@@ -891,6 +1057,18 @@ Rounding: see Section 6.6.
 **Parity requirement**
 Implement sentence-end scoring and line bonus exactly as above, including the `-2` forgiveness term.
 
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T6.5.1 | Perfect performance: `ScoreLineInt=1000`, `ScoreTotalInt=10000` | F11/`expected.score.json` | Match fixture |
+| T6.5.2 | `MaxLineScore <= 2` → `LinePerfection = 1` (forgiveness) | F11 | Line treated as perfect |
+| T6.5.3 | Empty line (`LineScoreValue=0`) → no line bonus | F11 | Empty line skipped |
+| T6.5.4 | `LineBonusPerLine` uses float division (not integer) | F11 | Precision matches fixture |
+| T6.5.5 | Medley: `TrackScoreValue` only sums notes in `[medleyStartBeat, medleyEndBeat)` | F11 (medley subcase if present) | Window-filtered sum |
 ## 6.6 Rounding and Display
 Per-note scoring (normative):
 - Let `MaxSongPoints` be as defined in Section 6.5 (10000 if LineBonusEnabled=OFF; 9000 if ON).
@@ -911,6 +1089,18 @@ Tens rounding (normative):
 Parity requirement:
 Use the exact rounding rules above and compute total as shown.
 **Normative note — intentional rounding asymmetry:** `ScoreLineInt` uses `floor(round(x)/10)*10` (round to integer first, then floor-truncate to tens), while `ScoreInt` and `ScoreGoldenInt` use `round(x/10)*10` (round directly to tens). This asymmetry matches USDX behavior and MUST NOT be normalized — do not apply the same formula to all three fields.
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T6.6.1 | `ScoreInt = round(Score/10) * 10` | F11/`expected.score.json` | Match fixture |
+| T6.6.2 | Golden opposite-rounding: `ScoreInt < Score` → `ScoreGoldenInt = ceil` | F11 (Appendix E.5) | Opposite direction applied |
+| T6.6.3 | Golden opposite-rounding: `ScoreInt >= Score` → `ScoreGoldenInt = floor` | `inline` | Floor applied |
+| T6.6.4 | `ScoreLineInt = floor(round(ScoreLine) / 10) * 10` (intentional asymmetry) | F11 | Asymmetric formula used, not same as ScoreInt |
+| T6.6.5 | `ScoreTotalInt = ScoreInt + ScoreGoldenInt + ScoreLineInt` never exceeds 10000 | F11 | Verified |
 
 # 7. Multiplayer, Pairing, and Session Lifecycle
 
@@ -1364,7 +1554,6 @@ These are the mandatory acceptance tests for this section. Complement with addit
 | T8.5.4 | PitchFrames with old `connectionId=1` dropped | F15/`case_reconnect_reclaim` | Silently dropped |
 | T8.5.5 | Third phone rejected | F15/`case_reconnect_reclaim` | `error(code="session_full")` |
 
----
 
 ## 8.6 Pitch Stream
 
@@ -1459,7 +1648,6 @@ These are the mandatory acceptance tests for this section. Complement with addit
 | T8.6.7 | `songInstanceSeq` mismatch → dropped | `inline` | Silently dropped |
 | T8.6.8 | Unknown `playerId` (not P1/P2) → dropped | `inline` | Silently dropped |
 
----
 
 ## 8.7 Song File Delivery
 
@@ -1474,6 +1662,7 @@ http://<phone-ip>:<httpPort>/songs/<percent-encoded-relative-path>
 ```
 
 Where `<relative-path>` is the asset file's path relative to the phone's songs folder root (e.g., `Queen/Bohemian%20Rhapsody/bohemian.ogg`). The phone's IP is inferred by the TV from the WebSocket connection's remote address.
+
 
 **Song catalog endpoint (normative):**
 
@@ -1565,29 +1754,6 @@ If not `.current`, treat the file as absent and return `null`. Call `FileManager
 **Known limitation — iOS backgrounding:**
 If the user backgrounds the phone app during a song, iOS may suspend the process after approximately 30 seconds, terminating the HTTP server socket. ExoPlayer on the TV will then stall. `isIdleTimerDisabled = true` prevents screen dimming but does not prevent backgrounding. Implementations MUST document this: users must keep the phone app in the foreground during a song.
 
-**Tests**
-
-These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
-
-| ID | What | Fixture | Expected |
-|---|---|---|---|
-| T8.7.1 | Full file request (no `Range`) | F18 row 1 | 200, `Content-Length` set, full bytes |
-| T8.7.2 | Partial range `bytes=0-99` | F18 row 2 | 206, `Content-Range: bytes 0-99/<total>`, 100 bytes |
-| T8.7.3 | Open-ended range `bytes=9500-` | F18 row 3 | 206, bytes from offset to EOF |
-| T8.7.4 | `Accept-Ranges: bytes` header on all audio/video responses | F18 | Header present |
-| T8.7.5 | Unsatisfiable range on small file | `inline` | 416 |
-| T8.7.6 | Valid path `/songs/Artist/Song/audio.ogg` | `inline` | 200 |
-| T8.7.7 | Percent-encoded path decoded correctly | `inline` (`Queen/Bohemian%20Rhapsody/`) | 200 |
-| T8.7.8 | Path traversal `../etc/passwd` rejected | `inline` | 404 |
-| T8.7.9 | Android SAF size query returns 0 | F19 | Corresponding URL is `null` in manifest |
-| T8.7.10 | iCloud file not `.current` | F19 | Corresponding URL is `null` in manifest |
-| T8.7.11 | HTTP server starts before `hello` | `inline` | `hello.httpPort` is reachable |
-| T8.7.12 | `GET /manifest.json` returns valid JSON array of SongEntry objects | `inline` | 200, valid JSON array |
-| T8.7.13 | `Cache-Control: no-cache` header present on manifest response | `inline` | Header present |
-| T8.7.14 | Manifest reflects rescan | `inline` | Re-fetch after folder change returns updated catalog |
-
----
-
 ### 8.7.4 Asset Consumption — TV
 
 - Song asset URLs from `/manifest.json` are handed directly to ExoPlayer (`MediaItem.fromUri(audioUrl)`) or to Coil for cover/background images. No intermediate storage step.
@@ -1668,6 +1834,24 @@ Four entries are mandatory. Without them the phone app cannot function:
 
 ---
 
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T8.7.1 | Full file request (no `Range`) | F18 row 1 | 200, `Content-Length` set, full bytes |
+| T8.7.2 | Partial range `bytes=0-99` | F18 row 2 | 206, `Content-Range: bytes 0-99/<total>`, 100 bytes |
+| T8.7.3 | Open-ended range `bytes=9500-` | F18 row 3 | 206, bytes from offset to EOF |
+| T8.7.4 | `Accept-Ranges: bytes` header on all audio/video responses | F18 | Header present |
+| T8.7.5 | Unsatisfiable range on small file | `inline` | 416 |
+| T8.7.6 | Valid path `/songs/Artist/Song/audio.ogg` | `inline` | 200 |
+| T8.7.7 | Percent-encoded path decoded correctly | `inline` (`Queen/Bohemian%20Rhapsody/`) | 200 |
+| T8.7.8 | Path traversal `../etc/passwd` blocked | `inline` | 404 |
+| T8.7.9 | Server starts before `hello` sent | `inline` [I] | `httpPort` in `hello` is reachable |
+| T8.7.10 | Default port busy → ephemeral fallback | `inline` [I] | `httpPort` reflects actual bound port |
+| T8.7.11 | iCloud evicted file → `audioUrl=null` in SongEntry (iOS) | F19 | `audioUrl=null`, `coverUrl` present |
+
 ## 8.8 Clock Sync
 
 Goal: calibrate each phone's estimate of TV monotonic time so that each pitch frame can include a valid `tvTimeMs`.
@@ -1695,7 +1879,6 @@ Clock sync is always **TV-initiated**.
 - `pingId` (string; random per sample; echoed by all subsequent messages)
 - `tTvSendMs` (TV monotonic ms at send)
 
-**`pong`** (Phone → TV)
 - `pingId` (echo)
 - `tTvSendMs` (echo)
 - `tPhoneRecvMs` (phone monotonic ms at receipt of `ping`)
@@ -1737,6 +1920,17 @@ clockOffsetMs = ((t2 - t1) + (t3 - t4)) / 2
 The TV does NOT need to compute `clockOffsetMs`; it uses `tvTimeMs` from each binary pitch frame directly.
 
 Pitch-frame time mapping, jitter buffer behavior, scoring sample selection, and mic delay application are defined in §5.2.
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T8.8.1 | Per-sample: `RTT=(t4-t1)-(t3-t2)`, `offset=((t2-t1)+(t3-t4))/2` | F14v2/`expected.clockSync.json` | All 3 samples match to 0.5ms |
+| T8.8.2 | Best-of-N: choose smallest RTT | F14v2 | `chosen.pingId="a3"` (RTT=30) |
+| T8.8.3 | Invalid RTT (< 0 or > 2000) discarded | `inline` (inject bad sample) | Not chosen |
+| T8.8.4 | `tvTimeMs` estimation: `clockOffsetMs=-500`, `phoneMonotonicMs=2000` | `inline` | `tvTimeMs=1500` |
 
 # 9. UI Screens and Flows - TV
 This section is normative for MVP UI and navigation on Android TV.
@@ -1808,6 +2002,7 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
 **Fields**
 - Player 1 device: required (dropdown list of connected phones).
 - Player 2 device: present but may be disabled or hidden depending on song/mode type.
+
 - Difficulty per player: Easy / Medium / Hard.
 **Gating rules (normative)**
 - Duet songs:
@@ -1987,7 +2182,7 @@ Settings is a simple list of items; selecting one opens a sub-screen.
 - Selecting **Rename** MUST open a modal rename dialog using the TV on-screen keyboard.
 - The input field MUST be pre-filled with the current display name.
 - The user MAY change the name to any non-empty trimmed string.
- - If the resulting trimmed string is empty, OK MUST be disabled (or a validation error MUST be shown and the rename MUST NOT be applied).
+- If the resulting trimmed string is empty, OK MUST be disabled (or a validation error MUST be shown and the rename MUST NOT be applied).
 - Cancel (or Back) MUST close the dialog without applying changes.
 - OK MUST apply the change immediately, store the new name for that `clientId`, and update the roster display.
 - Default focus MUST be **Cancel**.
@@ -2197,6 +2392,17 @@ After each sentence ends, a brief rating label is displayed for the correspondin
  - Single action: `OK`
 - Default focus MUST be on `OK`.
 - On `OK`, the modal MUST close and the user remains on Select Players.
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T9.5.1 | Countdown N → 1 at 1 Hz; playback starts after 1 | `inline` [U widget] | Sequence correct |
+| T9.5.2 | Singer disconnects mid-song → pause overlay | `inline` [U widget] | Shows `PAUSED — PLAYER DISCONNECTED` with Wait/Continue/Quit |
+| T9.5.3 | Pause overlay: Quit confirm defaults to Cancel | `inline` [U widget] | Default focus on Cancel |
+
 **Wireframe (countdown disconnect modal; TV)**
 ```text
 +--------------------------------------+
@@ -2386,6 +2592,23 @@ Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, bu
 |  ─────────────────────────────────────────────
 ```
 
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T9.5.1.1 | `medleyStartSec` and `medleyEndSec` computation | F16/`expected.segments.json` | All 3 songs match fixture |
+| T9.5.1.2 | Clamped: `timeFromBeat(startBeat) <= 8` → `medleyStartSec=0.0` | `inline` | Clamped to 0 |
+| T9.5.1.3 | Scoring window: notes in `[start, end)` → normal ScoreFactor | F16 | Applied normally |
+| T9.5.1.4 | Scoring window: notes outside → ScoreFactor=0 | F16 | Freestyle treatment |
+| T9.5.1.5 | `TrackScoreValue` window-filtered | F16 | Only in-window notes |
+| T9.5.1.6 | Per-note ratio scoring within medley window | F16 | `note_score = max_note_score × (hits/N)` per §6.1; scoring model is identical to non-medley — window filter only affects which notes have ScoreFactor>0 |
+| T9.5.1.7 | Playback order preserved | F16 | A → B → C |
+| T9.5.1.8 | `medleyStartBeat >= medleyEndBeat` → assertion error | `inline` | Internal error (defensive) |
+| T9.5.1.9 | `audioUrl` null → segment skipped, next proceeds | `inline` | Error toast + continue |
+| T9.5.1.10 | Scan-time: `#MEDLEYSTARTBEAT >= #MEDLEYENDBEAT` → `canMedley=false` | `inline` | Song excluded from playlist |
+
 ## 9.6 Results Screen (TV)
 
 ### 9.6.1 Post-song results
@@ -2427,6 +2650,18 @@ After a medley run finishes, show a single results screen with a static score ta
 - No navigation actions between rounds. Only action: **Back to Song List**.
 **Back key (normative)**
 - Pressing TV remote **Back** MUST return to Song List.
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T9.6.1 | Medley Total = `round(sum(scoreTotalInt) / nSegments)` per player | F16 | Aggregated score matches formula |
+| T9.6.2 | Medley Total may be non-multiple-of-10 (USDX parity) | `inline` (e.g. scores [10000, 9960, 0] → 6653) | Non-tens result accepted |
+| T9.6.3 | Per-segment row displays `scoreTotalInt` for each player | `inline` [U widget] | All segments listed with P1/P2 scores |
+| T9.6.4 | Back key returns to Song List | `inline` [U widget] | Navigation correct |
+
 **Wireframe (medley results; TV)**
 ```text
 +--------------------------------------------------------------------------------+
