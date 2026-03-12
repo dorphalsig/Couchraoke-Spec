@@ -115,7 +115,7 @@ Parity MVP PASS requires all parity-critical behaviors in this spec to be met, p
 
 ## 2.2 Data Responsibilities
 **Songs live on the phones.** Each phone has a single songs folder. The TV does not store or own song files. When a phone connects, the TV requests its song list; the phone scans its folder and returns song metadata. The TV aggregates the library from all connected phones.
-When a song is needed for playback or preview, the TV uses the HTTP URLs provided in `songListUpdate` to fetch files directly from the phone's HTTP server. The TV passes audio and video URLs directly to ExoPlayer, which streams and buffers them progressively. No ZIP building, no extraction, no temporary storage on the TV.
+When a song is needed for playback or preview, the TV uses the HTTP URLs provided in each `SongEntry` from `/manifest.json` to fetch files directly from the phone's HTTP server. The TV passes audio and video URLs directly to ExoPlayer, which streams and buffers them progressively. No ZIP building, no extraction, no temporary storage on the TV.
 TV is authoritative for: song timeline, beats, scoring, rendering, session state.
 Phone is authoritative for: song file storage, song metadata scanning, song HTTP file serving, mic capture and pitch extraction.
 **Consequence**: a phone must be connected for its songs to appear in the TV library. Songs from a disconnected phone are removed from the active library until that phone reconnects.
@@ -131,7 +131,7 @@ For each `.txt` file found: read its content via `contentResolver.openInputStrea
 #### 3.1.1.2 iOS (security-scoped bookmarks — Swift)
 The songs folder is selected via `UIDocumentPickerViewController`. The chosen URL MUST be persisted as a security-scoped bookmark (`url.bookmarkData(options: .minimalBookmark)`). On subsequent launches, resolve the bookmark with `URL(resolvingBookmarkData:)` and call `url.startAccessingSecurityScopedResource()` before any file operation. Recursive enumeration uses `FileManager.default.enumerator(at: folderUrl, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])`. File reads for `.txt` content use `Data(contentsOf: fileUrl)`. Asset file availability checks use `FileManager.default.fileExists(atPath:)`. Call `url.stopAccessingSecurityScopedResource()` when scanning is complete.
 ### 3.1.2 Song file delivery
-The phone runs a lightweight read-only HTTP server for the duration of its session connection (see Section 8.6). Song files are served directly from the phone's songs folder via HTTP. The TV fetches files on demand using URLs provided in `songListUpdate`. No ZIP building, no extraction, and no temporary storage on the TV are required.
+The phone runs a lightweight read-only HTTP server for the duration of its session connection (see Section 8.6). Song files are served directly from the phone's songs folder via HTTP. The TV fetches files on demand using URLs provided in each `SongEntry` from `/manifest.json`. No ZIP building, no extraction, and no temporary storage on the TV are required.
 
 ### 3.1.3 TV-Side Library and Lifecycle
 The TV aggregates song metadata received from all currently connected phones into an in-memory library index. The library index is never persisted between sessions. When a phone disconnects, its songs MUST be removed from the library index immediately — they become invisible and unselectable in the UI.
@@ -209,7 +209,7 @@ Normative minimum index record (per song)
 - Preview/seek metadata
   - `startSec` (from `#START`, default 0.0).
   - `previewStartSec` (computed as: `#PREVIEWSTART` if present and >0; else if `medleySource!=null` use `timeFromBeat(medleyStartBeat)`; else 0.0; see Section 3.4 and Section 10.2).
-- Asset URLs (populated from `songListUpdate`; stored as-received; null if file absent on phone)
+- Asset URLs (populated from `/manifest.json`; stored as-received; null if file absent on phone)
   - `txtUrl` (string): URL to the `.txt` file. Required for valid songs.
   - `audioUrl` (string|null): URL to the primary audio file.
   - `videoUrl` (string|null): URL to a local video file; null for YouTube references and absent files.
@@ -233,7 +233,7 @@ Implementations MAY store additional fields (e.g., genre, year, videoGapSec) but
 - **Back** button: behaves like the TV remote Back key (see Back key behavior below).
 - **Join code** (text-only): top-right of header, shows the current session join code (e.g., `Code: ABCD-EFGH`) as a quick-glance alternative to scanning the QR in the left panel.
 **Pairing (on landing)**
-- The landing screen left panel MUST show a compact session join widget: **QR code + join code** for the current session endpoint (Section 8.1). The QR is positioned in the left panel below the video preview area and above the Medley playlist.
+- The landing screen left panel MUST show a compact session join widget: **QR code + join code** for the current session endpoint (Section 8.1). The QR is positioned in the left panel above the Medley playlist.
 - The QR payload MUST encode the full WebSocket endpoint URL (including the `token` query parameter), so the phone can join without relying on LAN discovery.
 - The landing screen MUST NOT show a connected-device roster.
 - Device roster management (Rename/Kick/Forget) is available only in Settings -> Connect Phones (Section 10.4.1).
@@ -305,9 +305,9 @@ Playlist edit interactions:
   - While in Reorder mode, the bottom-of-screen context hints MUST include `Up/Down=Move  OK=Accept  Back=Cancel`.
 - Long-press OK on a playlist row deletes that row immediately (no confirm).
 **Layout / focus (normative; TV remote)**
-The Song List uses a two-column layout. The **left panel** contains the video preview, QR/join code widget, and Medley playlist. The **right panel** contains the Search field, action buttons, and song grid.
+The Song List uses a two-column layout. The **left panel** contains the QR/join code widget and Medley playlist. The **right panel** contains the Search field, action buttons, and song grid.
 Focus allocation:
-- The video preview and QR/join code widget are **display-only and non-focusable**. The remote cannot focus them.
+- The QR/join code widget is **display-only and non-focusable**. The remote cannot focus it.
 - The Medley playlist rows, Play Medley button, and Auto Medley button are focusable within the left panel.
 - The Search field, Random Song button, Random Duet button, and song grid tiles are focusable within the right panel.
 Grid column count (normative):
@@ -332,17 +332,12 @@ DPAD navigation map (normative):
 +--------------------------------------------------------------------------------------------------+
 |                                                                                                  |
 |  +--------------------------------------+     +----------------------------------------------+   |
-|  | VIDEO PREVIEW (focused song)         |     | Search: [______________________________]      |   |
-|  | (uses Preview Volume)                |     | [Random Song]  [Random Duet]                  |   |
-|  |                                      |     |   (disabled when filtered set is empty)       |   |
-|  |  +------------------------------+    |     |                                              |   |
-|  |  |          16:9 video          |    |     |  SONG GRID (right half)                        |   |
-|  |  |          preview             |    |     |  +---------+ +---------+ +---------+ +-----+   |   |
-|  |  |                              |    |     |  | Cover   | | Cover   | | Cover   | | ... |   |   |
-|  |  |                              |    |     |  | Title   | | Title   | | Title   | |     |   |   |
-|  |  +------------------------------+    |     |  | Artist  | | Artist  | | Artist  | |     |   |   |
-|  |                                      |     |  | [D][V][M]| | [R]     | | [D]     | |     |   |   |
-|  |  +------------------------------+    |     |  +---------+ +---------+ +---------+ +-----+   |   |
+|  | JOIN SESSION                 |    |     | Search: [______________________________]      |   |
+|  | [   QR CODE   ]              |    |     | [Random Song]  [Random Duet]                  |   |
+|  | Code: ABCD-EFGH              |    |     |   (disabled when filtered set is empty)       |   |
+|  |                              |    |     |                                              |   |
+|  |  +------------------------------+|     |  SONG GRID (right half)                        |   |
+|  |  | MEDLEY PLAYLIST              ||     |  +---------+ +---------+ +---------+ +-----+   |   |
 |  |  | JOIN SESSION                 |    |     |  +---------+ +---------+ +---------+ +-----+   |   |
 |  |  | [   QR CODE   ]              |    |     |  | Cover   | | Cover   | | Cover   | | ... |   |   |
 |  |  | Code: ABCD-EFGH              |    |     |  | Title   | | Title   | | Title   | |     |   |   |
@@ -435,7 +430,7 @@ For note tokens (`:`, `*`, `F`, `R`, `G`) USDX parses:
 - `#VIDEOGAP:` seconds offset added to audio position when positioning video.
 - `#INSTRUMENTAL:` instruments-only audio file. When present and the file exists, replaces `#AUDIO`/`#MP3` as the sole backing track for the entire song. See Section 1.1 for full semantics.
 - `#VOCALS:` acapella audio file. When present alongside `#INSTRUMENTAL`, mixed at a user-configurable volume as a singing guide. Ignored if `#INSTRUMENTAL` is absent. See Section 1.1 for full semantics.
-- `#COVER:` image; `#BACKGROUND:` image. Fallback filenames `*[CO].jpg` and `*[BG].jpg` (glob: any file in the song directory ending with `[CO].jpg` or `[BG].jpg` respectively) MUST be resolved by the phone at scan time if the explicit tag is absent or the named file does not exist. If a fallback file is found, it MUST be used to populate `coverUrl`/`backgroundUrl` in `songListUpdate`. If no fallback is found, the corresponding URL is `null`. The TV does NOT perform filename glob resolution — it only uses URLs supplied by the phone.
+- `#COVER:` image; `#BACKGROUND:` image. Fallback filenames `*[CO].jpg` and `*[BG].jpg` (glob: any file in the song directory ending with `[CO].jpg` or `[BG].jpg` respectively) MUST be resolved by the phone at scan time if the explicit tag is absent or the named file does not exist. If a fallback file is found, it MUST be used to populate `coverUrl`/`backgroundUrl` in the manifest. If no fallback is found, the corresponding URL is `null`. The TV does NOT perform filename glob resolution — it only uses URLs supplied by the phone.
 
 ### 4.2.4 Duet tags
 Singer labels (stored and available via `ParsedSong.header.p1Name` / `p2Name`; not displayed in singing screen UI — device names are shown instead):
@@ -979,8 +974,8 @@ The phone app has three primary screen states:
 - After song end, the phone returns to the Waiting/Connected screen. Role label still shows the last assigned role until a new `assignSinger` or session change. No score is displayed on the phone; results are TV-only.
 **Song Library management from phone (normative)**
 - Song folder management is accessed via the phone app **Settings screen** (see below). There is no separate Song Library menu item.
-- When the TV requests a song list (via `requestSongList`), the phone MUST scan its configured songs folder, build the metadata list, and reply with a `songListUpdate` message (see Section 8.2).
-- The TV sends `requestSongList` to all connected phones on connection and whenever the library needs refreshing (e.g., when the TV screen is focused after being away).
+- The phone MUST scan its configured songs folder at app start, on folder change, and on manual rescan. The scan result MUST be served at `/manifest.json` (see §8.7.1).
+- The TV fetches each connected phone's `/manifest.json` on the lifecycle triggers defined in §3.1.3.
 - The phone's songs folder SHOULD default to a well-known location (e.g., `Downloads/Songs/` or `Music/KaraokeApp/`) to minimize initial setup friction.
 - **Cloud/remote storage**: songs stored in cloud-synced folders (e.g., Google Drive Offline, iCloud Drive) are supported, but require platform-level file access APIs — they are NOT transparently accessible as regular filesystem paths. See §8.6 for the normative SAF (Android) and NSFileCoordinator (iOS) access model and cloud-evicted file handling. Users must ensure songs are downloaded locally before starting a session.
 - **Songs folder picker**: on Android, opening the folder picker uses `ActivityResultContracts.OpenDocumentTree()`. On iOS, it uses `UIDocumentPickerViewController(forOpeningContentTypes: [.folder])`. Both platforms persist the selection for future scans (SAF persistent permission on Android; security-scoped bookmark on iOS).
@@ -1027,8 +1022,8 @@ Active Mic (during singing)
 **Active Mic exit policy (normative):** The Active Mic screen MUST NOT display a Leave session or Back action during an active song. The hardware Back key MUST be suppressed (do nothing) during Active Mic. Users wishing to exit must use the device's OS navigation to background the app. This is expected MVP behaviour — session control is TV-side only.
 **Phone app settings (normative)**
 The phone app has a Settings screen accessible from the Join screen and from the Waiting/Connected screen. Settings MUST include:
-- **Songs folder**: displays the currently configured songs folder path; pressing OK opens the platform folder picker (`ActivityResultContracts.OpenDocumentTree()` on Android, `UIDocumentPickerViewController` on iOS) to change it. On selection, the phone immediately triggers a rescan and sends `songListUpdate` to the TV if connected.
-- **Rescan now**: manually triggers a rescan of the current songs folder. If connected to a TV session, the phone sends `songListUpdate` on completion.
+- **Songs folder**: displays the currently configured songs folder path; pressing OK opens the platform folder picker (`ActivityResultContracts.OpenDocumentTree()` on Android, `UIDocumentPickerViewController` on iOS) to change it. On selection, the phone immediately triggers a rescan and updates its `/manifest.json` endpoint. The TV picks up the new catalog on its next fetch (§3.1.3).
+- **Rescan now**: manually triggers a rescan of the current songs folder, updating `/manifest.json`.
 - **Song count**: read-only display of the number of valid songs found in the last scan.
 **Phone wireframe (Settings — unpaired or connected)**
 ```text
@@ -1140,7 +1135,7 @@ Protocol mismatch
   - **Host kick/forget**: the TV closes the connection. The phone MUST return to the Join screen and clear any cached endpoint (same behaviour as Leave session).
 - If the same phone reconnects within the same session, it MUST reclaim its prior identity by sending the same `clientId` in `hello` (Section 8.2).
 - **`connectionId` on reconnect (normative):** A reconnect follows the same `hello` handshake path as an initial connection. The TV MUST assign a **new** `connectionId` to the reconnecting phone (Section 8.5) and deliver it in the `sessionState` response to the reconnect `hello`. The phone MUST use this new `connectionId` in all subsequent `pitchFrame` datagrams. Any frames still in-flight with the old `connectionId` MUST be silently dropped by the TV (Section 8.5 validation).
-- On reconnect, the TV MUST send `requestSongList` to refresh the song index. On receiving a `songListUpdate` during **Locked** state, the TV MUST update its in-memory library index immediately (replacing songs from that phone's `clientId`). The updated library will be visible on the Song List screen when the session returns to Open. Any in-progress playback from that phone's HTTP server is interrupted; assets become unreachable until the phone reconnects and the HTTP server restarts.
+- On reconnect, the TV MUST fetch `/manifest.json` from the reconnected phone to refresh the song index. During **Locked** state, the TV MUST update its in-memory library index immediately with the fetched manifest (replacing songs from that phone's `clientId`). The updated library will be visible on the Song List screen when the session returns to Open. Any in-progress playback from that phone's HTTP server is interrupted; assets become unreachable until the phone reconnects and the HTTP server restarts.
 - If the phone was assigned as a Singer when it disconnected, it MUST resume that singer role on reconnect (unless the TV has removed the device via Settings > Connect Phones — Kick or Forget — in which case the device must re-join and will be treated as a new, unapproved spectator). The TV re-sends `assignSinger` with an updated `endTimeTvMs` reflecting the **remaining** song duration: for a regular song, `endTimeTvMs = tvMonotonicNowMs + remainingSongDurationMs`; for a medley, `endTimeTvMs = tvMonotonicNowMs + remainingMedleyDurationMs` (i.e., duration from the current playback position to the end of the final medley segment).
 - If the session roster is full and the reconnect cannot be matched to an existing `clientId`, the reconnect MUST be rejected with `code="session_full"`.
 
@@ -1152,13 +1147,13 @@ Protocol mismatch
 
 This system uses three transports:
 
-- **WebSocket** (control channel): all control messages (`hello`, `sessionState`, `ping`, `pong`, `clockAck`, `assignSinger`, `error`, `requestSongList`, `songListUpdate`). The TV host exposes a single path:
+- **WebSocket** (control channel): all control messages (`hello`, `sessionState`, `ping`, `pong`, `clockAck`, `assignSinger`, `error`). The TV host exposes a single path:
   - `ws://<host-ip>:<port>/` — requires `?token=<sessionToken>`
-- **HTTP** (song file delivery): the phone runs a read-only HTTP file server on `httpPort` (reported in `hello`). The TV fetches song assets directly from `http://<phone-ip>:<httpPort>/...` using URLs provided in `songListUpdate`. See §8.7.
+- **HTTP** (song file delivery): the phone runs a read-only HTTP file server on `httpPort` (reported in `hello`). The TV fetches the song catalog (`/manifest.json`) and song assets directly from `http://<phone-ip>:<httpPort>/...`. See §8.7.
 - **UDP** (pitch channel): all `pitchFrame` datagrams. The TV MUST bind a `DatagramSocket` on a fixed port at session start (before any phone connects), so `udpPort` is stable for the session lifetime. This port MUST be included in the `assignSinger` message as the required field `udpPort` (int). The phone targets `<tv-ip>:<udpPort>` for all pitch datagrams. Frames MUST NOT be batched.
 
 **Song source policy (normative)**
-Any phone that successfully joins a session (presents a valid session token) MUST be sent a `requestSongList` message immediately after the `hello` handshake. The phone's songs appear in the TV library for the duration of the connection. No separate pairing or trust approval is required. The session token already gates who can join.
+After a successful `hello` handshake, the TV MUST fetch `/manifest.json` from the phone's HTTP server (§8.7.1) to populate the library with that phone's songs. The phone's songs appear in the TV library for the duration of the connection. No separate pairing or trust approval is required. The session token already gates who can join.
 
 **Session token / join code (normative)**
 - Random token to prevent accidental joins on the LAN; minimum 32 bits entropy (recommended 64+).
@@ -1259,38 +1254,7 @@ Implementations MAY add additional codes in the future; unknown codes MUST be di
 
 #### 8.3.2.2 Song Library
 
-**`requestSongList`** (TV → Phone)
-
-Fields: `sessionId` (string).
-
-Semantics: TV requests the phone to scan its songs folder and reply with a `songListUpdate`. Sent on connection and whenever the TV needs a library refresh.
-
-**`songListUpdate`** (Phone → TV)
-
-Fields:
-- `sessionId` (string)
-- `songs` (array of `SongEntry`; may be empty)
-
-`SongEntry` fields:
-- `relativeTxtPath` (string): path to the `.txt` file relative to the songs folder root.
-- `isValid` (bool)
-- `invalidReasonCode` (string|null): present when `isValid=false`; stable code from §4.3.
-- `modifiedTimeMs` (int): last-modified timestamp of the `.txt` file.
-- `title`, `artist` (string): required display fields.
-- `isDuet` (bool), `hasRap` (bool), `hasVideo` (bool), `hasInstrumental` (bool): derived flags.
-- `canMedley` (bool), `medleySource` (`null` | `"tag"`), `medleyStartBeat` (int|null), `medleyEndBeat` (int|null): medley eligibility fields.
-- `startSec` (float), `previewStartSec` (float): timing metadata.
-- Optional display fields: `album` (string|null), `year` (int|null), `genre` (string|null).
-- Asset URLs (all are full `http://` URLs; `null` if the file does not exist locally on the phone at scan time):
-  - `txtUrl` (string): URL to the `.txt` file. Required if `isValid=true`.
-  - `audioUrl` (string|null)
-  - `videoUrl` (string|null): local video file only; YouTube references are `null`.
-  - `coverUrl` (string|null)
-  - `backgroundUrl` (string|null)
-  - `instrumentalUrl` (string|null)
-  - `vocalsUrl` (string|null)
-
-Semantics: the phone responds to `requestSongList` with the complete list of songs in its songs folder (including invalid entries for diagnostics). The TV replaces all songs attributed to this phone's `clientId` with the contents of this message. The phone MUST also send an unsolicited `songListUpdate` when a manual rescan triggered by the user in the phone app completes.
+**Removed:** `requestSongList` and `songListUpdate` — song catalog exchange is now handled via HTTP (§8.7.1). The phone serves its catalog at `GET /manifest.json`; the TV fetches it at the triggers defined in §3.1.3.
 
 ---
 
@@ -1312,7 +1276,6 @@ Fields:
 - `countdownMs` (int; required if `startMode == "countdown"`)
 - `endTimeTvMs` (int; TV monotonic ms when the song or medley ends)
 - `udpPort` (int; the TV's UDP listener port for `pitchFrame` datagrams)
-- `connectionId` (uint16; the sender ID the phone MUST include in every `pitchFrame` datagram; matches the value from the initial `sessionState`)
 - `songTitle` (string; informational display on phone)
 - `songArtist` (string; informational display on phone)
 
@@ -1338,6 +1301,26 @@ These messages are part of the NTP-lite clock synchronization protocol. Fields a
 
 - **Unknown `type`**: ignore and warn. Exception: during the handshake sequence, an unexpected message type is a fatal error.
 - **`protocolVersion` mismatch**: send `error(code="protocol_mismatch")` and close.
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T8.3.1 | Valid `hello` → `sessionState` with `connectionId` | F15 | `sessionState` response carries `connectionId` |
+| T8.3.2 | `hello` without `httpPort` → rejected | F15 | Error; code is implementation-defined |
+| T8.3.3 | TV fetches `/manifest.json` after `sessionState` | F15 | Manifest fetch occurs immediately after hello |
+| T8.3.4 | Wrong `protocolVersion` | F15 | `error(code="protocol_mismatch")` |
+| T8.3.5 | Wrong token | F15 | `error(code="invalid_token")` |
+| T8.3.6 | Join during Locked state | F15 | `error(code="session_locked")` |
+| T8.3.7 | Roster full (>10) | F15 | `error(code="session_full")` |
+| T8.3.8 | Manifest fetch → library updated | F15 | Songs attributed to `clientId` visible |
+| T8.3.9 | Phone disconnects → songs removed | F15 | All songs for `clientId` removed immediately |
+| T8.3.10 | Manifest re-fetch replaces all prior songs for phone | F15 | Not appended; full replacement |
+| T8.3.11 | `assignSinger` contains all required fields per B.2.6 | F15 | `sessionId`, `songInstanceSeq`, `playerId`, `difficulty`, `thresholdIndex`, `effectiveMicDelayMs`, `expectedPitchFps`, `startMode`, `endTimeTvMs`, `udpPort` |
+| T8.3.12 | Optional `songTitle`/`songArtist` present when supplied | F15 | Fields present in message |
+| T8.3.13 | `connectionId` NOT in `assignSinger` | F15 | Field absent; delivered only via `sessionState` |
 
 ---
 
@@ -1368,6 +1351,18 @@ Purpose: identify which phone a `pitchFrame` UDP datagram came from, so the TV c
 - On receipt of a UDP datagram, the TV looks up the `connectionId` (bytes 14–15) in its active connection table.
 - If the `connectionId` does not match any active connection, or does not match the expected connection for the `playerId` in byte 12, the datagram MUST be silently dropped.
 - This is a best-effort routing mechanism, not a security control. Datagrams from misconfigured or stale senders are discarded without error.
+
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T8.5.1 | First connection assigns `connectionId=1` | F15/`case_reconnect_reclaim` | In `sessionState` response |
+| T8.5.2 | Reconnect → new `connectionId=2` | F15/`case_reconnect_reclaim` | Different from first |
+| T8.5.3 | `assignSinger` re-sent after reconnect with new `songInstanceSeq` | F15/`case_reconnect_reclaim` | `connectionId` NOT present |
+| T8.5.4 | PitchFrames with old `connectionId=1` dropped | F15/`case_reconnect_reclaim` | Silently dropped |
+| T8.5.5 | Third phone rejected | F15/`case_reconnect_reclaim` | `error(code="session_full")` |
 
 ---
 
@@ -1449,6 +1444,21 @@ Tone = midiNote - 36    (C2=36 → Tone=0)
 ```
 This value is used directly as input to the octave normalization loop in §6.4.
 
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T8.6.1 | Decode frame 0: all fields match | F12v2/`expected.json` row 0 | All fields correct |
+| T8.6.2 | `midiNote=255` → `toneValid=false` | F12v2/`expected.json` row 1 | `toneValid=false` |
+| T8.6.3 | `midiNote=0` → `toneValid=true` (valid MIDI note) | `inline` | Not silence |
+| T8.6.4 | encode(decode(frame)) round-trip | F12v2 | Identical bytes |
+| T8.6.5 | Datagram ≠ 16 bytes → silently dropped | `inline` | Return null |
+| T8.6.6 | `connectionId` mismatch → dropped | `inline` | Silently dropped |
+| T8.6.7 | `songInstanceSeq` mismatch → dropped | `inline` | Silently dropped |
+| T8.6.8 | Unknown `playerId` (not P1/P2) → dropped | `inline` | Silently dropped |
+
 ---
 
 ## 8.7 Song File Delivery
@@ -1457,13 +1467,27 @@ Purpose: serve song asset files from the phone to the TV over HTTP so ExoPlayer 
 
 ### 8.7.1 URL Scheme (Common)
 
-Song asset URLs are constructed by the phone at scan time and included in each `SongEntry` in `songListUpdate`. URL form:
+Song asset URLs are constructed by the phone at scan time and included in each `SongEntry` in `/manifest.json`. URL form:
 
 ```
 http://<phone-ip>:<httpPort>/songs/<percent-encoded-relative-path>
 ```
 
 Where `<relative-path>` is the asset file's path relative to the phone's songs folder root (e.g., `Queen/Bohemian%20Rhapsody/bohemian.ogg`). The phone's IP is inferred by the TV from the WebSocket connection's remote address.
+
+**Song catalog endpoint (normative):**
+
+The phone MUST serve its song catalog at:
+
+```
+GET /manifest.json
+```
+
+Response: `200 OK` with `Content-Type: application/json`. The body is a JSON array of `SongEntry` objects (see Appendix B.2.9 for the `SongEntry` schema).
+
+The phone MUST regenerate `/manifest.json` on every scan (initial scan at app start, folder change, manual rescan). The manifest reflects the phone's current songs folder state at the time of the most recent scan. The TV fetches it on demand (§3.1.3).
+
+**Caching:** The phone MUST set `Cache-Control: no-cache` on `/manifest.json` responses to ensure the TV always receives the latest catalog.
 
 **Range requests (normative):**
 The server MUST support HTTP `Range` requests for all audio and video files. ExoPlayer requires range support for seeking without re-downloading from the start. The server MUST respond with:
@@ -1485,6 +1509,8 @@ The server MUST support HTTP `Range` requests for all audio and video files. Exo
 - The HTTP server MUST start before the phone sends `hello` to the TV, so `httpPort` is valid when `hello` is sent.
 - The server MUST remain running for the duration of the session connection.
 - Default port: `34781`. If unavailable, the phone MUST bind to any available ephemeral port and report the actual port in `hello.httpPort`.
+
+**Manifest endpoint:** The `/manifest.json` endpoint MUST be served from an in-memory JSON byte array rebuilt on each scan. It MUST NOT read from disk on each request. The scan populates the byte array; the HTTP handler serves it directly.
 
 **Storage access and SAF reads (normative):**
 
@@ -1509,6 +1535,8 @@ The HTTP server maintains an **internal URI map** (`relativePath → platformURI
 - The HTTP server MUST start before the phone sends `hello`, so `httpPort` is valid at send time.
 - Default port: `34781`. Bind to any available ephemeral port if unavailable; report actual port in `hello.httpPort`.
 - `UIApplication.shared.isIdleTimerDisabled` MUST be set to `true` for the duration of the session to prevent screen dimming. Reset to `false` on session end.
+
+**Manifest endpoint:** The `/manifest.json` endpoint MUST be served from an in-memory JSON byte array rebuilt on each scan. It MUST NOT read from disk on each request. The scan populates the byte array; the HTTP handler serves it directly.
 
 **File reads (normative):**
 
@@ -1537,12 +1565,32 @@ If not `.current`, treat the file as absent and return `null`. Call `FileManager
 **Known limitation — iOS backgrounding:**
 If the user backgrounds the phone app during a song, iOS may suspend the process after approximately 30 seconds, terminating the HTTP server socket. ExoPlayer on the TV will then stall. `isIdleTimerDisabled = true` prevents screen dimming but does not prevent backgrounding. Implementations MUST document this: users must keep the phone app in the foreground during a song.
 
+**Tests**
+
+These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
+
+| ID | What | Fixture | Expected |
+|---|---|---|---|
+| T8.7.1 | Full file request (no `Range`) | F18 row 1 | 200, `Content-Length` set, full bytes |
+| T8.7.2 | Partial range `bytes=0-99` | F18 row 2 | 206, `Content-Range: bytes 0-99/<total>`, 100 bytes |
+| T8.7.3 | Open-ended range `bytes=9500-` | F18 row 3 | 206, bytes from offset to EOF |
+| T8.7.4 | `Accept-Ranges: bytes` header on all audio/video responses | F18 | Header present |
+| T8.7.5 | Unsatisfiable range on small file | `inline` | 416 |
+| T8.7.6 | Valid path `/songs/Artist/Song/audio.ogg` | `inline` | 200 |
+| T8.7.7 | Percent-encoded path decoded correctly | `inline` (`Queen/Bohemian%20Rhapsody/`) | 200 |
+| T8.7.8 | Path traversal `../etc/passwd` rejected | `inline` | 404 |
+| T8.7.9 | Android SAF size query returns 0 | F19 | Corresponding URL is `null` in manifest |
+| T8.7.10 | iCloud file not `.current` | F19 | Corresponding URL is `null` in manifest |
+| T8.7.11 | HTTP server starts before `hello` | `inline` | `hello.httpPort` is reachable |
+| T8.7.12 | `GET /manifest.json` returns valid JSON array of SongEntry objects | `inline` | 200, valid JSON array |
+| T8.7.13 | `Cache-Control: no-cache` header present on manifest response | `inline` | Header present |
+| T8.7.14 | Manifest reflects rescan | `inline` | Re-fetch after folder change returns updated catalog |
+
 ---
 
 ### 8.7.4 Asset Consumption — TV
 
-- The TV constructs the phone's base URL as `http://<ws-remote-ip>:<hello.httpPort>`.
-- Song asset URLs from `songListUpdate` are handed directly to ExoPlayer (`MediaItem.fromUri(audioUrl)`) or to Coil for cover/background images. No intermediate storage step.
+- Song asset URLs from `/manifest.json` are handed directly to ExoPlayer (`MediaItem.fromUri(audioUrl)`) or to Coil for cover/background images. No intermediate storage step.
 - ExoPlayer begins buffering and playback after approximately 2–4 seconds of audio is buffered. Playback MUST NOT wait for the full file to download.
 - If an HTTP request to the phone fails (connection refused, 404, timeout), the TV MUST treat it the same as a missing optional asset: suppress for images, show a recoverable error for audio.
 
@@ -1734,7 +1782,7 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
   - Singing starts
   - The Song List screen is hidden (screen loses focus)
 **What plays (normative; USDX-aligned)**
-- Preview uses the song's `audioUrl` from `songListUpdate`.
+- Preview uses the song's `audioUrl` from the cached manifest.
 - Preview start position is taken from `previewStartSec` in the song's index entry (always available; computed at scan time per §3.3).
 - If `previewStartSec > 0.0`, use `previewStartSec`.
   - Otherwise, use a fallback position computed from the audio length:
@@ -1743,11 +1791,6 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
 - `audioUrl` is handed directly to ExoPlayer with a seek to the preview position. Playback begins once ExoPlayer has buffered a small initial segment (typically < 500 ms on LAN).
 - Preview plays from the start position and continues until stopped by the rules above (no fixed 10s limit).
 - If `audioUrl` is null or the HTTP request fails, the TV MUST suppress preview silently (no error shown).
-**Video preview (normative; USDX-aligned)**
-- If video preview is enabled in settings and the focused song has a valid video file, the preview pane MUST play video.
-- Video position MUST be synchronized to audio preview position:
-  - `videoPositionSec = videoGapSec + audioPreviewPositionSec` (i.e., applies `#VIDEOGAP` like USDX).
-- If video preview is stopped (focus change or screen hide), the preview pane MUST stop video and show a blank/black area.
 **Audio routing (normative)**
 - Preview volume uses **Settings > Audio > Preview Volume**.
 - A value of 0 MUST result in silence (disables preview).
@@ -1782,7 +1825,7 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
 **Empty/error states (normative)**
 - If no phones are connected, show a blocking message `No phones connected` and a primary action to open Settings > Connect Phones.
 **Song start (normative)**
-- For **single-song play**: asset URLs are already available in `songListUpdate`. When the user presses **Start**, the TV fetches `txtUrl` (the chart file, typically < 200 KB) synchronously, parses it, then hands `audioUrl` and `videoUrl` directly to ExoPlayer. No pre-fetch loading gate is required; ExoPlayer begins buffering immediately and playback starts within 1–2 seconds.
+- For **single-song play**: asset URLs are already available from the phone's manifest. When the user presses **Start**, the TV fetches `txtUrl` (the chart file, typically < 200 KB) synchronously, parses it, then hands `audioUrl` and `videoUrl` directly to ExoPlayer. No pre-fetch loading gate is required; ExoPlayer begins buffering immediately and playback starts within 1–2 seconds.
 - For **medley play**: same as single-song. All segment `txtUrl` values MAY be fetched eagerly in the background once the medley playlist is confirmed, to reduce per-segment parse latency. This is optional and MUST NOT block the Start button.
 - If `audioUrl` is null for a selected song (file missing or not locally available on the phone), the TV MUST show an error before starting: `Cannot load song — audio file is unavailable on the phone.`
 **Song start failure (normative; used by medley too)**
@@ -2007,11 +2050,11 @@ This screen shows the song contribution status of all currently connected phones
 **Connected sources list (normative)**
 For each connected phone the TV MUST show:
 - Device name (from `hello.deviceName`)
-- Song count: number of valid songs from the last `songListUpdate`
+- Song count: number of valid songs from the last manifest fetch
 - Invalid song count (if any), shown as `2 invalid` alongside the valid count
-- Per-row action: **Refresh** (sends `requestSongList` to that phone)
+- Per-row action: **Refresh** (fetches `/manifest.json` from that phone's HTTP server)
 **Actions**
-- **Refresh all**: sends `requestSongList` to all currently connected phones.
+- **Refresh all**: fetches `/manifest.json` from all currently connected phones.
 **DPAD navigation (normative)**
 - Default focus on entry: first row if any phones are connected; **Refresh all** button otherwise.
 - DPAD Up/Down: navigates phone rows.
@@ -2658,71 +2701,47 @@ Offset  Size  Type    Field
  14      2   uint16  connectionId (assigned by TV at hello handshake)
 ```
 
-### B.2.8 `requestSongList`
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "requestSongList",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["type", "protocolVersion", "sessionId"],
-  "properties": {
-    "type": {"const": "requestSongList"},
-    "protocolVersion": {"type": "integer", "const": 1},
-    "tsTvMs": {"type": "number"},
-    "sessionId": {"type": "string", "minLength": 1}
-  }
-}
-```
+### B.2.8 `requestSongList` — REMOVED
+Replaced by HTTP manifest endpoint (`GET /manifest.json`). See §8.7.1.
 
-### B.2.9 `songListUpdate`
+### B.2.9 `songListUpdate` — REMOVED
+The `SongEntry` schema is retained below for use by the `/manifest.json` HTTP response. The WebSocket message wrapper is removed.
+
+**`SongEntry` schema (used by `/manifest.json`):**
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "songListUpdate",
+  "title": "SongEntry",
   "type": "object",
-  "additionalProperties": false,
-  "required": ["type", "protocolVersion", "sessionId", "songs"],
+  "required": ["relativeTxtPath", "isValid", "modifiedTimeMs", "title", "artist", "isDuet", "hasRap", "hasVideo", "hasInstrumental", "canMedley"],
   "properties": {
-    "type": {"const": "songListUpdate"},
-    "protocolVersion": {"type": "integer", "const": 1},
-    "sessionId": {"type": "string", "minLength": 1},
-    "songs": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["relativeTxtPath", "isValid", "modifiedTimeMs", "title", "artist", "isDuet", "hasRap", "hasVideo", "hasInstrumental", "canMedley"],
-        "properties": {
-          "relativeTxtPath": {"type": "string", "minLength": 1},
-          "isValid": {"type": "boolean"},
-          "invalidReasonCode": {"type": ["string", "null"]},
-          "invalidLineNumber": {"type": ["integer", "null"], "description": "1-based; present when isValid=false and error is line-associated; null otherwise"},
-          "modifiedTimeMs": {"type": "integer"},
-          "title": {"type": "string"},
-          "artist": {"type": "string"},
-          "album": {"type": ["string", "null"]},
-          "year": {"type": ["integer", "null"]},
-          "genre": {"type": ["string", "null"]},
-          "isDuet": {"type": "boolean"},
-          "hasRap": {"type": "boolean"},
-          "hasVideo": {"type": "boolean"},
-          "hasInstrumental": {"type": "boolean"},
-          "canMedley": {"type": "boolean"},
-          "medleySource": {"type": ["string", "null"], "enum": ["tag", null]},
-          "medleyStartBeat": {"type": ["integer", "null"]},
-          "medleyEndBeat": {"type": ["integer", "null"]},
-          "startSec": {"type": "number"},
-          "previewStartSec": {"type": "number"},
-          "txtUrl": {"type": ["string", "null"], "format": "uri"},
-          "audioUrl": {"type": ["string", "null"], "format": "uri"},
-          "videoUrl": {"type": ["string", "null"], "format": "uri"},
-          "coverUrl": {"type": ["string", "null"], "format": "uri"},
-          "backgroundUrl": {"type": ["string", "null"], "format": "uri"},
-          "instrumentalUrl": {"type": ["string", "null"], "format": "uri"},
-          "vocalsUrl": {"type": ["string", "null"], "format": "uri"}
-        }
-      }
-    }
+    "relativeTxtPath": {"type": "string", "minLength": 1},
+    "isValid": {"type": "boolean"},
+    "invalidReasonCode": {"type": ["string", "null"]},
+    "invalidLineNumber": {"type": ["integer", "null"], "description": "1-based; present when isValid=false and error is line-associated; null otherwise"},
+    "modifiedTimeMs": {"type": "integer"},
+    "title": {"type": "string"},
+    "artist": {"type": "string"},
+    "album": {"type": ["string", "null"]},
+    "year": {"type": ["integer", "null"]},
+    "genre": {"type": ["string", "null"]},
+    "isDuet": {"type": "boolean"},
+    "hasRap": {"type": "boolean"},
+    "hasVideo": {"type": "boolean"},
+    "hasInstrumental": {"type": "boolean"},
+    "canMedley": {"type": "boolean"},
+    "medleySource": {"type": ["string", "null"], "enum": ["tag", null]},
+    "medleyStartBeat": {"type": ["integer", "null"]},
+    "medleyEndBeat": {"type": ["integer", "null"]},
+    "startSec": {"type": "number"},
+    "previewStartSec": {"type": "number"},
+    "txtUrl": {"type": ["string", "null"], "format": "uri"},
+    "audioUrl": {"type": ["string", "null"], "format": "uri"},
+    "videoUrl": {"type": ["string", "null"], "format": "uri"},
+    "coverUrl": {"type": ["string", "null"], "format": "uri"},
+    "backgroundUrl": {"type": ["string", "null"], "format": "uri"},
+    "instrumentalUrl": {"type": ["string", "null"], "format": "uri"},
+    "vocalsUrl": {"type": ["string", "null"], "format": "uri"}
   }
 }
 ```

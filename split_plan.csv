@@ -73,7 +73,21 @@ Chapter / Section,Header,Target Platform
 ,8.8.2 Message Flow (Common),general
 ,8.8.3 Per-Sample Computation — Phone,phone
 9. UI Screens and Flows,,tv
-(All 9.x sub-sections),9.1 through 9.6 (Post-medley results),tv
+,9.1 Global navigation and input,tv
+,9.2 Song preview playback,tv
+,9.3 Select Players modal,tv
+,9.4 Settings Screen,tv
+,9.4.1 Settings > Connect Phones,tv
+,9.4.2 Settings > Song Library (TV),tv
+,9.4.3 Settings > Audio,tv
+,9.4.4 Settings > Scoring Timing,tv
+,9.4.5 Settings > Gameplay,tv
+,9.4.6 Settings > Video,tv
+,9.5 Singing Screen,tv
+,9.5.1 Singing Screen (Medley mode),tv
+,9.6 Results Screen (TV),tv
+,9.6.1 Post-song results,tv
+,9.6.2 Post-medley results,tv
 Appendix A,Library Dependency Reference,general
 ,A.1 Android TV Host App (Kotlin),tv
 ,A.2 Android Companion App (Kotlin),android
