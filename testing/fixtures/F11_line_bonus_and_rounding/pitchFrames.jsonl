@@ -1,0 +1,8 @@
+{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":1,"tCaptureMs":0,"toneValid":true,"midiNote":36}
+{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":2,"tCaptureMs":500,"toneValid":true,"midiNote":36}
+{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":3,"tCaptureMs":1000,"toneValid":true,"midiNote":36}
+{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":4,"tCaptureMs":1500,"toneValid":true,"midiNote":36}
+{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":5,"tCaptureMs":2000,"toneValid":true,"midiNote":36}
+{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":6,"tCaptureMs":2500,"toneValid":true,"midiNote":36}
+{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":7,"tCaptureMs":3000,"toneValid":true,"midiNote":36}
+{"type":"pitchFrame","protocolVersion":1,"playerId":"P1","seq":8,"tCaptureMs":3500,"toneValid":true,"midiNote":36}

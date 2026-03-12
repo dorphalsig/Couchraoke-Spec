@@ -1,0 +1,20 @@
+{
+  "rootRel": "songs_root",
+  "songs": [
+    {
+      "songDirRel": "Queen - Bohemian Rhapsody",
+      "songTxtRel": "Queen - Bohemian Rhapsody/bohemian.txt",
+      "isValid": true,
+      "entries": {
+        "title": "Bohemian Rhapsody",
+        "artist": "Queen",
+        "audioUrl": null,
+        "coverUrl": "http://<phone-ip>:<port>/songs/Queen%20-%20Bohemian%20Rhapsody/cover.jpg",
+        "videoUrl": null
+      },
+      "meta": {
+        "description": "audio.ogg is evicted (status != .current), so audioUrl must be null"
+      }
+    }
+  ]
+}

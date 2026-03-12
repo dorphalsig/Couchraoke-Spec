@@ -1,0 +1,5 @@
+[
+  {"offset": 0,  "seq": 1, "tvTimeMs": 5000, "songInstanceSeq": 3,  "connectionId": 7, "playerId": 0, "midiNote": 60,  "toneValid": true},
+  {"offset": 16, "seq": 2, "tvTimeMs": 5020, "songInstanceSeq": 3,  "connectionId": 8, "playerId": 1, "midiNote": 255, "toneValid": false},
+  {"offset": 32, "seq": 3, "tvTimeMs": 5040, "songInstanceSeq": 99, "connectionId": 7, "playerId": 0, "midiNote": 36,  "toneValid": true}
+]

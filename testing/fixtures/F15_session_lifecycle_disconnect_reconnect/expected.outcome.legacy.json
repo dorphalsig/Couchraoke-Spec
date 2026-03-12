@@ -1,0 +1,35 @@
+{
+  "sessionId": "S1",
+  "songInstanceId": "SI1",
+  "expected": {
+    "afterStep2": {
+      "slots": {"P1": {"clientId": "c-a"}, "P2": null}
+    },
+    "afterStep4": {
+      "slots": {"P1": {"clientId": "c-a"}, "P2": {"clientId": "c-b"}}
+    },
+    "afterStep7": {
+      "slots": {"P1": {"clientId": "c-a", "connected": false}, "P2": {"clientId": "c-b", "connected": true}}
+    },
+    "step9_reject_c": {
+      "clientId": "c-c",
+      "expectedDecision": "reject",
+      "reason": "session full"
+    },
+    "step11_reclaim_a": {
+      "clientId": "c-a",
+      "expectedDecision": "reclaim",
+      "expectedPlayerId": "P1",
+      "expectedAssignSingerResend": true,
+      "expectedAssignSinger": {"role": "singer", "playerId": "P1", "songInstanceId": "SI1"}
+    },
+    "afterStep15": {
+      "slots": {"P1": {"clientId": "c-c"}, "P2": {"clientId": "c-b"}}
+    },
+    "step17_reject_a": {
+      "clientId": "c-a",
+      "expectedDecision": "reject",
+      "reason": "slot already taken by different clientId"
+    }
+  }
+}

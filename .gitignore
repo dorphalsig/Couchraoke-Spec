@@ -1,7 +1,6 @@
 # Ignore everything by default; only explicitly listed files are tracked.
 *
 !*/
-
 # Core spec tooling
 !.gitignore
 !split_spec.py
@@ -11,3 +10,11 @@
 # Serena project config
 !.serena/.gitignore
 !.serena/project.yml
+!split_spec.py
+!tests.md
+!constitution.md
+!constitution_split_plan.csv
+
+# Allow the directories themselves so Git can scan them
+!testing/testing_policy.md
+!testing/fixtures/**

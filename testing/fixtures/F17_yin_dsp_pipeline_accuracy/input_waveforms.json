@@ -1,0 +1,26 @@
+{
+  "sampleRate": 44100,
+  "windowSize": 1024,
+  "testCases": [
+    {
+      "name": "A4_Pure_Sine",
+      "frequency": 440.0,
+      "amplitude": 0.5,
+      "expectedMidi": 69,
+      "description": "Standard A4 reference tone"
+    },
+    {
+      "name": "Below_Threshold_Index_3",
+      "frequency": 440.0,
+      "amplitude": 0.04,
+      "expectedMidi": 255,
+      "description": "Amplitude 0.04 is below Index 3 threshold (0.06)"
+    },
+    {
+      "name": "Median_Filter_Stabilization",
+      "sequence": [60, 255, 60],
+      "expectedOutput": 255,
+      "description": "Silence must interrupt the combo immediately"
+    }
+  ]
+}
