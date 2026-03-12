@@ -1,6 +1,10 @@
 # Ignore everything by default; only explicitly listed files are tracked.
 *
 !*/
+.worktrees/
+.pytest_cache/
+.claude/
+.serena/cache/
 # Core spec tooling
 !.gitignore
 !split_spec.py
@@ -15,6 +19,6 @@
 !constitution.md
 !constitution_split_plan.csv
 
-# Allow the directories themselves so Git can scan them
+# testing
 !testing/testing_policy.md
 !testing/fixtures/**
