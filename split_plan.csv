@@ -15,7 +15,6 @@ Chapter / Section,Header,Target Platform
 ,3.2 Discovery and Validation Rules,general
 ,3.3 Index Fields (Functional),tv
 ,3.4 Song List (Landing Screen) - TV,tv
-,3.5 Advanced Search (Overlay) [POST-MVP],tv
 4. USDX TXT Format Support,,general
 ,4.1 Supported Note Tokens,general
 ,4.2 Supported Header Tags and Semantics,general

@@ -14,66 +14,75 @@ Conventions:
 - Paritiy-critical = must match USDX behavior for compatibility.
 - Defaults are explicitly stated; if not, behavior is unspecified and must be decided.
 
-# Table of Contents
-- 1. Product Contract
-  - 1.1 Locked Product Decisions
-  - 1.2 Definition of Done
-- 2. Architecture Overview
-  - 2.1 Components
-  - 2.2 Data Responsibilities
-- 3. Songs and Library
-  - 3.1 Storage Access
-  - 3.2 Discovery and Validation Rules
-  - 3.3 Index Fields (Functional)
-  - 3.4 Song List (Landing Screen)
-  - 3.5 Advanced Search (Overlay) [POST-MVP]
-- 4. USDX TXT Format Support
-  - 4.1 Supported Note Tokens
-  - 4.2 Supported Header Tags and Semantics
-  - 4.3 Error Handling
-  - 4.4 Header Tags Reference
-  - 4.5 Body Token Reference
-- 5. Timing and Beat Model
-  - 5.1 Authoritative Beat Definitions
-  - 5.2 Pitch Frame Timing, Jitter, and Mic Delay
-  - 5.3 Beat-Time Conversion
-  - 5.4 START/END
-- 6. Scoring
-  - 6.1 Scoring Overview
-  - 6.2 Note Types
-  - 6.2.1 ScoreFactor constants
-  - 6.3 Player Level / Tolerance
-  - 6.4 Octave Normalization
-  - 6.5 Line Bonus
-  - 6.6 Rounding and Display
-- 7. Multiplayer, Pairing, and Session Lifecycle
-  - 7.1 Session States
-  - 7.2 Pairing UX (TV)
-  - 7.3 Pairing UX (Phone)
-  - 7.4 Disconnect/Reconnect
-- 8. Network Protocol
-  - 8.1 Transport
-  - 8.2 Control Messages
-  - 8.3 Pitch Stream Messages
-  - 8.4 Versioning and Compatibility
-  - 8.5 Authentication
-- 9. Time Sync and Jitter Handling
-  - 9.1 Defaults
-- 10. UI Screens and Flows
-  - 10.1 Global navigation and input
-  - 10.2 Song preview playback
-  - 10.3 Select Players modal
-  - 10.4 Settings Screen
-  - 10.5 Singing Screen
-    - 10.5.1 Singing Screen (Medley mode)
-  - 10.6 Results
-    - 10.6.1 Results (post-song)
-    - 10.6.2 Results (post-medley)
-- Appendix A: Library Dependency Reference
-- Appendix B: Protocol Schemas
-- Appendix C: Parsed Song Model
-- Appendix D: ParsedSongModel Fixture Serialization
-- Appendix E: Worked Examples
+Table of Contents
+    1. Product Contract
+        1.1 Locked Product Decisions
+        1.2 Definition of Done
+    2. Architecture Overview
+        2.1 Components
+        2.2 Data Responsibilities
+    3. Songs and Library
+        3.1 Storage Access
+            3.1.1 Scan implementation
+            3.1.2 Song file delivery
+            3.1.3 TV-Side Library and Lifecycle
+        3.2 Discovery and Validation Rules
+        3.3 Index Fields (Functional)
+        3.4 Song List (Landing Screen) - TV
+        3.5 Advanced Search (Overlay) [POST-MVP]
+    4. USDX TXT Format Support
+        4.1 Supported Note Tokens
+        4.2 Supported Header Tags and Semantics
+        4.3 Error Handling
+        4.4 Header Tags Reference
+        4.5 Body Token Reference
+    5. Timing and Beat Model
+        5.1 Authoritative Beat Definitions
+        5.2 Pitch Frame Timing, Jitter, and Mic Delay
+            5.2.5 Mic Capture and FFT-YIN Pitch Detection Pipeline
+        5.3 Beat-Time Conversion
+        5.4 START/END
+    6. Scoring
+        6.1 Scoring Overview
+        6.2 Note Types
+        6.3 Player Level / Tolerance
+        6.4 Octave Normalization
+        6.5 Line Bonus
+        6.6 Rounding and Display
+    7. Multiplayer, Pairing, and Session Lifecycle
+        7.1 Session States
+        7.2 Pairing UX (TV)
+        7.3 Pairing UX (Phone)
+        7.4 Disconnect/Reconnect
+    8. Network Protocol
+        8.1 Transport Channels (Common)
+        8.2 Session Discovery
+        8.3 Control Messages
+        8.4 Versioning & Compatibility
+        8.5 Sender Identification
+        8.6 Pitch Stream
+        8.7 Song File Delivery
+        8.8 Clock Sync
+    9. UI Screens and Flows - TV
+        9.1 Global navigation and input
+        9.2 Song preview playback
+        9.3 Select Players modal
+        9.4 Settings Screen
+            9.4.1 Settings > Connect Phones
+            9.4.2 Settings > Song Library
+            9.4.3 Settings > Audio
+            9.4.4 Settings > Scoring Timing
+            9.4.5 Settings > Gameplay
+            9.4.6 Settings > Video
+        9.5 Singing Screen
+            9.5.1 Singing Screen (Medley mode)
+        9.6 Results Screen
+    Appendices
+        Appendix A: Library Dependency Reference
+        Appendix B: Protocol Schemas
+        Appendix C: Parsed Song Model
+        Appendix D: Fixture Types, Testing Policy, and Coverage Requirements
+        Appendix E: Worked Examples
 
 # 1. Product Contract
 - Goal: USDX-like karaoke gameplay (parity for parsing, timing, duet, rap, scoring, results).
@@ -116,10 +125,10 @@ Phone is authoritative for: song file storage, song metadata scanning, song HTTP
 ## 3.1 Storage Access
 Each phone app has a single configured songs folder — a directory on the phone's local storage that contains all song subdirectories. The user sets this folder once in the phone app settings. The phone scans this folder recursively for `.txt` files and makes them available to the TV.
 ### 3.1.1 Scan implementation
-#### 3.1.1.1 Android (SAF — Kotlin):*
+#### 3.1.1.1 Android (SAF — Kotlin)
 The songs folder is selected via `ActivityResultContracts.OpenDocumentTree()` and represented as a persisted SAF tree URI (`content://...`). `java.io.File` cannot traverse SAF URIs. Recursive listing MUST use `DocumentFile.fromTreeUri(context, uri).listFiles()` directly (the `DocumentFile` API is part of `androidx.documentfile:documentfile`, already a transitive dependency of `androidx.core`). Recursion depth is bounded by the songs folder structure; no artificial depth limit is required.
 For each `.txt` file found: read its content via `contentResolver.openInputStream(uri)`, parse the header tags, resolve asset filenames to their SAF URIs via `DocumentFile.findFile(name)`, check file availability via `DocumentFile.exists()`, and build `coverUrl`/`audioUrl`/etc. from the HTTP server's URL scheme (Section 8.6).
-#### 3.1.1.2 iOS (security-scoped bookmarks — Swift):*
+#### 3.1.1.2 iOS (security-scoped bookmarks — Swift)
 The songs folder is selected via `UIDocumentPickerViewController`. The chosen URL MUST be persisted as a security-scoped bookmark (`url.bookmarkData(options: .minimalBookmark)`). On subsequent launches, resolve the bookmark with `URL(resolvingBookmarkData:)` and call `url.startAccessingSecurityScopedResource()` before any file operation. Recursive enumeration uses `FileManager.default.enumerator(at: folderUrl, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])`. File reads for `.txt` content use `Data(contentsOf: fileUrl)`. Asset file availability checks use `FileManager.default.fileExists(atPath:)`. Call `url.stopAccessingSecurityScopedResource()` when scanning is complete.
 ### 3.1.2 Song file delivery
 The phone runs a lightweight read-only HTTP server for the duration of its session connection (see Section 8.6). Song files are served directly from the phone's songs folder via HTTP. The TV fetches files on demand using URLs provided in `songListUpdate`. No ZIP building, no extraction, and no temporary storage on the TV are required.
@@ -132,7 +141,7 @@ The TV holds no song files. All media is streamed directly from the phone's HTTP
 ## 3.2 Discovery and Validation Rules
 ### 3.2.1 Phone-side discovery (normative)
 The phone scans for **all `.txt` files recursively** under its configured songs folder. Each `.txt` is treated as a distinct song entry, even if multiple `.txt` files exist in the same folder.
-### 3.2.2 Validation (song acceptance)**
+### 3.2.2 Validation (song acceptance)
 A song entry is accepted into the library if and only if all of the following checks pass. If any check fails, the song entry MUST be rejected and a diagnostic MUST be emitted (see Section 4.3).
 1) Required header tags present
 - `#TITLE` and `#ARTIST` MUST be present and non-empty.
@@ -374,7 +383,7 @@ Definition details (USDX parity):
 
 ## 4.1 Supported Note Tokens
 
-### Note/body line tokens (USDX parser)
+### 4.1.1 Note/body line tokens (USDX parser)
 USDX reads the song body line-by-line and interprets the first character token.
 Supported tokens:
 - `:` Normal note
@@ -386,14 +395,14 @@ Supported tokens:
 - `E` End of song data
 - `P1`, `P2` Duet part delimiters (body markers; must appear on their own line, starting with `P`)
 
-### Per-note fields
+### 4.1.2 Per-note fields
 For note tokens (`:`, `*`, `F`, `R`, `G`) USDX parses:
 `<token> <startBeat> <duration> <tone> <lyricText...>`
 - `startBeat` and `duration` are integers in chart beat units. They are not scaled by BPM; BPM affects only the beat->time conversion (Section 5.1). Any legacy relative-mode shift (format < 1.0.0) is applied separately (Section 4.2).
 - `tone` is an integer note tone as stored in the file.
 - `lyricText` is the remainder of the line after the numeric fields.
 
-### Duet structure
+### 4.1.3 Duet structure
 - If the first non-empty body line begins with `P`, USDX marks the song as duet (`isDuet = true`) and creates two tracks.
 - A `P1`/`P2` marker sets the active track (0/1).
 - Notes and `-` sentence breaks are assigned to the current active track.
@@ -401,7 +410,7 @@ For note tokens (`:`, `*`, `F`, `R`, `G`) USDX parses:
 
 ## 4.2 Supported Header Tags and Semantics
 
-### Required tags
+### 4.2.1 Required tags
 - `#TITLE:` song title (UTF-8 for format >= 1.0.0).
 - `#ARTIST:` song artist.
 - `#BPM:` base BPM. USDX loads as `BPM_internal = BPM_file * 4`. BPM values using a comma as decimal separator (e.g., `120,5`) MUST have the comma replaced with a period before parsing. Parsing MUST be locale-independent (i.e., always use `.` as decimal separator regardless of device locale).
@@ -410,13 +419,13 @@ For note tokens (`:`, `*`, `F`, `R`, `G`) USDX parses:
  - For legacy format (`#VERSION` absent or `< 1.0.0`): `#MP3:` MUST be present and non-empty. `#AUDIO:` (if present) MUST be ignored for audio resolution (USDX behavior).
  - The resolved audio file MUST exist, otherwise load fails.
 
-### Timing/alignment tags
+### 4.2.2 Timing/alignment tags
 - `#GAP:` millisecond offset used as the lyrics/audio time origin for beat/time conversions (see Section 5.1). Parsed as a float (fractional ms allowed).
 - `#START:` seconds; initial playback/lyrics time offset.
 - `#END:` milliseconds; sets lyrics total time if present.
 - `#PREVIEWSTART:` seconds; used by editor and can be used for song preview.
 
-### Media tags
+### 4.2.3 Media tags
 - `#VIDEO:` video filename or external reference. Optional; missing file is non-fatal (warn and continue without video).
   A `#VIDEO` value is treated as an **external/YouTube reference** and `videoUrl` MUST be `null` if it matches any of:
   - starts with `v=` (YouTube video-ID shorthand, e.g. `v=9bZkp7q19f0`)
@@ -428,11 +437,11 @@ For note tokens (`:`, `*`, `F`, `R`, `G`) USDX parses:
 - `#VOCALS:` acapella audio file. When present alongside `#INSTRUMENTAL`, mixed at a user-configurable volume as a singing guide. Ignored if `#INSTRUMENTAL` is absent. See Section 1.1 for full semantics.
 - `#COVER:` image; `#BACKGROUND:` image. Fallback filenames `*[CO].jpg` and `*[BG].jpg` (glob: any file in the song directory ending with `[CO].jpg` or `[BG].jpg` respectively) MUST be resolved by the phone at scan time if the explicit tag is absent or the named file does not exist. If a fallback file is found, it MUST be used to populate `coverUrl`/`backgroundUrl` in `songListUpdate`. If no fallback is found, the corresponding URL is `null`. The TV does NOT perform filename glob resolution — it only uses URLs supplied by the phone.
 
-### Duet tags
+### 4.2.4 Duet tags
 Singer labels (stored and available via `ParsedSong.header.p1Name` / `p2Name`; not displayed in singing screen UI — device names are shown instead):
 - `#P1:` and `#P2:` set duet singer names for internal use.
 
-### In-song BPM changes
+### 4.2.5 In-song BPM changes
 Variable-BPM charts (body `B` lines) are **not supported**. If any `B` line is present, the song MUST be rejected as invalid (use `ERROR_CORRUPT_SONG_UNSUPPORTED_VARIABLE_BPM`).
 
 ## 4.3 Error Handling
@@ -827,7 +836,7 @@ Where `s.tone = s.midiNote − 36` (Section 6.4), `octaveNormalized` is the shif
 
 Definition of `toneValid` and how it is produced/transported is normative in Section 8.3 (Pitch Stream Messages).
 
-## 6.2.1 ScoreFactor constants
+### 6.2.1 ScoreFactor constants
 ScoreFactor is used to weight note durations for score normalization and line bonus calculations.
 Normative constants:
 - Freestyle (`F`): ScoreFactor=0
@@ -1224,7 +1233,7 @@ Sender direction is noted per message. Both sides MUST understand all messages; 
 
 ---
 
-#### Handshake
+#### 8.3.2.1 Handshake
 
 **`hello`** (Phone → TV)
 
@@ -1248,7 +1257,7 @@ Implementations MAY add additional codes in the future; unknown codes MUST be di
 
 ---
 
-#### Song Library
+#### 8.3.2.2 Song Library
 
 **`requestSongList`** (TV → Phone)
 
@@ -1285,7 +1294,7 @@ Semantics: the phone responds to `requestSongList` with the complete list of son
 
 ---
 
-#### Singing
+#### 8.3.2.3 Singing
 
 **`assignSinger`** (TV → Phone)
 
@@ -1317,7 +1326,7 @@ Fields:
 
 ---
 
-#### Clock Sync
+#### 8.3.2.4 Clock Sync
 
 **`ping`** (TV → Phone), **`pong`** (Phone → TV), **`clockAck`** (TV → Phone)
 
@@ -1541,7 +1550,7 @@ If the user backgrounds the phone app during a song, iOS may suspend the process
 
 ### 8.7.5 Platform Configuration
 
-#### Android TV — `network_security_config.xml`
+#### 8.7.5.1 Android TV — `network_security_config.xml`
 
 The TV app MUST include the following file at `res/xml/network_security_config.xml` and reference it in `AndroidManifest.xml` via `android:networkSecurityConfig="@xml/network_security_config"`. Without it, all `http://` requests to phone IPs throw `CLEARTEXT_NOT_PERMITTED` on API 28+:
 
@@ -1566,7 +1575,7 @@ The TV app MUST include the following file at `res/xml/network_security_config.x
 
 > **Implementation note:** Android `<domain>` entries match by host string, not CIDR and cannot express subnet ranges. The entries above cover the most common home and corporate Wi-Fi subnets. For a production release, use the `<base-config cleartextTrafficPermitted="false">` pattern with a debug-only override. A simpler but less secure alternative acceptable for MVP LAN-only play is `<base-config cleartextTrafficPermitted="true">` restricted via Play Store internal track instead.
 
-#### Android Phone — `AndroidManifest.xml`
+#### 8.7.5.2 Android Phone — `AndroidManifest.xml`
 
 Required permissions (normative):
 
@@ -1581,7 +1590,7 @@ Required permissions (normative):
 
 `CAMERA` is required at runtime for QR scanning — request it before opening the scanner.
 
-#### iOS Phone — `Info.plist`
+#### 8.7.5.3 iOS Phone — `Info.plist`
 
 Four entries are mandatory. Without them the phone app cannot function:
 
@@ -2336,7 +2345,7 @@ Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, bu
 
 ## 9.6 Results Screen (TV)
 
-### Post-song results
+### 9.6.1 Post-song results
 Show per singer:
 - Notes score, Golden score, Line bonus, **Song Total** (tens-rounded per USDX rules).
 Actions:
@@ -2363,7 +2372,7 @@ Actions:
 +--------------------------------------------------------------------------------+
 ```
 
-### Post-medley results
+### 9.6.2 Post-medley results
 After a medley run finishes, show a single results screen with a static score table listing each segment score and the aggregate Medley Total. No Left/Right navigation between rounds is required.
 **Aggregation (parity-aligned; normative)**
 - The Medley Total MUST be the **mean** (average) of the per-song `scoreTotalInt` values across segments for each player.
@@ -2726,7 +2735,7 @@ This appendix defines the **normative in-memory representation** of a parsed USD
 
 ## C.1 Core entities
 
-### ParsedSong
+### C.1.1 ParsedSong
 Required fields:
 - `songId` (string): stable identifier of the song instance in the library.
   - MUST match the index `songId` derivation in Section 3.3: `phoneClientId + "::" + relativeTxtPath`.
@@ -2738,7 +2747,7 @@ Invariants:
 - `tracks.length` MUST be `2` if and only if duet mode is detected (Section 4.1: first non-empty body token begins with `P`). Otherwise `tracks.length` MUST be `1`.
 - All note events in `tracks[*].lines[*].notes[*]` MUST satisfy `durationBeats >= 0` (duration=0 contributes 0 score; USDX converts the note token to `F` Freestyle; Section 4.3 / 4.5).
 
-### SongHeader
+### C.1.2 SongHeader
 Required fields (mirrors Section 4.2 semantics):
 - `songPath` (string) : canonical path/URI to the song root (directory containing the `.txt` and assets)
 - `title` (string)
@@ -2759,19 +2768,19 @@ Optional fields:
 - `content` (string) : remainder of the header line (decoded per Section 4.3 rules)
 Note: implementations MAY maintain a convenience map/dictionary view, but it MUST preserve insertion order. Fixtures MUST compare `customTags` by ordered list semantics.
 
-### SongTiming
+### C.1.3 SongTiming
 Required fields:
 - `bpmFile` (float) : file BPM from `#BPM` (before the `×4` internal conversion). This is the sole BPM value for the song — variable-BPM songs are rejected at parse time (Section 4.3).
 Optional/derived fields:
 - `startSec` (float|null) : from `#START` if present (seconds)
 - `endMs` (int|null) : from `#END` if present (milliseconds)
 
-### Track
+### C.1.4 Track
 Required fields:
 - `trackIndex` (int) : `0` for P1 (or solo), `1` for P2
 - `lines` (Line[]) : ordered in encounter order
 
-### Line
+### C.1.5 Line
 A "line" corresponds to a sentence/phrase separated by `-` tokens in the body.
 Required fields:
 - `lineIndex` (int) : 0-based within track
@@ -2782,7 +2791,7 @@ Optional/derived fields:
 Invariants:
 - Lines MAY be empty (e.g., consecutive `-`), but empty lines MUST NOT affect scoring.
 
-### NoteEvent
+### C.1.6 NoteEvent
 Required fields:
 - `noteType` (enum) : one of:
   - `Normal`  (token `:`)
