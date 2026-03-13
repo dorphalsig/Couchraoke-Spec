@@ -21,11 +21,10 @@ Heading level normalization:
 
 Inheritance rules (in priority order):
     1. Preamble headers ("How to Use This Spec", "Table of Contents") → general
-    2. Section 9 blanket rule: any section starting with "9" → tv
-    3. Exact match in CSV platform map
-    4. Parent strip: "3.1.1" → try "3.1" → try "3"
-    5. Inherit from last numbered parent on stack (for unnumbered headers)
-    6. Fallback → general
+    2. Exact match in CSV platform map
+    3. Parent strip: "3.1.1" → try "3.1" → try "3"
+    4. Inherit from last numbered parent on stack (for unnumbered headers)
+    5. Fallback → general
 """
 
 import argparse
@@ -184,9 +183,6 @@ def resolve_platform(section_num, parent_stack: list, platform_map: dict) -> str
             if snum is not None:
                 return plat
         return "general"
-
-    if re.match(r"^9(\.|$)", section_num):
-        return "tv"
 
     if section_num in platform_map:
         return platform_map[section_num]
