@@ -2700,26 +2700,25 @@ This appendix is **normative**. Implementations MUST use the pinned libraries be
 ## A.1 Android TV Host App (Kotlin)
 | Concern | Library | Pinned Version | Justification |
 |---|---|---|---|
-| WebSocket server | `io.ktor:ktor-server-cio` + `io.ktor:ktor-server-websockets` | `2.3.12` | CIO engine is coroutine-native, ~500 KB, zero native dependencies. Handles `/` WebSocket routing and token validation trivially. Netty is prohibited — it adds ~8 MB of native binaries and complex thread pool management. |
-| JSON serialization (all control messages, hot path) | `org.jetbrains.kotlinx:kotlinx-serialization-json` | `1.7.3` | Compile-time code generation; no reflection. Mandatory on the scoring receive path. Gson and Moshi (reflection-based) are prohibited on any path that handles incoming WebSocket frames during gameplay. |
-| Audio playback + VOCALS mixing | `androidx.media3:media3-exoplayer` + `androidx.media3:media3-datasource-okhttp` | `1.4.1` | `MergingMediaSource` for dual-track (#INSTRUMENTAL + #VOCALS) mixing with `ScalingAudioProcessor` for per-track volume control (§10.4.3). `ProgressiveMediaSource` for HTTP streaming. The OkHttp data source is required — the default `DefaultHttpDataSource` uses `HttpURLConnection` which does not handle concurrent range requests efficiently; without it seeking on LAN-served audio is noticeably slower on mid-tier hardware. |
+| WebSocket server | `io.ktor:ktor-server-cio` + `io.ktor:ktor-server-websockets` | `3.4.1` | CIO engine is coroutine-native, ~500 KB, zero native dependencies. Handles `/` WebSocket routing and token validation trivially. Netty is prohibited — it adds ~8 MB of native binaries and complex thread pool management. |
+| JSON serialization (all control messages, hot path) | `org.jetbrains.kotlinx:kotlinx-serialization-json` | `1.10.0` | Compile-time code generation; no reflection. Mandatory on the scoring receive path. Gson and Moshi (reflection-based) are prohibited on any path that handles incoming WebSocket frames during gameplay. |
+| Audio playback + VOCALS mixing | `androidx.media3:media3-exoplayer` + `androidx.media3:media3-datasource-okhttp` | `1.9.2` | `MergingMediaSource` for dual-track (#INSTRUMENTAL + #VOCALS) mixing with `ScalingAudioProcessor` for per-track volume control (§10.4.3). `ProgressiveMediaSource` for HTTP streaming. The OkHttp data source is required — the default `DefaultHttpDataSource` uses `HttpURLConnection` which does not handle concurrent range requests efficiently; without it seeking on LAN-served audio is noticeably slower on mid-tier hardware. |
 | Image loading (cover/background art) | `io.coil-kt.coil3:coil-compose` + `io.coil-kt.coil3:coil-network-okhttp` | `3.4.0` | Coroutine-native, Compose-compatible image loader. `coil-network-okhttp` artifact required for HTTP URL loading (coil3's core no longer includes a network backend by default). Handles LRU memory cache and lazy loading of cover art tiles in the song grid. |
 | QR code generation (session join code display) | `com.journeyapps:zxing-android-embedded` | `4.3.0` | Mature, widely used, no camera permission required for generation-only use. |
-| Settings persistence (device names, audio prefs) | `androidx.datastore:datastore-preferences` | `1.1.1` | Idiomatic replacement for SharedPreferences on Android. Room is overkill for flat key-value preferences. |
-| mDNS advertisement | `jmdns` | `3.5.9` | Pure-Java mDNS/DNS-SD implementation. Android TV's NSD Manager has known unreliability on several OEM firmware builds; jmDNS is the safe, deterministic alternative for advertising `_karaoke._tcp` service records. |
+| Settings persistence (device names, audio prefs) | `androidx.datastore:datastore-preferences` | `1.2.1` | Idiomatic replacement for SharedPreferences on Android. Room is overkill for flat key-value preferences. |
+| Network Discovery (mDNS/DNS-SD) | `org.jmdns:jmdns` | `3.6.3` | Lightweight, pure Java implementation of multi-cast DNS. Used for local network service discovery to allow mobile clients to find the TV instance without manual IP entry. |
 
 ## A.2 Android Companion App (Kotlin)
 | Concern | Library | Pinned Version | Justification |
 |---|---|---|---|
-| WebSocket client | `com.squareup.okhttp3:okhttp` | `4.12.0` | Same OkHttp already used by TV host (transitive via ExoPlayer). `WebSocket` API built-in. No additional dependency. |
-| QR code scanning | `com.google.mlkit:barcode-scanning` + `androidx.camera:camera-camera2` + `androidx.camera:camera-lifecycle` + `androidx.camera:camera-view` | `barcode-scanning: 17.3.0`, `camera-*: 1.3.4` | ML Kit barcode scanning on CameraX. GPU-accelerated on all target hardware. |
+| WebSocket client | `com.squareup.okhttp3:okhttp` |`5.3.2` | Same OkHttp already used by TV host (transitive via ExoPlayer). `WebSocket` API built-in. No additional dependency. |
+| QR code scanning | `com.google.mlkit:barcode-scanning` + `androidx.camera:camera-camera2` + `androidx.camera:camera-lifecycle` + `androidx.camera:camera-view` | `barcode-scanning: 17.3.0`, `camera-*: 1.5.3` | ML Kit barcode scanning on CameraX. GPU-accelerated on all target hardware. |
 | LAN discovery (NSD/mDNS) | `android.net.nsd.NsdManager` (platform API) | n/a — SDK built-in (API 16+) | No third-party dependency required. Browse `_karaoke._tcp` using `NsdManager.discoverServices`. |
-| HTTP file server | `io.ktor:ktor-server-cio` + `io.ktor:ktor-server-partial-content` | `2.3.12` | Same Ktor version as TV host. `ktor-server-partial-content` handles `Accept-Ranges` / `206 Partial Content` automatically. |
-| SAF directory listing | `androidx.documentfile:documentfile` | `1.0.1` | Transitive dependency of `androidx.core`. `DocumentFile.fromTreeUri()` for SAF tree traversal. No additional library needed. |
+| HTTP file server | `io.ktor:ktor-server-cio` + `io.ktor:ktor-server-partial-content` | `3.4.1` | Same Ktor version as TV host. `ktor-server-partial-content` handles `Accept-Ranges` / `206 Partial Content` automatically. |
+| SAF directory listing | `androidx.documentfile:documentfile` | `1.1.0` | Transitive dependency of `androidx.core`. `DocumentFile.fromTreeUri()` for SAF tree traversal. No additional library needed. |
 | FFT Operations | `com.github.wendykierp:JTransforms`| 3.2 | Fast, GC-free primitive float array FFT implementations for Java/Kotlin.|
 | Haptic feedback (200ms on assignSinger) | `android.os.VibrationEffect` (platform API) | n/a — SDK built-in (API 26+) | `VibrationEffect.createOneShot(200, DEFAULT_AMPLITUDE)`. No third-party library. |
-| Settings persistence | `androidx.datastore:datastore-preferences` | `1.1.1` | Same as TV host. |
-
+| Settings persistence | `androidx.datastore:datastore-preferences` | `1.2.1` | Same as TV host. |
 ## A.3 iOS Companion App (Swift)
 | Concern | Library | Pinned Version | Justification |
 |---|---|---|---|
