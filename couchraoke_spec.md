@@ -29,7 +29,15 @@ Table of Contents
         3.2 Discovery and Validation Rules
         3.3 Index Fields (Functional)
         3.4 Song List (Landing Screen) - TV
-        3.5 Advanced Search (Overlay) [POST-MVP]
+            3.4.1 Purpose
+            3.4.2 Header actions and pairing widget
+            3.4.3 Layout and preview pane
+            3.4.4 Search, song grid, and primary actions
+            3.4.5 Medley playlist
+            3.4.6 Focus, DPAD navigation, and Back behavior
+            3.4.7 Wireframe (spec interactions; TV)
+            3.4.8 Medley eligibility: `canMedley`
+            3.4.9 Tests
     4. USDX TXT Format Support
         4.1 Supported Note Tokens
         4.2 Supported Header Tags and Semantics
@@ -273,7 +281,8 @@ These are the mandatory acceptance tests for this section. Complement with addit
 | T3.3.5 | `canMedley=false` when no medley tags | `inline` | `canMedley=false`, `medleySource=null` |
 
 ## 3.4 Song List (Landing Screen) - TV
-**Purpose**
+
+### 3.4.1 Purpose
 - Always the landing screen (even if library is empty).
 - Displays songs sorted by **Artist -> Album -> Title**.
 - Only one song (or one medley segment) is played at a time.
@@ -281,21 +290,44 @@ These are the mandatory acceptance tests for this section. Complement with addit
   - The Medley playlist is **initialized empty** each time this screen is shown.
   - The Medley playlist is **cleared** when leaving this screen for a non-modal screen (e.g., Settings, starting a song, starting a medley, Results).
   - Opening/closing modal overlays (Advanced Search, Select Players, error dialogs) MUST NOT clear it.
+
+### 3.4.2 Header actions and pairing widget
 **Header actions**
-- **⚙ Settings** button (gear icon): left side of header, opens Settings screen. This is the primary entry point to Settings from the Song List.
-- **Back** button: behaves like the TV remote Back key (see Back key behavior below).
-- **Join code** (text-only): top-right of header, shows the current session join code (e.g., `Code: ABCD-EFGH`) as a quick-glance alternative to scanning the QR in the left panel.
+- **Search** field: top row, primary top-level re-entry point for focus within this screen.
+- **Join** button: top row, opens the pairing UI for the current session.
+- **⚙ Settings** button (gear icon): top row, opens Settings screen. This is the primary entry point to Settings from the Song List.
+- **Join code** (text-only): top row, shows the current session join code (e.g., `Code: ABCD-EFGH`) as a quick-glance pairing aid.
+
 **Pairing (on landing)**
-- The landing screen left panel MUST show a compact session join widget: **QR code + join code** for the current session endpoint (Section 8.1). The QR is positioned in the left panel above the Medley playlist.
+- The Song List MUST expose session joining from the landing screen.
+- The landing screen MUST provide a pairing entry point via the **Join** button.
+- Activating **Join** MUST open a TV-side pairing overlay or dialog showing:
+  - the session **QR code**
+  - the **join code**
 - The QR payload MUST encode the full WebSocket endpoint URL (including the `token` query parameter), so the phone can join without relying on LAN discovery.
-- The landing screen MUST NOT show a connected-device roster.
-- Device roster management (Rename/Kick/Forget) is available only in Settings -> Connect Phones (Section 10.4.1).
+- The Song List landing screen MUST NOT show a connected-device roster.
+- Device roster management (Rename/Kick/Forget) is available only in **Settings -> Connect Phones** (Section 9.4.1).
+
 **QR sizing (normative; TV usability)**
-- QR code MUST be scannable at typical living-room TV distance.
+- The QR code shown from the Join action MUST be scannable at typical living-room TV distance.
 - Render requirements (implementation MUST satisfy all):
-  - QR visible size MUST be at least **16% of screen height** (square), and MUST NOT be less than **280 px** on a 1080p surface.
-  - Quiet zone MUST be at least **4 modules** on each side.
-  - Join code text MUST be readable at the same distance: character height MUST be at least **3.5% of screen height** (approx. 38 px at 1080p).
+  - Render size:
+    - Minimum: **320 dp x 320 dp**
+    - Recommended: **360–420 dp square** on 1080p
+  - Quiet zone:
+    - At least **4 modules** on all sides
+  - Contrast:
+    - High contrast (dark on light), no transparency or gradients
+  - Position:
+    - Centered within the modal
+    - Not occluded by UI chrome
+  - Join code text:
+    - MUST be displayed below the QR
+    - Minimum text size: **24 sp**
+    - Character spacing sufficient for readability at distance
+  - The QR MUST remain static (no animation or scaling)
+
+### 3.4.3 Layout and preview pane
 **Empty state**
 - If no phones are connected:
   - Message: `No phones connected.`
@@ -303,6 +335,29 @@ These are the mandatory acceptance tests for this section. Complement with addit
 - If phones are connected but none have returned any valid songs:
   - Message: `No songs found.`
   - Hint: `Open the karaoke app on your phone and make sure the songs folder is set.`
+
+**Layout (normative; TV remote)**
+The Song List uses a two-column layout.
+
+- The **left panel** contains:
+  - a **preview pane**
+  - the Medley playlist
+  - Play Medley / Auto Medley actions
+- The **right panel** contains:
+  - the Search field
+  - Random Song / Random Duet actions
+  - the song grid
+
+**Preview pane (normative)**
+- The preview pane is positioned in the **left panel above the Medley playlist**.
+- The preview pane MUST use a **16:9** aspect ratio.
+- The preview pane is **display-only and non-focusable**.
+- The preview pane is driven entirely by the currently focused song tile in the grid.
+- The preview pane MUST NOT participate in the DPAD focus graph.
+- The preview pane reflects preview playback behavior defined in Section 9.2.
+- Leaving the song grid MUST stop preview playback per Section 9.2.
+
+### 3.4.4 Search, song grid, and primary actions
 **Song card display (grid)**
 - Each visible song is shown as a **cover tile** with:
   - Cover image (if present; otherwise placeholder)
@@ -313,6 +368,7 @@ These are the mandatory acceptance tests for this section. Complement with addit
     - `V` = video (`hasVideo=true`)
     - `I` = instrumental (`hasInstrumental=true`)
     - `M` = medley-eligible (`canMedley=true`)
+
 **Default inline search (grid filter; normative)**
 - The screen MUST provide a Search text field.
 - Matching is **case-insensitive substring** match.
@@ -320,36 +376,38 @@ These are the mandatory acceptance tests for this section. Complement with addit
 - Filtering MUST preserve the underlying ordering (Artist -> Album -> Title) and simply hides non-matching songs.
 - Input MUST be debounced by **150 ms**.
 - Pressing **OK** on the Search field MUST open the **Android TV system text input dialog** (same mechanism as advanced search would use). On confirming the system dialog, focus returns to the Search field with the entered text applied and the grid filters immediately (150 ms debounce).
-**Back key behavior (normative)**
-- If a filter is active (from inline search), Back MUST **clear the filter** and keep the user on the Song List.
-- Otherwise, Back exits the app (or returns to Android launcher).
+
 **Primary actions (normative)**
-- OK on a focused song tile opens **Select Players** modal (Section 10.3).
+- OK on a focused song tile opens **Select Players** modal (Section 9.3).
 - Long-press OK on a focused song tile attempts **Add to Medley**.
   - If the focused song has `canMedley=false`, show a blocking modal:
     - Text (exact): `This song can't be used in a medley. Look for songs with an M tag in the lower right corner`
     - Single action: `OK` (default focus), closes the modal.
   - If `canMedley=true`, append the song to the end of the Medley playlist.
+
 **Random actions (normative)**
 - The screen MUST provide:
   - **Sing Random Song**: selects a random **valid** song from the currently visible (filtered) set, then opens Select Players.
   - **Sing Random Duet**: selects a random **valid duet** song from the currently visible (filtered) set, then opens Select Players.
+  - **Sing Random Medley**: selects 5 random **valid medley** songs from the currently visible (filtered) set, then opens Select Players. If fewer than 5 exist then add them all. This button needs at least 2 songs to be acctive.
 - If the currently visible (filtered) set is empty (no grid results), the Random action buttons MUST be disabled (not focusable).
+- If no elegible songs exist for a certain action, disable the button. It should become greyed out
 - If no eligible songs exist for the chosen action, show a blocking modal with a single `OK` action and keep focus unchanged.
+
+
+### 3.4.5 Medley playlist
 **Medley playlist behavior (normative)**
 - The Medley playlist is a fixed-height list area on the Song List screen.
 - Fixed height = **the lesser of 7 lines or 25% of screen height**, with a minimum of 3 lines always visible. The playlist scrolls when it exceeds the visible height.
 - Playlist row rendering: `<Artist>  <Title>` (no row number prefix).
-Playlist actions:
+
+**Playlist actions**
 - **Play Medley**:
   - If the playlist is empty, this action MUST be disabled.
-  - Otherwise, it MUST open **Select Players** (Section 10.3) once for the entire medley run.
+  - Otherwise, it MUST open **Select Players** (Section 9.3) once for the entire medley run.
   - On **Start**, it starts medley playback using the playlist order.
-- **Auto Medley (Random 5)**: replaces the playlist with up to **5** randomly selected songs from the currently visible (filtered) set where `canMedley=true`.
-  - If the currently visible (filtered) set is empty (no grid results), this action MUST be disabled (not focusable).
-  - If fewer than 5 eligible songs exist, use all eligible songs.
-  - If zero eligible songs exist, show a blocking modal with `OK` and do not change the playlist.
-Playlist edit interactions:
+
+**Playlist edit interactions**
 - Focus can move into the playlist.
 - OK on a playlist row enters **Reorder mode** for that row.
   - In Reorder mode: Up/Down moves the item within the playlist; OK confirms; Back cancels and restores the prior order.
@@ -357,78 +415,94 @@ Playlist edit interactions:
   - Navigating focus out of the playlist via any other mechanism (e.g., system focus change) MUST implicitly cancel the reorder and restore the original order.
   - While in Reorder mode, the bottom-of-screen context hints MUST include `Up/Down=Move  OK=Accept  Back=Cancel`.
 - Long-press OK on a playlist row deletes that row immediately (no confirm).
-**Layout / focus (normative; TV remote)**
-The Song List uses a two-column layout. The **left panel** contains the QR/join code widget and Medley playlist. The **right panel** contains the Search field, action buttons, and song grid.
-Focus allocation:
-- The QR/join code widget is **display-only and non-focusable**. The remote cannot focus it.
+
+### 3.4.6 Focus, DPAD navigation, and Back behavior
+**Focus allocation**
+- The preview pane is **display-only and non-focusable**.
 - The Medley playlist rows, Play Medley button, and Auto Medley button are focusable within the left panel.
-- The Search field, Random Song button, Random Duet button, and song grid tiles are focusable within the right panel.
-Grid column count (normative):
+- The Search field, Random Song button, Random Duet button, Join button, Settings button, and song grid tiles are focusable within the top/right areas of the screen.
+
+**Grid column count (normative)**
 - Grid column count MUST be fixed: **3 columns** at 1080p, **4 columns** at 4K.
 - The column count MUST NOT change while the screen is displayed.
-Initial focus (normative):
+
+**Initial focus (normative)**
 - On entering the Song List (including on app launch and on return from Singing/Results), initial focus MUST be placed on the **first tile in the song grid** (top-left). If the grid is empty (no songs visible), initial focus MUST be placed on the **Search field**.
-DPAD navigation map (normative):
+
+**DPAD navigation map (normative)**
 | Current focus | DPAD Up | DPAD Down | DPAD Left | DPAD Right |
 |---|---|---|---|---|
-| Search field | — (no action) | First grid tile | — (no action) | — (no action) |
+| Search field | — (no action) | First grid tile | Join button | Settings button |
+| Join button | — (no action) | First grid tile | — (no action) | Search field |
+| Settings button | — (no action) | First grid tile | Search field | — (no action) |
 | Random Song / Random Duet button | Search field | First grid tile | — (no action) | — (no action) |
-| Grid tile (top row) | Search field | Tile below (or no action if last row) | Tile to the left, or Medley playlist if at leftmost column | Tile to the right; no action if at rightmost column |
-| Grid tile (non-top row) | Tile above | Tile below (or no action if last row) | Tile to the left, or Medley playlist if at leftmost column | Tile to the right; no action if at rightmost column |
+| Grid tile (top row) | Search field | Tile below (or no action if last row) | Tile to the left, or left panel entry target if at leftmost column | Tile to the right; no action if at rightmost column |
+| Grid tile (non-top row) | Tile above | Tile below (or no action if last row) | Tile to the left, or left panel entry target if at leftmost column | Tile to the right; no action if at rightmost column |
 | Medley playlist row | Previous playlist row (or Play Medley if at top) | Next playlist row (or Auto Medley if at bottom) | — (no action) | Search field |
 | Play Medley button | Last playlist row (or no action if empty) | Auto Medley button | — (no action) | Search field |
-| Auto Medley button | Play Medley button | — (no action) | — (no action) | Search field |
-**Wireframe (spec interactions; TV)**
+
+**Left-panel entry target (normative)**
+- When moving left from the leftmost grid column, focus MUST enter the left panel with the following priority:
+  1. first Medley playlist row, if present
+  2. Play Medley button, if the playlist is empty
+  3. Auto Medley button, as fallback
+
+**Back key behavior (normative)**
+- If a modal or overlay is open, Back MUST close it first per Section 9.1.
+- Otherwise, if focus is in the song grid or left panel, Back MUST move focus to the **Search field**.
+- Otherwise, if focus is in the top controls:
+  - If a filter is active (from inline search), Back MUST **clear the filter** and keep the user on the Song List.
+  - If no filter is active, Back exits the app (or returns to Android launcher).
+
+### 3.4.7 Wireframe (spec interactions; TV)
 ```text
 +--------------------------------------------------------------------------------------------------+
-|  ⚙ Settings   ◀ Back                                                             Code: ABCD-EFGH      |
+|  Code: ABCD-EFGH   Search: [______________________________]     [ JOIN ]   [ ⚙ SETTINGS ]       |
 +--------------------------------------------------------------------------------------------------+
-|                                                                                                  |
+|                [ Random Song ]   [ Random Duet ]   [Random Medley]                               |
++--------------------------------------------------------------------------------------------------+
 |  +--------------------------------------+     +----------------------------------------------+   |
-|  | JOIN SESSION                 |    |     | Search: [______________________________]      |   |
-|  | [   QR CODE   ]              |    |     | [Random Song]  [Random Duet]                  |   |
-|  | Code: ABCD-EFGH              |    |     |   (disabled when filtered set is empty)       |   |
-|  |                              |    |     |                                              |   |
-|  |  +------------------------------+|     |  SONG GRID (right half)                        |   |
-|  |  | MEDLEY PLAYLIST              ||     |  +---------+ +---------+ +---------+ +-----+   |   |
-|  |  | JOIN SESSION                 |    |     |  +---------+ +---------+ +---------+ +-----+   |   |
-|  |  | [   QR CODE   ]              |    |     |  | Cover   | | Cover   | | Cover   | | ... |   |   |
-|  |  | Code: ABCD-EFGH              |    |     |  | Title   | | Title   | | Title   | |     |   |   |
-|  |  +------------------------------+    |     |  | Artist  | | Artist  | | Artist  | |     |   |   |
-|  +--------------------------------------+     |  | [V]     | | [D]     | | [I][M]  | |     |   |   |
-|                                               |  +---------+ +---------+ +---------+ +-----+   |   |
+|  | PREVIEW PANE (16:9)                  |     | SONG GRID                                    |   |
+|  | (display-only; non-focusable)        |     |  +---------+ +---------+ +---------+ +-----+ |   |
+|  |                                      |     |  | Cover   | | Cover   | | Cover   | | ... | |   |
+|  +--------------------------------------+     |  | Title   | | Title   | | Title   | |     | |   |
+|  | Title                                |     |  | Artist  | | Artist  | | Artist  | |     | |   |
+|  | Artist                               |     |  | [V]     | | [D]     | | [I][M]  | |     | |   |
+|  | [V] [D] [R] [I] [M]                  |     |  +---------+ +---------+ +---------+ +-----+ |   |
 |  +--------------------------------------+     |                                              |   |
-|  | MEDLEY PLAYLIST                      |     |  Tags: [D]=Duet  [R]=Rap  [V]=Video         |   |
-|  | (max 7 lines or 25% height; scrolls) |     |         [I]=Inst  [M]=Medley                |   |
+|  | MEDLEY PLAYLIST                      |     |  Tags: [D]=Duet  [R]=Rap  [V]=Video          |   |
+|  | (max 7 lines or 25% height; scrolls) |     |        [I]=Inst  [M]=Medley                  |   |
 |  |  +-------------------------------+   |     +----------------------------------------------+   |
-|  |  | <artist>  <song>              |   |                                                      |
-|  |  | <artist>  <song>              |   |                                                      |
-|  |  | <artist>  <song>              |   |                                                      |
-|  |  | <artist>  <song>              |   |                                                      |
-|  |  | <artist>  <song>              |   |                                                      |
-|  |  +-------------------------------+   |                                                      |
-|  |    [ PLAY MEDLEY ]  [ AUTO MEDLEY (RANDOM 5) ]                                               |
-|  +--------------------------------------+                                                      |
+|  |  | <artist>  <song>              |   |                                                        |
+|  |  | <artist>  <song>              |   |                                                        |
+|  |  | <artist>  <song>              |   |                                                        |
+|  |  +-------------------------------+   |                                                        |
+|  |         [ PLAY MEDLEY ]          |   |                                                        |
+|  |                                  |   |                                                        |
+|  +--------------------------------------+                                                        |
 +--------------------------------------------------------------------------------------------------+
-| Contextual help:                                                                                |
-|  - Song grid: OK = Sing   Long-Press OK = Add to Medley                                         |
-|  - Medley playlist: OK = Reorder   Long-Press OK = Delete                                       |
+| Contextual help:                                                                                 |
+|  - Song grid: OK = Sing   Long-Press OK = Add to Medley                                          |
+|  - Medley playlist: OK = Reorder   Long-Press OK = Delete                                        |
 +--------------------------------------------------------------------------------------------------+
 ```
-**Medley eligibility: `canMedley` (normative; parity-aligned)**
+
+### 3.4.8 Medley eligibility: `canMedley`
 `canMedley` MUST be computed and stored in the in-memory song list built on scan/index.
+
 A song is medley-eligible iff all are true:
 - `isDuet = false`, AND
 - Valid medley tags exist (`medleySource="tag"`).
+
 Definition details (USDX parity):
 - Valid medley tags exist iff:
   - `#MEDLEYSTARTBEAT` and `#MEDLEYENDBEAT` are both present, both parse as integers, and `startBeat < endBeat`.
   - If valid tags exist, `medleySource="tag"` and those beats are used.
   - If valid tags do not exist, `medleySource=null` and `canMedley=false`.
+
 **Note — medley auto-calc deferred:** USDX supports a refrain-finding algorithm (`#CALCMEDLEY`) that produces `medleySource="calculated"` when no explicit tags exist. This algorithm is not specified for MVP. `medleySource="calculated"` is therefore not a valid value in this implementation. Only songs with explicit `#MEDLEYSTARTBEAT`/`#MEDLEYENDBEAT` tags are medley-eligible.
 
-**Tests**
-
+### 3.4.9 Tests
 These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
 
 | ID | What | Fixture | Expected |
@@ -437,8 +511,14 @@ These are the mandatory acceptance tests for this section. Complement with addit
 | T3.4.2 | Phones connected, no valid songs | `inline` [U widget] | "No songs found." displayed |
 | T3.4.3 | `canMedley=false` long-press → blocking modal | `inline` [U widget] | Exact text per §3.4 |
 | T3.4.4 | Play Medley with empty playlist | `inline` [U widget] | Button disabled |
-| T3.4.5 | Back with active filter → filter cleared | `inline` [U widget] | Remain on screen |
-| T3.4.6 | Back with no filter → app exit | `inline` [U widget] | Exit triggered |
+| T3.4.5 | Back with active filter from Search/top controls → filter cleared | `inline` [U widget] | Remain on screen |
+| T3.4.6 | Back with no filter from Search/top controls → app exit | `inline` [U widget] | Exit triggered |
+| T3.4.7 | Back from grid → focus moves to Search field | `inline` [U widget] | Focus lands on Search |
+| T3.4.8 | Back from left panel → focus moves to Search field | `inline` [U widget] | Focus lands on Search |
+| T3.4.9 | Preview pane is non-focusable | `inline` [U widget] | DPAD cannot focus preview pane |
+| T3.4.10 | Leftmost grid tile DPAD Left enters playlist row when present | `inline` [U widget] | Focus lands on first playlist row |
+| T3.4.11 | Leftmost grid tile DPAD Left enters Play Medley when playlist empty | `inline` [U widget] | Focus lands on Play Medley |
+| T3.4.12 | Join action opens pairing overlay with QR + join code | `inline` [U widget] | Overlay shown |
 
 # 4. USDX TXT Format Support
 
@@ -1137,7 +1217,7 @@ Session state is owned by the TV host app.
 **Join UI placement (normative)**
 - The TV host MUST display the session join QR code and join code (token) representing the current session endpoint (Section 8.1).
 - The QR payload MUST encode the full WebSocket endpoint URL (including the `token` query parameter). It MUST NOT be an NSD/service-discovery identifier.
-- The Song List landing screen (Section 3.4) MUST show a compact join widget (QR + code) and MUST NOT show the connected-device roster.
+- The Song List landing screen (Section 3.4) MUST show a compact join entrypoint (action button) and MUST NOT show the connected-device roster. Activating that entry point opens a pairing modal containing the QR + join code
 - Settings -> Connect Phones (Section 10.4.1) MUST show the join QR/code plus the connected-device roster and management actions.
 **Join admission (normative)**
 - Phones MAY join while the session is **Open** until the roster reaches 10 devices.
@@ -2381,6 +2461,111 @@ When video is disabled or unavailable, the singing screen background is determin
 - **Two singer layout**: two pitch lanes, one per singer, stacked vertically.
 - **Elapsed time**: displayed bottom-right of the singing screen, formatted as `MM:SS` (always two digits each, zero-padded; e.g., `00:35`, `01:23`). This is elapsed time from the start of the song.
 - **Instrumental gap indicator**: shown in the pitch lane per the rule in Section 1.1 (animated rest indicator during extended silent regions).
+**Wireframe (singing screen; TV)**
+```text
+Active singing screen — two singers
++--------------------------------------------------------------------------------+
+|                          (FULLSCREEN VIDEO / BACKGROUND)                       |
+|                                                                                |
+| P1 [badge]                                                                     |
+|  ───────────────────────────────────────────────────────────────────────────   |
+|   [note bars / pitch lane P1]                                                  |
+|                                                                +--------+      |
+|                                                                | 00710  |      |
+|                                                                +--------+      |
+|                                                                  Great         |
+|                                                                                |
+| P2 [badge]                                                                     |
+|  ───────────────────────────────────────────────────────────────────────────   |
+|   [note bars / pitch lane P2]                                                  |
+|                                                                +--------+      |
+|                                                                | 00720  |      |
+|                                                                +--------+      |
+|                                                                  Perfect!      |
+|                                                                                |
++--------------------------------------------------------------------------------+
+| Lyrics (USDX style: active syllables highlighted)                               |
+|   CUz this life is too short                                                   |
+|   to live it just for you                                                      |
++--------------------------------------------------------------------------------+
+|                                                                      00:35     |
++--------------------------------------------------------------------------------+
+
+Active singing screen — single singer (vertically centered lane)
++--------------------------------------------------------------------------------+
+|                          (FULLSCREEN VIDEO / BACKGROUND)                       |
+|                                                                                |
+|                                                                                |
+| P1 [badge]                                                                     |
+|  ───────────────────────────────────────────────────────────────────────────   |
+|   [note bars / pitch lane P1 — vertically centered]                            |
+|                                                                +--------+      |
+|                                                                | 00710  |      |
+|                                                                +--------+      |
+|                                                                  Perfect!      |
+|                                                                                |
++--------------------------------------------------------------------------------+
+| Lyrics                                                                          |
+|   CUz this life is too short                                                   |
++--------------------------------------------------------------------------------+
+|                                                                      00:35     |
++--------------------------------------------------------------------------------+
+
+Countdown overlay (before playback and scoring start; 1 Hz)
++--------------------------------------------------------------------------------+
+|                                                                                |
+|                                     3                                          |
+|                                                                                |
++--------------------------------------------------------------------------------+
+(then 2, 1; after showing 1, playback + scoring start)
+
+Pause overlay (Back)
++--------------------------------------+
+| PAUSED                               |
+|  > Resume                            |
+|    Restart Song                      |
+|    Quit to Song List                 |
++--------------------------------------+
+
+Restart confirm (default focus Cancel)
++--------------------------------------+
+| CONFIRM                              |
+| Restart song?                        |
+|                                      |
+|  > Cancel     OK                     |
++--------------------------------------+
+
+Quit confirm (default focus Cancel)
++--------------------------------------+
+| CONFIRM                              |
+| Quit to Song List?                   |
+|                                      |
+|  > Cancel     OK                     |
++--------------------------------------+
+
+Disconnect auto-pause overlay
++--------------------------------------+
+| PAUSED — PLAYER DISCONNECTED         |
+| <PhoneName> has disconnected.         |
+|                                      |
+|  > Wait for reconnect                |
+|    Continue without them             |
+|    Quit to Song List                 |
++--------------------------------------+
+```
+
+**Rendering and performance guidance (normative)**
+- The singing screen MUST prioritize frame stability over decorative effects. Any visual treatment that introduces noticeable lag or jumping during singing is non-conformant.
+- The singing screen MAY be implemented using Jetpack Compose for screen structure. Real-time lane rendering SHOULD use a custom drawing surface with minimal recomposition.
+- Implementations SHOULD render each active singer lane as a single drawing surface rather than one UI element per note.
+- Cached geometry and drawing primitives SHOULD be reused across frames. Per-frame object allocation in lane rendering SHOULD be avoided.
+- Readability overlays behind lyrics, score, or lane labels SHOULD use a static dark panel or static gradient. Runtime background blur, `RenderEffect`, or similar live post-processing effects MUST NOT be required.
+- Pitch targets SHOULD use flat rectangular shapes. Heavy bevel, live shadow, or runtime glow effects are not required.
+**Lyrics rendering (normative)**
+- Lyrics MUST remain spatially stable during a sentence. Continuous scrolling lyrics are not supported.
+- Sentence-based paging is required. The current sentence remains in place while the highlight progresses with playback.
+- Implementations MAY render the active highlight using a clipped reveal over an inactive base text pass.
+- Lyrics typography MUST prioritize readability at TV viewing distance and SHOULD use a high-legibility sans-serif font available on the target device or bundled with the app.
 **Sentence rating (USDX parity)**
 After each sentence ends, a brief rating label is displayed for the corresponding singer's lane. The label is derived from `LinePerfection` (Section 6.5) and is shown for approximately 800ms then fades:
 | LinePerfection | Label |
@@ -2391,6 +2576,9 @@ After each sentence ends, a brief rating label is displayed for the correspondin
 | ≥ 0.40 | `Cool` |
 | ≥ 0.20 | `Okay` |
 | < 0.20 | `Poor` |
+**Sentence rating animation (normative)**
+- Sentence rating SHOULD use a simple opacity fade.
+- Layout-affecting animation of the lane, lyrics region, or score placement during singing is not supported.
 **Countdown**
 - Countdown before playback and scoring begin is controlled by Settings > Gameplay:
  - If Ready countdown is ON: show N-second countdown at 1 Hz (N from setting) then begin playback and scoring.
@@ -2469,92 +2657,6 @@ Phone behavior:
 TV behavior:
 - The TV MUST ignore any `pitchFrame` with `tvTimeMs >= endTimeTvMs` for scoring.
 - The TV MUST finalize scoring and transition to Results when playback reaches the chart/medley end.
-**Wireframes (USDX-aligned, spec-only interactions)**
-```text
-Active singing screen — two singers
-+--------------------------------------------------------------------------------+
-|                          (FULLSCREEN VIDEO / BACKGROUND)                       |
-|                                                                                |
-| P1 [badge]                                                                     |
-|  ───────────────────────────────────────────────────────────────────────────   |
-|   [note bars / pitch lane P1]                                                  |
-|                                                                +--------+      |
-|                                                                | 00710  |      |
-|                                                                +--------+      |
-|                                                                  Great         |
-|                                                                                |
-| P2 [badge]                                                                     |
-|  ───────────────────────────────────────────────────────────────────────────   |
-|   [note bars / pitch lane P2]                                                  |
-|                                                                +--------+      |
-|                                                                | 00720  |      |
-|                                                                +--------+      |
-|                                                                  Perfect!      |
-|                                                                                |
-+--------------------------------------------------------------------------------+
-| Lyrics (USDX style: active syllables highlighted)                               |
-|   CUz this life is too short                                                   |
-|   to live it just for you                                                      |
-+--------------------------------------------------------------------------------+
-|                                                                      00:35     |
-+--------------------------------------------------------------------------------+
-Active singing screen — single singer (vertically centered lane)
-+--------------------------------------------------------------------------------+
-|                          (FULLSCREEN VIDEO / BACKGROUND)                       |
-|                                                                                |
-|                                                                                |
-| P1 [badge]                                                                     |
-|  ───────────────────────────────────────────────────────────────────────────   |
-|   [note bars / pitch lane P1 — vertically centered]                            |
-|                                                                +--------+      |
-|                                                                | 00710  |      |
-|                                                                +--------+      |
-|                                                                  Perfect!      |
-|                                                                                |
-+--------------------------------------------------------------------------------+
-| Lyrics                                                                          |
-|   CUz this life is too short                                                   |
-+--------------------------------------------------------------------------------+
-|                                                                      00:35     |
-+--------------------------------------------------------------------------------+
-Countdown overlay (before playback and scoring start; 1 Hz)
-+--------------------------------------------------------------------------------+
-|                                                                                |
-|                                     3                                          |
-|                                                                                |
-+--------------------------------------------------------------------------------+
-(then 2, 1; after showing 1, playback + scoring start)
-Pause overlay (Back)
-+--------------------------------------+
-| PAUSED                               |
-|  > Resume                            |
-|    Restart Song                      |
-|    Quit to Song List                 |
-+--------------------------------------+
-Restart confirm (default focus Cancel)
-+--------------------------------------+
-| CONFIRM                              |
-| Restart song?                        |
-|                                      |
-|  > Cancel     OK                     |
-+--------------------------------------+
-Quit confirm (default focus Cancel)
-+--------------------------------------+
-| CONFIRM                              |
-| Quit to Song List?                   |
-|                                      |
-|  > Cancel     OK                     |
-+--------------------------------------+
-Disconnect auto-pause overlay
-+--------------------------------------+
-| PAUSED — PLAYER DISCONNECTED         |
-| <PhoneName> has disconnected.         |
-|                                      |
-|  > Wait for reconnect                |
-|    Continue without them             |
-|    Quit to Song List                 |
-+--------------------------------------+
-```
 
 ### 9.5.1 Singing Screen (Medley mode)
 Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, but only the **medley window** of each song is played and scored.
