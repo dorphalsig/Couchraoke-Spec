@@ -184,6 +184,69 @@ A `:mock-phone` Gradle module MUST be maintained in the repository to enable TV 
 
 The mock phone is a development dependency only and MUST NOT be included in release builds.
 
+## 2.4 Playback Coordinator (TV Internal Architecture)
+The TV app MUST implement a `PlaybackCoordinator` scoped to the session lifetime. It is the single source of truth for game-phase orchestration and MUST expose `StateFlow<GamePhase>` for UI observation.
+
+**GamePhase states (normative)**
+- `Idle`: no song loaded; session is Open.
+- `Loading`: chart fetch/parse in progress and ExoPlayer preparing media.
+- `Countdown`: countdown overlay visible; phones warming up the mic.
+- `Playing`: audio playing; scoring active; pitch frames flowing.
+- `Paused`: user-initiated pause.
+- `DisconnectPaused`: automatic pause because a required singer disconnected.
+- `Stopped`: song or medley playback ended and the run is being finalized before Results.
+- `Results`: results screen visible and session returned to Open.
+
+**Transition rules (normative)**
+- `Idle → Loading`: user starts a song from Select Players.
+- `Loading → Countdown`: playback is ready and countdown is enabled.
+- `Loading → Playing`: countdown is disabled and playback begins.
+- `Loading → Idle`: playback preparation fails or required media is unreachable.
+- `Countdown → Playing`: countdown reaches 0.
+- `Countdown → Idle`: a required singer disconnects during countdown.
+- `Playing → Paused`: user presses Back.
+- `Playing → DisconnectPaused`: required singer WebSocket drops.
+- `Playing → Stopped`: playback reaches `stopAtLyricsTimeMs` or the final medley segment ends.
+- `Paused → Playing`: user selects Resume.
+- `Paused → Loading`: user confirms Restart; the coordinator increments `songInstanceSeq` and starts a fresh run.
+- `Paused → Idle`: user confirms Quit.
+- `DisconnectPaused → Playing`: the singer reconnects and playback resumes, or the user selects Continue Without Them.
+- `DisconnectPaused → Idle`: user confirms Quit.
+- `Stopped → Results`: scoring finalization completes.
+- `Results → Idle`: user returns to Song List.
+
+**Coordinator responsibilities (normative)**
+1. Own and increment `songInstanceSeq` (`uint32`) on every song start, including Restart.
+2. Drive song start: fetch and parse the chart, configure scoring, set the active song for pitch ingestion, prepare playback, lock the session, send `assignSinger`, then start countdown or playback; when playback actually begins, capture `songStartTvMs` and push it into scoring.
+3. Construct `PlaybackStateMessage` on each playback-bearing game-phase transition and push it to the network layer for serialization and delivery.
+4. Coordinate pause, resume, restart, and quit across playback, scoring, and phone state.
+5. Handle required-singer disconnects by auto-pausing and presenting wait / continue / quit behavior.
+6. Handle reconnect by updating `connectionId`, re-sending `assignSinger`, and immediately sending current `playbackState`.
+7. Drive medley segment transitions (§2.5).
+8. Capture `songStartTvMs` per §5.2.2 and push it into scoring before note finalization begins.
+9. Trigger a clock-sync re-exchange at song end.
+10. Transition the session FSM between Open and Locked at song start/end.
+11. Interact with playback, scoring, pitch ingestion, clock sync, session management, and networking only through narrow interfaces (`ScoringController`, `PlaybackController`, `NetworkController`, `SessionController`, `PitchController`, `ClockSyncController`). Direct references to implementation classes are not permitted.
+
+## 2.5 Medley Segment Transition (TV Internal Architecture)
+When the medley sequencer detects that the current segment has reached `medleyEndSec`, the `PlaybackCoordinator` MUST execute the transition as a structured coroutine:
+
+1. Fade out current segment audio over `MEDLEY_FADE_OUT_SEC` (2s).
+2. Finalize all remaining notes in the scoring engine and store the completed segment's per-player totals.
+3. If this was the last segment: stop playback, compute the medley aggregate, transition to Results, and exit.
+4. Fetch and parse the next segment's `txtUrl`.
+5. Reset scoring accumulators and load the next chart with the medley window filter.
+6. Activate prebuffered audio for the next segment and fade in over `MEDLEY_FADE_IN_SEC` (8s).
+7. Capture a new `songStartTvMs` for the next segment.
+8. Recompute `stopAtLyricsTimeMs` for the remaining medley run.
+9. Send updated `playbackState` to phones with the new stop point and segment metadata.
+10. Begin prebuffering the subsequent segment's audio, if any.
+
+If step 4 fails because the next segment's `txtUrl` is unreachable, the coordinator MUST skip that segment and continue to the next remaining segment. If step 6 fails because the next segment's audio is unreachable, the medley MUST abort and follow the playback-error exit path.
+
+**Medley audio prebuffering (normative)**
+The `PlaybackController` MUST support preparing a second ExoPlayer instance in the background. The `PlaybackCoordinator` MUST trigger prebuffering of the next segment's audio approximately 5 seconds before the current segment ends. At the segment boundary, the active and prebuffered players swap: the prebuffered player becomes active (with fade-in), and the old active player is released. If prebuffering is not complete at the transition point, the coordinator MUST fall back to a sequential prepare-and-play path with a brief audio gap.
+
 # 3. Songs and Library
 
 ## 3.1 Storage Access
@@ -860,9 +923,14 @@ This section defines how phone pitch frames are mapped into the TV time domain, 
 ### 5.2.2 Pitch-frame timestamps in TV time
 
 **`songStartTvMs` (normative):**
-The TV MUST record the TV monotonic clock value at the moment `lyricsTimeSec = 0` begins playing (i.e., when ExoPlayer starts audio playback for the current song, before any `#START` offset is applied). This value is used throughout scoring to convert audio positions to TV time.
+`songStartTvMs` is the TV monotonic ms value corresponding to audio position 0 for the current song, before any `#START` offset is applied. The `PlaybackCoordinator` (§2.4) MUST capture it using this procedure:
 
-- `songStartTvMs`: TV monotonic ms at audio position 0 for the current song.
+1. Register an `AnalyticsListener.onAudioPositionAdvancing` callback on ExoPlayer before calling `play()`.
+2. When the callback fires, compute `songStartTvMs = tvMonotonicNow - player.currentPosition`.
+3. Also capture a preliminary fallback value at the moment `play()` is called: `System.nanoTime() / 1_000_000`.
+4. If `onAudioPositionAdvancing` has not fired within 500ms of `play()`, use the preliminary value and log a warning.
+5. Push `songStartTvMs` to the scoring engine immediately upon capture.
+6. The scoring engine MUST NOT finalize any notes until `songStartTvMs` has been set.
 
 When a `pitchFrame` arrives:
 - `frameTimestampTvMs` = the `tvTimeMs` field from the binary frame header.
@@ -906,7 +974,7 @@ These are the mandatory acceptance tests for this section. Complement with addit
 
 ### 5.2.4 Effective mic delay (manual)
 
-The scoring note windows (Section 5.1) use a mic delay to compensate for hardware audio pipeline latency:
+The pitch-lane note targets and scoring note windows (Section 5.1) use a mic delay to compensate for hardware audio pipeline latency:
 - `effectiveMicDelayMs = micDelayMs`
 
 Where `micDelayMs` is the user-configured per-session setting (Settings > Scoring Timing). Hardware audio latency (microphone → digital → network) is essentially constant for a given phone model and does not drift during a song, so adaptive adjustment adds complexity without benefit. Manual calibration before singing is sufficient.
@@ -1010,6 +1078,21 @@ Static BPM:
 To convert this chart-relative time back to `lyricsTimeSec` (audio-start relative), add `GAPms/1000.0`.
 Boundary conventions:
 - When comparing a time to a note window converted from beats, implementations MUST use: `noteActive if startBeat <= beat < endBeat` (start inclusive, end exclusive).
+
+**Visual beat vs scoring beat (normative)**
+Two beat computations are derived from the same `BPM_internal` and `GAPms`, but they serve different consumers:
+
+1. **Lyrics beat** — for lyrics highlight and elapsed-time display:
+   - `currentBeat = floor(TimeSecToMidBeatInternal(lyricsTimeSec - GAPms/1000.0))`
+   - Uses `micDelayMs = 0`.
+   - Tracks what the audience hears from speakers.
+
+2. **Lane beat** — for pitch-lane note target positions and scoring note windows:
+   - `noteStartTvMs = songStartTvMs + BeatInternalToTimeSec(startBeat)*1000 + GAPms + effectiveMicDelayMs`
+   - Uses the configured `effectiveMicDelayMs` (§5.2.4).
+   - The pitch lane MUST render note targets using this shift. The live pitch cursor is driven by `PitchEvent.tvTimeMs`, so on a correct performance the cursor and targets visually align.
+
+Implementations MUST expose beat conversion logic with a `micDelayMs` parameter (default `0`). Lyrics call it with `0`. Pitch-lane rendering and scoring call it with the configured `effectiveMicDelayMs`. Using the wrong delay for a consumer is a conformance error.
 
 **Tests**
 
@@ -1374,6 +1457,7 @@ The phone app has three primary screen states:
 - Displays a live input level meter (VU meter, always active for audio monitoring).
 - Exposes a **Mute** toggle: when enabled, the phone MUST continue to stay connected but MUST stream frames as unvoiced (equivalent to `toneValid=false` and `midiNote=255`) so the TV scores silence.
 - Exposes **Leave session** (see §7.3.6).
+- Displays a medley-source indicator when the phone has received `playbackState(state="playing", reason="medley_source")`: `Your songs are in use — keep app open` (or equivalent). The indicator remains visible until a `playbackState` with `state="stopped"` is received or the session returns to Open.
 - After song end, the phone returns to this screen automatically. The role label still shows the last assigned role until a new `assignSinger` or session change. No score is displayed on the phone; results are TV-only.
 
 **Wireframe (Waiting/Connected — Spectator)**
@@ -1683,6 +1767,20 @@ Fields:
 - optional `songArtist`
 - `tsTvMs`
 
+**Emission responsibility (normative):** The `PlaybackCoordinator` (§2.4) MUST construct `PlaybackStateMessage` on each playback-bearing GamePhase transition and push it to the network layer via `NetworkController.broadcastPlaybackState()`. The network layer serializes the message per §B.2.7 and sends it to connected phones. The network layer MUST NOT autonomously construct `playbackState` messages. `Idle`, `Loading`, and `Results` do not emit `playbackState`.
+
+**Field sourcing (normative):**
+- `sessionId` is the current session identifier from `sessionState`.
+- `songInstanceSeq` is the coordinator-owned uint32 incremented for each new run.
+- `state` is derived from game phase: `Countdown → "countdown"`, `Playing → "playing"`, `Paused` or `DisconnectPaused` → `"paused"`, `Stopped → "stopped"`.
+- `revision` increments monotonically per `songInstanceSeq` on every emission and resets when `songInstanceSeq` changes. Phones MUST ignore any `playbackState` with a lower `revision` than the last accepted message for the same `songInstanceSeq`.
+- `lyricsTimeMs` is the current ExoPlayer position at emission time.
+- `stopAtLyricsTimeMs` is recomputed on medley segment transitions.
+- `countdownRemainingMs` is non-null only when `state = "countdown"`; otherwise it MUST be null.
+- `songTitle` and `songArtist` are included when the active chart metadata is available.
+- `tsTvMs` is the TV monotonic timestamp at message construction time.
+- `reason` values are `""`, `"user_pause"`, `"singer_disconnected"`, `"song_end"`, `"user_quit"`, `"restart"`, `"segment_transition"`, or `"medley_source"`.
+
 The TV MUST send `playbackState` whenever playback enters countdown, starts, pauses, resumes, seeks, or stops. On reconnect during an active song, after `sessionState` and `assignSinger`, the TV MUST send the current `playbackState` immediately.
 
 ---
@@ -1831,6 +1929,13 @@ The TV converts `midiNote` to the USDX semitone scale via:
 Tone = midiNote - 36    (C2=36 → Tone=0)
 ```
 This value is used directly as input to the octave normalization loop in §6.4.
+
+**Live pitch stream (normative):**
+After a pitch frame passes all validation checks and is inserted into the jitter buffer, the TV MUST also emit it as a `PitchEvent` on a `SharedFlow` for UI consumption. `PitchEvent` carries `playerId`, `midiNote`, `toneValid` (`midiNote != 255`), `tvTimeMs`, and `arrivalTvMs`.
+
+This stream is used only for live pitch-cursor rendering. The UI determines its own consumption strategy (latest-only, smoothed, or sampled at render rate). The stream does not affect scoring; the jitter buffer remains the scoring source of truth.
+
+`SharedFlow` configuration MUST be `replay=0`, `extraBufferCapacity=64`, `onBufferOverflow=DROP_OLDEST`. Frames dropped from the UI stream do not affect scoring.
 
 **Tests**
 
@@ -2687,6 +2792,8 @@ The singing screen MUST separate real-time pitch lane rendering from Compose UI 
 **Lyrics rendering (normative)**
 - Lyrics MUST remain spatially stable during a sentence. Continuous scrolling lyrics are not supported.
 - Sentence-based paging is required. The current sentence remains in place while the highlight progresses with playback.
+- The lyrics display MUST page to the next sentence when the lyrics beat position (§5.3, lyrics beat with `micDelayMs = 0`) reaches the `startBeat` of the first note in the next sentence.
+- During instrumental gaps between sentences, the completed sentence MUST remain displayed with its highlight at 100%; implementations MUST NOT pre-page or show a blank lyrics area during the gap.
 - Implementations MAY render the active highlight using a clipped reveal over an inactive base text pass.
 - Lyrics typography MUST prioritize readability at TV viewing distance and SHOULD use a high-legibility sans-serif font available on the target device or bundled with the app.
 **Sentence rating (USDX parity)**
@@ -2810,6 +2917,8 @@ Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, bu
 - On **Start**, apply the countdown rules from §9.5.4 and then begin playback of segment 1.
 - The selected players MUST remain assigned for the entire medley run; the app MUST NOT prompt again between segments.
 - On segment end, automatically advance to the next song (or end medley if the last segment finished).
+- Before the medley run starts, the coordinator MUST identify all phones whose songs appear in the medley playlist and send each of them `playbackState(state="playing", reason="medley_source")` with `stopAtLyricsTimeMs` set to the end of the final segment. This includes phones that are not assigned as singers.
+- Phones receiving this state MUST keep their HTTP server active for the duration of the medley run and SHOULD discourage the user from backgrounding the app.
 **Cancel behavior (normative)**
 - If the user selects **Cancel** in Select Players before the medley begins, the medley start MUST be aborted and the app MUST return to the Song List without changing the current playlist.
 **Medley window playback (parity-aligned; normative)**
