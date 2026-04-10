@@ -66,6 +66,12 @@ Table of Contents
         9.1 Global navigation and input
         9.2 Song preview playback
         9.3 Select Players modal
+            9.3.1 Purpose and presentation
+            9.3.2 Fields and selection model
+            9.3.3 Gating rules by song type
+            9.3.4 Empty states, start flow, and failure handling
+            9.3.5 Actions and protocol side effects
+            9.3.6 Wireframes
         9.4 Settings Screen
             9.4.1 Settings > Connect Phones
             9.4.2 Settings > Song Library
@@ -74,7 +80,13 @@ Table of Contents
             9.4.5 Settings > Gameplay
             9.4.6 Settings > Video
         9.5 Singing Screen
-            9.5.1 Singing Screen (Medley mode)
+            9.5.1 Layout and overlays
+            9.5.2 Rendering architecture and performance
+            9.5.3 Lyrics and sentence rating
+            9.5.4 Countdown and start interruption
+            9.5.5 Pause and disconnect handling
+            9.5.6 Playback error and song end behavior
+            9.5.7 Singing Screen (Medley mode)
         9.6 Results Screen
     Appendices
         Appendix B: Protocol Schemas
@@ -1706,7 +1718,7 @@ These are the mandatory acceptance tests for this section. Complement with addit
 | T8.3.10 | Manifest re-fetch replaces all prior songs for phone | F15 | Not appended; full replacement |
 | T8.3.11 | `assignSinger` contains all required fields per B.2.6 | F15 | `sessionId`, `songInstanceSeq`, `playerId`, `difficulty`, `effectiveMicDelayMs`, `expectedPitchFps`, `startMode`, `stopAtLyricsTimeMs`, `udpPort` |
 | T8.3.12 | `playbackState` carries playback authority fields | F15 | `sessionId`, `songInstanceSeq`, `revision`, `state`, `lyricsTimeMs`, `stopAtLyricsTimeMs`, `countdownRemainingMs`, `reason`, `tsTvMs` |
-| T8.3.12 | Optional `songTitle`/`songArtist` present when supplied | F15 | Fields present in message |
+| T8.3.14 | Optional `songTitle`/`songArtist` present when supplied | F15 | Fields present in message |
 | T8.3.13 | `connectionId` NOT in `assignSinger` | F15 | Field absent; delivered only via `sessionState` |
 
 ---
@@ -1837,10 +1849,13 @@ These are the mandatory acceptance tests for this section. Complement with addit
 
 
 ## 8.7 Song File Delivery
+This section defines the HTTP contract for song delivery between phone and TV. It is organized from shared protocol rules, to platform-specific phone HTTP server requirements, to TV-side consumption and platform configuration.
 
-Purpose: serve song asset files from the phone to the TV over HTTP so ExoPlayer can stream them progressively without ZIP building, extraction, or temporary storage.
+### 8.7.1 Common HTTP contract
+**Purpose**
+Serve song asset files from the phone to the TV over HTTP so ExoPlayer can stream them progressively without ZIP building, extraction, or temporary storage.
 
-### 8.7.1 URL Scheme (Common)
+**URL scheme (common)**
 
 Song asset URLs are constructed by the phone at scan time and included in each `SongEntry` in `/manifest.json`. URL form:
 
@@ -2170,6 +2185,9 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
 - A value of 0 MUST result in silence (disables preview).
 
 ## 9.3 Select Players modal
+This modal is the handoff point between song selection and active singing. It defines both the TV-side player assignment UX and the playback-start rules that bridge selection state to `assignSinger`, chart loading, and countdown initialization.
+
+### 9.3.1 Purpose and presentation
 **Purpose**
 - On starting a song (including via Random actions) and on starting a medley run, select which connected phone(s) sing.
 - For medley playback, the selected players MUST remain assigned for the entire medley run (no additional prompts between segments).
@@ -2179,11 +2197,13 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
 - Subtitle:
   - For single-song play: `<Artist> — <Title>`
   - For medley play: `Medley — <n> songs` (where `n` is the playlist count at the time Select Players opens; no cap)
+### 9.3.2 Fields and selection model
 **Fields**
 - Player 1 device: required (dropdown list of connected phones).
 - Player 2 device: present but may be disabled or hidden depending on song/mode type.
 
 - Difficulty per player: Easy / Medium / Hard.
+### 9.3.3 Gating rules by song type
 **Gating rules (normative)**
 - Duet songs:
  - Player 1 required.
@@ -2197,6 +2217,7 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
 - Medley play:
  - All medley songs are non-duet (`canMedley` requires `isDuet=false`).
  - The Player 2 section (phone selector and difficulty) MUST be **hidden entirely** in the Select Players modal when opened for medley play.
+### 9.3.4 Empty states, start flow, and failure handling
 **Empty/error states (normative)**
 - If no phones are connected, show a blocking message `No phones connected` and a primary action to open Settings > Connect Phones.
 **Song start (normative)**
@@ -2211,9 +2232,25 @@ This section defines the behavior for Song List preview playback (Section 3.4) a
     - Title: `ERROR`
     - Body line 1 (exact): `This song can't be played.`
     - Body line 2: `Check Settings > Song Library — the song's phone may be disconnected.`
+### 9.3.5 Actions and protocol side effects
 **Actions**
 - Start: begins countdown then singing (single-song) or begins the medley run (medley play).
 - Cancel/Back: closes the modal and returns to the underlying screen (typically Song List).
+
+**Protocol side effects (normative)**
+- On Start, TV sends `assignSinger` to each selected singer phone (one message per singer):
+ - Selected device(s) receive an `assignSinger` with `playerId`:
+  - Non-duet: Player 1 -> `P1`.
+  - Duet:
+   - If two players selected: Player 1 -> `P1`, Player 2 -> `P2` (swapped if the user selects Swap Parts).
+   - If one player selected: `P1` or `P2` based on the user's duet-part selection.
+- The TV MUST NOT send `assignSinger` to non-selected devices.
+- When a song ends, phones stop streaming based on `stopAtLyricsTimeMs` and/or `playbackState` (§9.5). When the user quits early, the TV MUST stop scoring and SHOULD transition phones out of Singing via `sessionState.inSong=false` and/or closing the session.
+- Countdown mapping (from Settings > Gameplay):
+ - If Ready countdown is ON: send `startMode="countdown"` and `countdownMs = countdownSeconds*1000`.
+ - If OFF: send `startMode="live"` and omit `countdownMs`.
+
+### 9.3.6 Wireframes
 **Select Players wireframes (TV modal; spec-only interactions)**
 Loading state (single-song; txt fetch in progress):
 ```text
@@ -2269,20 +2306,11 @@ Blocking state (no phones connected)
 | [Open Settings > Connect Phones]   [Cancel]                                     |
 +--------------------------------------------------------------------------------+
 ```
-**Protocol side effects (normative)**
-- On Start, TV sends `assignSinger` to each selected singer phone (one message per singer):
- - Selected device(s) receive an `assignSinger` with `playerId`:
-  - Non-duet: Player 1 -> `P1`.
-  - Duet:
-   - If two players selected: Player 1 -> `P1`, Player 2 -> `P2` (swapped if the user selects Swap Parts).
-   - If one player selected: `P1` or `P2` based on the user's duet-part selection.
-- The TV MUST NOT send `assignSinger` to non-selected devices.
-- When a song ends, phones stop streaming based on `stopAtLyricsTimeMs` and/or `playbackState` (§9.5). When the user quits early, the TV MUST stop scoring and SHOULD transition phones out of Singing via `sessionState.inSong=false` and/or closing the session.
-- Countdown mapping (from Settings > Gameplay):
- - If Ready countdown is ON: send `startMode="countdown"` and `countdownMs = countdownSeconds*1000`.
- - If OFF: send `startMode="live"` and omit `countdownMs`.
 
 ## 9.4 Settings Screen
+Settings is the TV-side navigation shell for app configuration. The root Settings screen exists to route into the specialized settings subsections below; shared edit behavior defined here applies to those child screens unless a child section overrides it.
+
+**Root settings screen**
 Settings is a simple list of items; selecting one opens a sub-screen.
 - Connect Phones
 - Song Library
@@ -2534,6 +2562,9 @@ When video is disabled or unavailable, the singing screen background is determin
 ```
 
 ## 9.5 Singing Screen
+This section defines the TV singing phase as both a visible screen and a runtime mode. The subsections below separate layout, rendering architecture, interaction overlays, and end-of-song behavior; medley-specific deviations are isolated afterward.
+
+### 9.5.1 Layout and overlays
 **Minimum layout**
 - Lyrics line with progressive highlight.
 - Pitch bars (or equivalent) for each active singer.
@@ -2635,6 +2666,7 @@ Disconnect auto-pause overlay
 +--------------------------------------+
 ```
 
+### 9.5.2 Rendering architecture and performance
 **Rendering and performance guidance (normative)**
 - The singing screen MUST prioritize frame stability over decorative effects. Any visual treatment that introduces noticeable lag or jumping during singing is non-conformant.
 - The singing screen MAY use Jetpack Compose for non-real-time screen structure only. Real-time lane rendering MUST follow the `SurfaceView` architecture defined below; Compose MUST NOT own pitch-lane frame rendering.
@@ -2651,6 +2683,7 @@ The singing screen MUST separate real-time pitch lane rendering from Compose UI 
 - The pitch lane drawing logic MUST be implemented as a pure function `drawPitchLane(canvas: Canvas, viewport: Rect, state: LaneRenderState)` where `LaneRenderState` is an immutable data class. This function MUST NOT hold references to Views, Contexts, or lifecycle-scoped objects.
 - This separation enables JVM-based screenshot testing of the drawing function via `Bitmap`-backed `Canvas` in Robolectric `@GraphicsMode(Mode.NATIVE)` without requiring an emulator.
 
+### 9.5.3 Lyrics and sentence rating
 **Lyrics rendering (normative)**
 - Lyrics MUST remain spatially stable during a sentence. Continuous scrolling lyrics are not supported.
 - Sentence-based paging is required. The current sentence remains in place while the highlight progresses with playback.
@@ -2669,6 +2702,7 @@ After each sentence ends, a brief rating label is displayed for the correspondin
 **Sentence rating animation (normative)**
 - Sentence rating SHOULD use a simple opacity fade.
 - Layout-affecting animation of the lane, lyrics region, or score placement during singing is not supported.
+### 9.5.4 Countdown and start interruption
 **Countdown**
 - Countdown before playback and scoring begin is controlled by Settings > Gameplay:
  - If Ready countdown is ON: show N-second countdown at 1 Hz (N from setting) then begin playback and scoring.
@@ -2684,6 +2718,38 @@ After each sentence ends, a brief rating label is displayed for the correspondin
 - Default focus MUST be on `OK`.
 - On `OK`, the modal MUST close and the user remains on Select Players.
 
+### 9.5.5 Pause and disconnect handling
+**Pause**
+- Back opens Pause overlay:
+```text
++--------------------------------------+
+| PAUSED                               |
+|  > Resume                            |
+|    Restart Song                      |
+|    Quit to Song List                 |
++--------------------------------------+
+```
+ - **Resume**: resumes playback and scoring from the current position.
+ - **Restart Song**: opens a confirm dialog (default focus Cancel). On OK: resets all per-player scores and state, seeks audio to `startSec` (and video to `videoGapSec + startSec`), resets beat cursors, and re-sends `assignSinger` to assigned phones with a new `songInstanceSeq`. In medley mode, **Restart Song restarts the full medley from segment 1** — scores for all segments are cleared, and `stopAtLyricsTimeMs` MUST be recomputed from the rebuilt medley playback plan using the `medleyStartSec`/`medleyEndSec` computed per segment per §9.5.7.
+ - **Quit to Song List**: confirm dialog (default focus Cancel). On OK: stops playback, returns to Song List.
+**Disconnect auto-pause (normative)**
+- When a **required** singer (a phone assigned as P1 or P2) disconnects mid-song, the TV MUST **automatically pause** the song and show the following overlay:
+```text
++--------------------------------------+
+| PAUSED — PLAYER DISCONNECTED         |
+| <PhoneName> has disconnected.         |
+|                                      |
+|  > Wait for reconnect                |
+|    Continue without them             |
+|    Quit to Song List                 |
++--------------------------------------+
+```
+ - **Wait for reconnect**: song stays paused. If the phone reconnects (Section 7.4), the TV re-sends `assignSinger` with an updated `stopAtLyricsTimeMs`, then sends current `playbackState`, and the song resumes from the paused position.
+ - **Continue without them**: song resumes. No pitch frames will arrive for that player; they contribute no further score.
+ - **Quit to Song List**: same as normal Quit behavior.
+- Spectator disconnects (phones not assigned as singers) MUST NOT trigger auto-pause.
+
+### 9.5.6 Playback error and song end behavior
 **Playback error handling (normative)**
 If ExoPlayer reports a non-recoverable playback error during singing (e.g., `PlaybackException` with `ERROR_CODE_DECODER_INIT_FAILED`, `ERROR_CODE_DECODING_FAILED`, or `ERROR_CODE_IO_NETWORK_CONNECTION_FAILED`), the TV MUST:
 1. Stop playback and scoring immediately.
@@ -2696,6 +2762,20 @@ If ExoPlayer reports a non-recoverable playback error during singing (e.g., `Pla
 The error MUST NOT crash the app, corrupt session state, or leave the session in Locked state. The session MUST return to Open on error exit.
 
 Supported audio codecs are determined by the device's hardware and software decoders at runtime. No compile-time format whitelist is maintained. Songs with unsupported audio formats will fail at playback time and be handled by this error path.
+
+**Song end (normative)**
+Definition:
+- `stopAtLyricsTimeMs` is the authoritative stop point for each assigned singer, expressed in lyrics-time milliseconds.
+  - For a normal song: `stopAtLyricsTimeMs = songAbsoluteEndMs`. If `#END` is present and `endMs > 0`, `songAbsoluteEndMs = endMs`; otherwise `songAbsoluteEndMs = audio file duration in ms`. `#START` changes the initial playback position only; it does not change the timing origin.
+  - For a medley: `stopAtLyricsTimeMs` is the lyrics-time ms at the end of the final segment's `medleyEndSec` (including `MEDLEY_FADE_OUT_SEC`).
+Phone behavior:
+- When playback reaches `stopAtLyricsTimeMs` for the current assignment, or when `playbackState.state == "stopped"`, the phone MUST:
+  - stop audio capture and pitch detection
+  - stop transmitting any further `pitchFrame` UDP datagrams for that `songInstanceSeq`
+  - transition its UI state to the Waiting/Connected screen
+TV behavior:
+- The TV MUST ignore any `pitchFrame` whose corresponding note lies at or beyond `stopAtLyricsTimeMs` for scoring.
+- The TV MUST finalize scoring and transition to Results when playback reaches the chart/medley end.
 
 **Tests**
 
@@ -2718,50 +2798,8 @@ These are the mandatory acceptance tests for this section. Complement with addit
 |  > OK                                 |
 +--------------------------------------+
 ```
-**Pause**
-- Back opens Pause overlay:
-```text
-+--------------------------------------+
-| PAUSED                               |
-|  > Resume                            |
-|    Restart Song                      |
-|    Quit to Song List                 |
-+--------------------------------------+
-```
- - **Resume**: resumes playback and scoring from the current position.
- - **Restart Song**: opens a confirm dialog (default focus Cancel). On OK: resets all per-player scores and state, seeks audio to `startSec` (and video to `videoGapSec + startSec`), resets beat cursors, and re-sends `assignSinger` to assigned phones with a new `songInstanceSeq`. In medley mode, **Restart Song restarts the full medley from segment 1** — scores for all segments are cleared, and `stopAtLyricsTimeMs` MUST be recomputed from the rebuilt medley playback plan using the `medleyStartSec`/`medleyEndSec` computed per segment per §9.5.1.
- - **Quit to Song List**: confirm dialog (default focus Cancel). On OK: stops playback, returns to Song List.
-**Disconnect auto-pause (normative)**
-- When a **required** singer (a phone assigned as P1 or P2) disconnects mid-song, the TV MUST **automatically pause** the song and show the following overlay:
-```text
-+--------------------------------------+
-| PAUSED — PLAYER DISCONNECTED         |
-| <PhoneName> has disconnected.         |
-|                                      |
-|  > Wait for reconnect                |
-|    Continue without them             |
-|    Quit to Song List                 |
-+--------------------------------------+
-```
- - **Wait for reconnect**: song stays paused. If the phone reconnects (Section 7.4), the TV re-sends `assignSinger` with an updated `stopAtLyricsTimeMs`, then sends current `playbackState`, and the song resumes from the paused position.
- - **Continue without them**: song resumes. No pitch frames will arrive for that player; they contribute no further score.
- - **Quit to Song List**: same as normal Quit behavior.
-- Spectator disconnects (phones not assigned as singers) MUST NOT trigger auto-pause.
-**Song end (normative)**
-Definition:
-- `stopAtLyricsTimeMs` is the authoritative stop point for each assigned singer, expressed in lyrics-time milliseconds.
-  - For a normal song: `stopAtLyricsTimeMs = songAbsoluteEndMs`. If `#END` is present and `endMs > 0`, `songAbsoluteEndMs = endMs`; otherwise `songAbsoluteEndMs = audio file duration in ms`. `#START` changes the initial playback position only; it does not change the timing origin.
-  - For a medley: `stopAtLyricsTimeMs` is the lyrics-time ms at the end of the final segment's `medleyEndSec` (including `MEDLEY_FADE_OUT_SEC`).
-Phone behavior:
-- When playback reaches `stopAtLyricsTimeMs` for the current assignment, or when `playbackState.state == "stopped"`, the phone MUST:
-  - stop audio capture and pitch detection
-  - stop transmitting any further `pitchFrame` UDP datagrams for that `songInstanceSeq`
-  - transition its UI state to the Waiting/Connected screen
-TV behavior:
-- The TV MUST ignore any `pitchFrame` whose corresponding note lies at or beyond `stopAtLyricsTimeMs` for scoring.
-- The TV MUST finalize scoring and transition to Results when playback reaches the chart/medley end.
 
-### 9.5.1 Singing Screen (Medley mode)
+### 9.5.7 Singing Screen (Medley mode)
 Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, but only the **medley window** of each song is played and scored.
 **Medley run context (normative)**
 - When starting medley playback, the implementation MUST create an immutable **medley run snapshot** from the current Medley playlist (Song List screen; Section 3.4).
@@ -2769,7 +2807,7 @@ Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, bu
 - The medley run snapshot MUST preserve the playlist order.
 **Medley start flow (normative)**
 - When the user starts a medley (Song List; **Play Medley**), the app MUST show **Select Players** once (§9.3) with subtitle `Medley — <n> songs`.
-- On **Start**, apply countdown rules (Countdown subsection in §9.5) and then begin playback of segment 1.
+- On **Start**, apply the countdown rules from §9.5.4 and then begin playback of segment 1.
 - The selected players MUST remain assigned for the entire medley run; the app MUST NOT prompt again between segments.
 - On segment end, automatically advance to the next song (or end medley if the last segment finished).
 **Cancel behavior (normative)**
@@ -2816,16 +2854,16 @@ These are the mandatory acceptance tests for this section. Complement with addit
 
 | ID | What | Fixture | Expected |
 |---|---|---|---|
-| T9.5.1.1 | `medleyStartSec` and `medleyEndSec` computation | F16/`expected.segments.json` | All 3 songs match fixture |
-| T9.5.1.2 | Clamped: `timeFromBeat(startBeat) <= 8` → `medleyStartSec=0.0` | `inline` | Clamped to 0 |
-| T9.5.1.3 | Scoring window: notes in `[start, end)` → normal ScoreFactor | F16 | Applied normally |
-| T9.5.1.4 | Scoring window: notes outside → ScoreFactor=0 | F16 | Freestyle treatment |
-| T9.5.1.5 | `TrackScoreValue` window-filtered | F16 | Only in-window notes |
-| T9.5.1.6 | Per-note ratio scoring within medley window | F16 | `note_score = max_note_score × (hits/N)` per §6.1; scoring model is identical to non-medley — window filter only affects which notes have ScoreFactor>0 |
-| T9.5.1.7 | Playback order preserved | F16 | A → B → C |
-| T9.5.1.8 | `medleyStartBeat >= medleyEndBeat` → assertion error | `inline` | Internal error (defensive) |
-| T9.5.1.9 | `audioUrl` null → segment skipped, next proceeds | `inline` | Error toast + continue |
-| T9.5.1.10 | Scan-time: `#MEDLEYSTARTBEAT >= #MEDLEYENDBEAT` → `canMedley=false` | `inline` | Song excluded from playlist |
+| T9.5.7.1 | `medleyStartSec` and `medleyEndSec` computation | F16/`expected.segments.json` | All 3 songs match fixture |
+| T9.5.7.2 | Clamped: `timeFromBeat(startBeat) <= 8` → `medleyStartSec=0.0` | `inline` | Clamped to 0 |
+| T9.5.7.3 | Scoring window: notes in `[start, end)` → normal ScoreFactor | F16 | Applied normally |
+| T9.5.7.4 | Scoring window: notes outside → ScoreFactor=0 | F16 | Freestyle treatment |
+| T9.5.7.5 | `TrackScoreValue` window-filtered | F16 | Only in-window notes |
+| T9.5.7.6 | Per-note ratio scoring within medley window | F16 | `note_score = max_note_score × (hits/N)` per §6.1; scoring model is identical to non-medley — window filter only affects which notes have ScoreFactor>0 |
+| T9.5.7.7 | Playback order preserved | F16 | A → B → C |
+| T9.5.7.8 | `medleyStartBeat >= medleyEndBeat` → assertion error | `inline` | Internal error (defensive) |
+| T9.5.7.9 | `audioUrl` null → segment skipped, next proceeds | `inline` | Error toast + continue |
+| T9.5.7.10 | Scan-time: `#MEDLEYSTARTBEAT >= #MEDLEYENDBEAT` → `canMedley=false` | `inline` | Song excluded from playlist |
 
 ## 9.6 Results Screen (TV)
 
