@@ -1,20 +1,11 @@
 Android Karaoke Game
 USDX Parity MVP Functional Specification
-Version: 4.20
-Date: 2026-03-08
-Owner: SpecBot
-Status: Draft
+Version: 4.21
+Date: 2026-04-10
 
-
-
-# How to Use This Spec
-This document defines the functional behavior required to implement a minimal Android karaoke game that behaves like UltraStar Deluxe (USDX) for the agreed MVP scope. It is designed to be sufficiently explicit for AI-driven implementation.
-Conventions:
-- TBD = decision or detail not yet specified.
-- Paritiy-critical = must match USDX behavior for compatibility.
-- Defaults are explicitly stated; if not, behavior is unspecified and must be decided.
 
 Table of Contents
+	How to Use this Spec
     1. Product Contract
         1.1 Locked Product Decisions
         1.2 Definition of Done
@@ -86,11 +77,20 @@ Table of Contents
             9.5.1 Singing Screen (Medley mode)
         9.6 Results Screen
     Appendices
-        Appendix A: Library Dependency Reference
         Appendix B: Protocol Schemas
         Appendix C: Parsed Song Model
         Appendix D: Fixture Types, Testing Policy, and Coverage Requirements
         Appendix E: Worked Examples
+
+
+
+# How to Use This Spec
+This document defines the functional behavior required to implement a minimal Android karaoke game that behaves like UltraStar Deluxe (USDX) for the agreed MVP scope. It is designed to be sufficiently explicit for AI-driven implementation.
+Conventions:
+- TBD = decision or detail not yet specified.
+- Paritiy-critical = must match USDX behavior for compatibility.
+- Defaults are explicitly stated; if not, behavior is unspecified and must be decided.
+
 
 # 1. Product Contract
 - Goal: USDX-like karaoke gameplay (parity for parsing, timing, duet, rap, scoring, results).
@@ -110,10 +110,35 @@ Table of Contents
   `#VOCALS` specifies the complementary acapella file. When present alongside `#INSTRUMENTAL`, the TV MUST mix the vocals track at a user-configurable volume (default: 50%, adjustable via **Settings > Audio > Vocals Volume**). This allows players to use the original singer as a pitch guide. If `#INSTRUMENTAL` is absent, `#VOCALS` is ignored.
   If `#INSTRUMENTAL` is absent, `#AUDIO`/`#MP3` plays throughout as normal.
 - **Instrumental gap indicator (visual only):** An "instrumental gap" is a region of the chart where no scorable note (Normal, Golden, Rap, RapGolden) is active for the current player's track for more than **2 continuous seconds**. During such a region, the pitch lane for that player MUST display a pulsing animated rest indicator (e.g., a horizontal dashed line or wave graphic). This indicator is purely visual — it has no effect on audio track selection. The indicator disappears as soon as the next scorable note approaches within the highlight window.
-- Songs stored on connected phones in a single songs folder per phone; TV aggregates library from all connected phones. Each phone runs a lightweight read-only HTTP server for the duration of the session; the TV fetches song files directly over HTTP on demand (Section 8.6). No temporary storage on the TV is required.
+- Songs stored on connected phones in a single songs folder per phone; TV aggregates library from all connected phones. Each phone runs a lightweight read-only HTTP server for the duration of the session; the TV fetches song files directly over HTTP on demand (§8.7). No temporary storage on the TV is required.
 
 ## 1.2 Definition of Done
 Parity MVP PASS requires all parity-critical behaviors in this spec to be met, plus functional pairing and play flows operating reliably on typical home Wi-Fi.
+
+## 1.3 Target Hardware Profile
+
+The normative target device class for this MVP is a mid-tier Android TV stick/box with the following baseline specification:
+
+| Component | Spec | Dev constraint |
+|---|---|---|
+| SoC | Amlogic S905X4 (quad-core Cortex-A55 @ 1.8GHz) | Decent CPU, weak GPU. No complex shaders. |
+| RAM | 2GB DDR3/DDR4 | App memory budget: ≤512MB including ExoPlayer buffers. |
+| Storage | 16GB eMMC | Very slow R/W. No temporary file storage during playback. |
+| GPU | Mali-G31 MP2 (OpenGL ES 3.2) | Flat rendering only. No runtime blur, glow, or post-processing. |
+| OS | Android TV 11 to 14 | Min API 30. Multicast lock required for mDNS. |
+
+All architectural and rendering decisions in this spec assume this hardware floor. Higher-spec devices (4GB RAM, S905X4 variants with faster eMMC) MUST work without degradation; lower-spec devices (1GB RAM, S805) are out of scope.
+
+**Non-functional requirements (normative)**
+- Singing screen: ≥30fps sustained during playback with one or two active pitch lanes.
+- Song list grid: ≥60fps scroll at 1080p with 3-column grid and cover images.
+- Song library: ≥1000 songs in the in-memory index without UI jank.
+- App memory: ≤512MB total (heap + native + ExoPlayer buffers). Android TV system overhead is ~800MB–1GB on 2GB devices.
+- ExoPlayer buffer: ≤64MB for audio; ≤128MB for video. Configure via `DefaultLoadControl.Builder`.
+- Disk writes during playback: zero. No temporary files, no disk cache.
+
+**ExoPlayer device workaround (normative)**
+Amlogic S905X4 devices report inaccurate `PerformancePoint` capabilities for video codecs. ExoPlayer/Media3 may mark HD/FHD tracks as `NO_EXCEEDS_CAPABILITIES`, causing unnecessary resolution downscaling. Implementations MUST add the target device's `Build.DEVICE` and `Build.MODEL` values to a custom `MediaCodecSelector` that bypasses `PerformancePoint` checks, following the pattern established for Chromecast (`sabrina`/`boreal`) in Media3's `MediaCodecInfo.needsIgnorePerformancePointsWorkaround()`.
 
 # 2. Architecture Overview
 
@@ -122,11 +147,30 @@ Parity MVP PASS requires all parity-critical behaviors in this spec to be met, p
 - **Phone Mic Client**: song storage (single songs folder on the phone), song metadata scanning, lightweight read-only HTTP file server for song asset delivery, mic capture + DSP (pitch), toneValid thresholding, pitch frame streaming.
 
 ## 2.2 Data Responsibilities
-**Songs live on the phones.** Each phone has a single songs folder. The TV does not store or own song files. When a phone connects, the TV fetches `GET /manifest.json` from that phone's HTTP server after the `hello`/`sessionState` handshake succeeds. The phone scans its folder independently and serves the resulting song metadata from `/manifest.json`. The TV aggregates the library from all connected phones.
+**Songs live on the phones.** Each phone has a single songs folder. The TV does not store or own song files. When a phone connects, the TV fetches `GET /manifest.json` from that phone's HTTP server after the `hello`/`sessionState` handshake succeeds. The phone scans its folder independently and serves only valid song metadata from `/manifest.json`; invalid songs remain local diagnostics on the phone. The TV aggregates the library from all connected phones.
 When a song is needed for playback or preview, the TV uses the HTTP URLs provided in each `SongEntry` from `/manifest.json` to fetch files directly from the phone's HTTP server. The TV passes audio and video URLs directly to ExoPlayer, which streams and buffers them progressively. No ZIP building, no extraction, no temporary storage on the TV.
 TV is authoritative for: song timeline, beats, scoring, rendering, session state.
 Phone is authoritative for: song file storage, song metadata scanning, song HTTP file serving, mic capture and pitch extraction.
 **Consequence**: a phone must be connected for its songs to appear in the TV library. Songs from a disconnected phone are removed from the active library until that phone reconnects.
+
+## 2.3 Mock Phone (Dev/Test Only)
+
+A `:mock-phone` Gradle module MUST be maintained in the repository to enable TV app development and testing without a real phone companion. The mock phone provides three services:
+
+1. **Mock HTTP server**: Ktor CIO server on `localhost:34781` serving `/manifest.json` from fixture songs and `GET /songs/<path>` from the fixture directory. Launched via `./gradlew :mock-phone:run`.
+
+2. **Mock WebSocket client**: Connects to the TV's WebSocket, performs `hello` handshake (with `httpPort` pointing at the mock HTTP server), responds to `ping`/`pong` clock sync, and handles `assignSinger` by entering pitch-streaming mode.
+
+3. **Mock pitch frame generator**: Produces 16-byte UDP `pitchFrame` datagrams at 50fps during singing. Accepts a performance profile:
+   - `PERFECT`: every frame within a note window emits `midiNote = note.toneSemitone + 36`.
+   - `PARTIAL(hitRate: Float)`: randomly sets `midiNote = 255` for `(1 - hitRate)` fraction of frames.
+   - `SILENCE`: all frames `midiNote = 255`.
+   - `OCTAVE_OFF`: emits `midiNote = note.toneSemitone + 36 + 12` (validates octave normalization).
+   - `REPLAY(path: Path)`: replays a `pitchFrames.bin` fixture file with original timing.
+
+   The generator computes `tvTimeMs` from `clockOffsetMs` (derived from clock sync exchange) + local monotonic time. `songInstanceSeq` and `connectionId` are taken from `assignSinger` and `sessionState` messages received over WebSocket.
+
+The mock phone is a development dependency only and MUST NOT be included in release builds.
 
 # 3. Songs and Library
 
@@ -135,14 +179,14 @@ Each phone app has a single configured songs folder — a directory on the phone
 ### 3.1.1 Scan implementation
 #### 3.1.1.1 Android (SAF — Kotlin)
 The songs folder is selected via `ActivityResultContracts.OpenDocumentTree()` and represented as a persisted SAF tree URI (`content://...`). `java.io.File` cannot traverse SAF URIs. Recursive listing MUST use `DocumentFile.fromTreeUri(context, uri).listFiles()` directly (the `DocumentFile` API is part of `androidx.documentfile:documentfile`, already a transitive dependency of `androidx.core`). Recursion depth is bounded by the songs folder structure; no artificial depth limit is required.
-For each `.txt` file found: read its content via `contentResolver.openInputStream(uri)`, parse the header tags, resolve asset filenames to their SAF URIs via `DocumentFile.findFile(name)`, check file availability via `DocumentFile.exists()`, and build `coverUrl`/`audioUrl`/etc. from the HTTP server's URL scheme (Section 8.6).
+For each `.txt` file found: read its content via `contentResolver.openInputStream(uri)`, parse the header tags, resolve asset filenames to their SAF URIs via `DocumentFile.findFile(name)`, check file availability via `DocumentFile.exists()`, and build `coverUrl`/`audioUrl`/etc. from the HTTP server's URL scheme (§8.7).
 #### 3.1.1.2 iOS (security-scoped bookmarks — Swift)
 The songs folder is selected via `UIDocumentPickerViewController`. The chosen URL MUST be persisted as a security-scoped bookmark (`url.bookmarkData(options: .minimalBookmark)`). On subsequent launches, resolve the bookmark with `URL(resolvingBookmarkData:)` and call `url.startAccessingSecurityScopedResource()` before any file operation. Recursive enumeration uses `FileManager.default.enumerator(at: folderUrl, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])`. File reads for `.txt` content use `Data(contentsOf: fileUrl)`. Asset file availability checks use `FileManager.default.fileExists(atPath:)`. Call `url.stopAccessingSecurityScopedResource()` when scanning is complete.
 ### 3.1.2 Song file delivery
-The phone runs a lightweight read-only HTTP server for the duration of its session connection (see Section 8.6). Song files are served directly from the phone's songs folder via HTTP. The TV fetches files on demand using URLs provided in each `SongEntry` from `/manifest.json`. No ZIP building, no extraction, and no temporary storage on the TV are required.
+The phone runs a lightweight read-only HTTP server for the duration of its session connection (see §8.7). Song files are served directly from the phone's songs folder via HTTP. The TV fetches files on demand using URLs provided in each `SongEntry` from `/manifest.json`. No ZIP building, no extraction, and no temporary storage on the TV are required.
 
 ### 3.1.3 TV-Side Library and Lifecycle
-The TV aggregates song metadata received from all currently connected phones into an in-memory library index. The library index is never persisted between sessions. When a phone disconnects, its songs MUST be removed from the library index immediately — they become invisible and unselectable in the UI.
+The TV aggregates valid song metadata received from all currently connected phones into an in-memory library index. Invalid songs remain local diagnostics on the phone and are not published in the manifest. The library index is never persisted between sessions. When a phone disconnects, its songs MUST be removed from the library index immediately — they become invisible and unselectable in the UI.
 
 The TV holds no song files. All media is streamed directly from the phone's HTTP server on demand. When a phone disconnects, its song URLs become unreachable; any in-progress playback must be handled per Section 7.4. No cleanup of downloaded files is required.
 
@@ -202,6 +246,8 @@ Audio/video/instrumental files are validated for existence at load time:
 - Missing required audio file -> load fails.
 - Missing optional video/instrumental -> logged; song can still load (but feature disabled).
 
+No audio format validation is performed at scan time beyond file existence. Format compatibility is determined only at playback time.
+
 **MVP parity requirements**
 - Mirror the recursive `.txt` discovery behavior.
 - Reject songs missing the required header fields or required audio file.
@@ -237,10 +283,6 @@ Normative minimum index record (per song)
   - `songId`: stable identifier derived from `phoneClientId` and `relativeTxtPath`.
     - Normative form: `songId = phoneClientId + "::" + relativeTxtPath`.
   - `modifiedTimeMs`: last-modified timestamp of the TXT file at scan time (provided by phone).
-- Validation
-  - `isValid`: boolean.
-  - `invalidReasonCode`: required if `isValid=false` (short stable string; see Section 4.3).
-  - `invalidLineNumber`: required if `isValid=false` and the failure is associated with a specific TXT line (1-based).
 - Display fields
   - `artist`, `title` (required by validation rules).
   - `album` (optional).
@@ -254,10 +296,9 @@ Normative minimum index record (per song)
     - `medleySource` (enum: `null` | `"tag"`)
     - `medleyStartBeat` (int; required if `medleySource != null`)
     - `medleyEndBeat` (int; required if `medleySource != null`)
-    - `calcMedleyEnabled` (boolean; default true; false iff `#CALCMEDLEY:OFF`)
 - Preview/seek metadata
   - `startSec` (from `#START`, default 0.0).
-  - `previewStartSec` (computed as: `#PREVIEWSTART` if present and >0; else if `medleySource!=null` use `timeFromBeat(medleyStartBeat)`; else 0.0; see Section 3.4 and Section 10.2).
+  - `previewStartSec` (computed as: `#PREVIEWSTART` if present and >0; else if `medleySource!=null` use `timeFromBeat(medleyStartBeat)`; else 0.0; see Section 3.4 and §9.2).
 - Asset URLs (populated from `/manifest.json`; stored as-received; null if file absent on phone)
   - `txtUrl` (string): URL to the `.txt` file. Required for valid songs.
   - `audioUrl` (string|null): URL to the primary audio file.
@@ -342,7 +383,7 @@ The Song List uses a two-column layout.
 - The **left panel** contains:
   - a **preview pane**
   - the Medley playlist
-  - Play Medley / Auto Medley actions
+  - Play Medley / Random Medley actions
 - The **right panel** contains:
   - the Search field
   - Random Song / Random Duet actions
@@ -419,7 +460,7 @@ The Song List uses a two-column layout.
 ### 3.4.6 Focus, DPAD navigation, and Back behavior
 **Focus allocation**
 - The preview pane is **display-only and non-focusable**.
-- The Medley playlist rows, Play Medley button, and Auto Medley button are focusable within the left panel.
+- The Medley playlist rows, Play Medley button, and Random Medley button are focusable within the left panel.
 - The Search field, Random Song button, Random Duet button, Join button, Settings button, and song grid tiles are focusable within the top/right areas of the screen.
 
 **Grid column count (normative)**
@@ -438,14 +479,14 @@ The Song List uses a two-column layout.
 | Random Song / Random Duet button | Search field | First grid tile | — (no action) | — (no action) |
 | Grid tile (top row) | Search field | Tile below (or no action if last row) | Tile to the left, or left panel entry target if at leftmost column | Tile to the right; no action if at rightmost column |
 | Grid tile (non-top row) | Tile above | Tile below (or no action if last row) | Tile to the left, or left panel entry target if at leftmost column | Tile to the right; no action if at rightmost column |
-| Medley playlist row | Previous playlist row (or Play Medley if at top) | Next playlist row (or Auto Medley if at bottom) | — (no action) | Search field |
-| Play Medley button | Last playlist row (or no action if empty) | Auto Medley button | — (no action) | Search field |
+| Medley playlist row | Previous playlist row (or Play Medley if at top) | Next playlist row (or Random Medley if at bottom) | — (no action) | Search field |
+| Play Medley button | Last playlist row (or no action if empty) | Random Medley button | — (no action) | Search field |
 
 **Left-panel entry target (normative)**
 - When moving left from the leftmost grid column, focus MUST enter the left panel with the following priority:
   1. first Medley playlist row, if present
   2. Play Medley button, if the playlist is empty
-  3. Auto Medley button, as fallback
+  3. Random Medley button, as fallback
 
 **Back key behavior (normative)**
 - If a modal or overlay is open, Back MUST close it first per Section 9.1.
@@ -501,6 +542,7 @@ Definition details (USDX parity):
   - If valid tags do not exist, `medleySource=null` and `canMedley=false`.
 
 **Note — medley auto-calc deferred:** USDX supports a refrain-finding algorithm (`#CALCMEDLEY`) that produces `medleySource="calculated"` when no explicit tags exist. This algorithm is not specified for MVP. `medleySource="calculated"` is therefore not a valid value in this implementation. Only songs with explicit `#MEDLEYSTARTBEAT`/`#MEDLEYENDBEAT` tags are medley-eligible.
+`#CALCMEDLEY` is treated as an unsupported header tag in MVP: it is ignored semantically and preserved only via the unknown-tag handling defined in §4.3.
 
 ### 3.4.9 Tests
 These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
@@ -667,7 +709,7 @@ Token-specific behavior:
 - If `#VERSION` is absent, treat the song as legacy format `0.3.0`.
 - If `#VERSION` is present, it MUST parse as a dotted numeric version (e.g., `1.0.0`). If it fails to parse: **invalid**.
 - Supported versions are `< 2.0.0`. If `#VERSION >= 2.0.0`: **invalid**.
-- All files are treated as UTF-8. The tags `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#DUETSINGERP1`, and `#DUETSINGERP2` are treated as **unknown tags** regardless of version — they are preserved in `CustomTags` and no version-conditional processing is applied.
+- All files are treated as UTF-8. The tags `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#DUETSINGERP1`, `#DUETSINGERP2`, and `#CALCMEDLEY` are treated as **unknown tags** regardless of version — they are preserved in `CustomTags` and no version-conditional processing is applied.
 **Logging**
 All invalidation MUST include a concise reason string suitable for display in a debug invalid songs listing.
 Diagnostics record schema (normative)
@@ -677,7 +719,7 @@ Diagnostics record schema (normative)
   - `message`: human-readable description.
   - `txtUri`: song TXT identifier.
   - `lineNumber`: optional 1-based line number within the TXT file, present whenever a specific line caused the issue.
-- For any `isValid=false` song (Section 3.3), there MUST be at least one diagnostics entry with `severity=invalid`, and the song's `invalidReasonCode` MUST equal that entry's `code`.
+- For any invalid song, there MUST be at least one diagnostics entry with `severity=invalid`. Invalid songs remain local scan results on the phone and are not published in `/manifest.json`.
 Minimum invalidation codes (parity-aligned)
 - `ERROR_CORRUPT_SONG_FILE_NOT_FOUND`: required audio file missing/unresolvable.
 - `ERROR_CORRUPT_SONG_NO_NOTES`: after sentence cleanup, no remaining sentences.
@@ -738,10 +780,9 @@ Legend:
 | `#TAGS` | no | string (multi) | - | `>= 1.0.0` | empty | none | Optional multi-valued metadata parsed only for `>= 1.0.0`. |
 | `#MEDLEYSTARTBEAT` | no | int | beats | all | unset | none | Medley window start beat (file beats). |
 | `#MEDLEYENDBEAT` | no | int | beats | all | unset | none | Medley window end beat (file beats). |
-| `#CALCMEDLEY` | no | OFF/ON | - | all | ON | none | Controls medley auto-calc. |
 | `#P1` | no | string | - | all | unset | none | Duet singer name for Player 1 (stored only; not shown in singing UI). |
 | `#P2` | no | string | - | all | unset | none | Duet singer name for Player 2 (stored only; not shown in singing UI). |
-All other tags (including `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#DUETSINGERP1`, `#DUETSINGERP2`, and any unknown tags) MUST be treated as unknown tags: preserved in `ParsedSong.header.customTags` in encounter order (Section 4.3).
+All other tags (including `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#DUETSINGERP1`, `#DUETSINGERP2`, `#CALCMEDLEY`, and any unknown tags) MUST be treated as unknown tags: preserved in `ParsedSong.header.customTags` in encounter order (Section 4.3).
 
 ## 4.5 Body Token Reference
 All body lines are tokenized by the first non-space character. Unknown tokens MUST be ignored with a warning diagnostic unless they cause numeric-parse failure for a recognized token (Section 4.3).
@@ -842,17 +883,18 @@ These are the mandatory acceptance tests for this section. Complement with addit
 
 | ID | What | Fixture | Expected |
 |---|---|---|---|
-| T5.2.3.1 | Most recent frame ≤ now selected | F13 (`tvNowMs=1060`) | seq=2 (`tvTimeMs=1050`) |
-| T5.2.3.2 | Newer frame within range preferred | F13 (`tvNowMs=1200`) | seq=3 (`tvTimeMs=1090`) |
-| T5.2.3.3 | All eligible frames stale (>120ms) | F13 (`tvNowMs=1400`) | `toneValid=false` (silence) |
-| T5.2.3.4 | Frame too late: `latenessMs > 450` | F13 (inject `latenessMs=500`) | Dropped; `toneValid=false` |
-| T5.2.3.5 | Decreasing `seq` → drop | F13 (inject seq=5 then seq=3) | seq=3 dropped |
-| T5.2.3.6 | `tvTimeMs` regression >200ms | F13 (regression=300ms) | Dropped |
-| T5.2.3.7 | `tvTimeMs` regression ≤200ms accepted | F13 (regression=100ms) | Accepted |
+| T5.2.3.1 | Note is not finalized before `noteEndTvMs + 450` | inline | No scoring result for the note before finalization time |
+| T5.2.3.2 | At finalization, all qualifying frames in the note window are collected | inline | `samplesInNote` contains every frame with `noteStartTvMs <= tvTimeMs < noteEndTvMs` and `latenessMs <= 450` |
+| T5.2.3.3 | Frames outside the note window are excluded | inline | Frames with `tvTimeMs < noteStartTvMs` or `tvTimeMs >= noteEndTvMs` are not included in `samplesInNote` |
+| T5.2.3.4 | Frame too late: `latenessMs > 450` | F13 (inject `latenessMs=500`) | Frame excluded from `samplesInNote` |
+| T5.2.3.5 | Decreasing `seq` → drop | F13 (inject seq=5 then seq=3) | seq=3 dropped before note collection |
+| T5.2.3.6 | `tvTimeMs` regression >200ms | F13 (regression=300ms) | Frame dropped before note collection |
+| T5.2.3.7 | `tvTimeMs` regression ≤200ms accepted | F13 (regression=100ms) | Frame retained and eligible if within the note window |
+| T5.2.3.8 | No qualifying frames for a note | inline | `samplesInNote` is empty; downstream scoring sees `N=0` |
 
 ### 5.2.4 Effective mic delay (manual)
 
-The scoring beat cursor (Section 5.1) uses a mic delay to compensate for hardware audio pipeline latency:
+The scoring note windows (Section 5.1) use a mic delay to compensate for hardware audio pipeline latency:
 - `effectiveMicDelayMs = micDelayMs`
 
 Where `micDelayMs` is the user-configured per-session setting (Settings > Scoring Timing). Hardware audio latency (microphone → digital → network) is essentially constant for a given phone model and does not drift during a song, so adaptive adjustment adds complexity without benefit. Manual calibration before singing is sufficient.
@@ -860,7 +902,7 @@ Where `micDelayMs` is the user-configured per-session setting (Settings > Scorin
 Default: `micDelayMs = 0` (adjustable in Settings > Scoring Timing; valid range 0–400 ms).
 
 ### 5.2.5 Mic Capture and FFT-YIN Pitch Detection Pipeline
-This section defines the normative implementation for the on-device pitch detector. Both Android and iOS companion apps MUST implement a custom Fast YIN (FFT-YIN) pipeline.
+This section defines the normative implementation for the on-device pitch detector. Both Android and iOS companion apps MUST implement a custom Fast YIN (FFT-YIN) pipeline. The phone-side `sensitivityIndex` comes from the local **Mic Sensitivity** control in phone Settings (§7.3).
 To ensure low latency and eliminate Garbage Collection (GC) pauses during gameplay, the implementation MUST use primitive arrays exclusively and strictly prohibit object allocation within the audio processing loop.
 
 #### 5.2.5.1 Primitive Memory Management (Normative)
@@ -877,7 +919,7 @@ The audio capture window is 1024 samples at 44100 Hz (~23 ms). For each window, 
 **Step 1: Voicing Gate (maxAmp)**
 Compute the peak amplitude of the window using a primitive loop:
 `maxAmp = max(abs(audioBuffer[i]))` for i in 0..1023.
-If `maxAmp < thresholdTable[thresholdIndex].maxAmpCutoff`, the frame is considered unvoiced. The pipeline MUST immediately set `rawMidiNote = 255`, skip Steps 2-4 to conserve battery, and proceed to Step 5.
+If `maxAmp < thresholdTable[sensitivityIndex].maxAmpCutoff`, the frame is considered unvoiced. The pipeline MUST immediately set `rawMidiNote = 255`, skip Steps 2-4 to conserve battery, and proceed to Step 5.
 **Step 2: Linear Autocorrelation via FFT**
 To avoid circular correlation artifacts, the signal MUST be zero-padded.
 1. Copy `audioBuffer` into the first half of `paddedBuffer`. Fill the second half with 0.0f.
@@ -890,7 +932,7 @@ To avoid circular correlation artifacts, the signal MUST be zero-padded.
    - `d'(0) = 1.0`
    - For `tau > 0`: `d'(tau) = d_t(tau) / ((1 / tau) * sum(d_t(1..tau)))`
 **Step 4: Candidate Selection**
-Iterate through `d'(tau)` to find local minima. Select the **first** local minimum where `d'(tau) < thresholdTable[thresholdIndex].dPrimeCutoff`. 
+Iterate through `d'(tau)` to find local minima. Select the **first** local minimum where `d'(tau) < thresholdTable[sensitivityIndex].dPrimeCutoff`. 
 - If no local minimum meets the cutoff, select the absolute minimum.
 - If the selected `d'(tau) > 0.40` (the hard limit for human vocal periodicity), the frame is unvoiced; set `rawMidiNote = 255`.
 - Otherwise, compute frequency: `hz = 44100.0 / tau`.
@@ -908,13 +950,13 @@ These are the mandatory acceptance tests for this section. Complement with addit
 | ID | What | Fixture | Expected |
 |---|---|---|---|
 | T5.2.5.1 | Pure A4 sine → MIDI 69 | F17/`A4_Pure_Sine` | `midiNote=69` |
-| T5.2.5.2 | Amplitude below thresholdIndex=3 → unvoiced | F17/`Below_Threshold_Index_3` | `midiNote=255` (voicing gate rejects) |
+| T5.2.5.2 | Amplitude below sensitivityIndex=3 → unvoiced | F17/`Below_Threshold_Index_3` | `midiNote=255` (voicing gate rejects) |
 | T5.2.5.3 | Median filter: silence interrupts combo | F17/`Median_Filter_Stabilization` (sequence [60, 255, 60]) | `midiNote=255` |
 | T5.2.5.4 | Zero-padded FFT produces linear (not circular) autocorrelation | `inline` | Validate `paddedBuffer` second half is zeros; FFT output length = 1024 real values |
 | T5.2.5.5 | `d'(0) = 1.0` always | `inline` | First element of normBuffer is exactly 1.0 |
 
 #### 5.2.5.3 Consolidated Sensitivity Table
-The `thresholdIndex` (0–7) from `assignSinger` determines both the volume required to open the noise gate (`maxAmpCutoff`) and the strictness of the pitch detection (`dPrimeCutoff`). 
+The `sensitivityIndex` (0–7) from the phone Settings **Mic Sensitivity** control determines both the volume required to open the noise gate (`maxAmpCutoff`) and the strictness of the pitch detection (`dPrimeCutoff`). 
 | Index | maxAmpCutoff | dPrimeCutoff | Environment Profile |
 |---|---|---|---|
 | 0 | 0.01 | 0.10 | Very High Sensitivity (Whisper/Studio) |
@@ -1211,14 +1253,14 @@ Session state is owned by the TV host app.
 - **Navigation does not change session state**: navigating between Song List, Settings, and any overlay or sub-screen on the TV MUST NOT change the session state. The session remains Open (or Locked, if a song is in progress) regardless of TV-side navigation.
 **Pairing across sessions (normative for MVP)**
 - Reconnect-within-session is supported (Section 7.4).
-- Persistent singer assignment across sessions is NOT supported: on a new session, all phones join as spectators until assigned for a song (Section 10.3).
+- Persistent singer assignment across sessions is NOT supported: on a new session, all phones join as spectators until assigned for a song (§9.3).
 
 ## 7.2 Pairing UX (TV)
 **Join UI placement (normative)**
 - The TV host MUST display the session join QR code and join code (token) representing the current session endpoint (Section 8.1).
 - The QR payload MUST encode the full WebSocket endpoint URL (including the `token` query parameter). It MUST NOT be an NSD/service-discovery identifier.
 - The Song List landing screen (Section 3.4) MUST show a compact join entrypoint (action button) and MUST NOT show the connected-device roster. Activating that entry point opens a pairing modal containing the QR + join code
-- Settings -> Connect Phones (Section 10.4.1) MUST show the join QR/code plus the connected-device roster and management actions.
+- Settings -> Connect Phones (§9.4.1) MUST show the join QR/code plus the connected-device roster and management actions.
 **Join admission (normative)**
 - Phones MAY join while the session is **Open** until the roster reaches 10 devices.
 - Additional phones MUST be rejected with an `error` (e.g., `code="session_full"`).
@@ -1230,41 +1272,43 @@ Session state is owned by the TV host app.
 - Kick/Forget MUST use a confirm dialog with default focus on Cancel.
 **Wireframes**
 - Join widget: see Section 3.4 (Song List).
-- Roster management: see Section 10.4.1 (Settings > Connect Phones).
+- Roster management: see §9.4.1 (Settings > Connect Phones).
 
 ## 7.3 Pairing UX (Phone)
 - Phone joins by scanning the TV QR code or entering the join code.
-**Phone screen states**
+
+### 7.3.1 Primary phone screen states
 The phone app has three primary screen states:
 1. **Join screen**: shown when not connected to any session.
 2. **Waiting/Connected screen**: shown when connected as Spectator, or after song end.
 3. **Active Mic screen**: shown when assigned as Singer, both during countdown and during singing.
-**Waiting/Connected screen**
-- Connection state (Connecting / Connected / Reconnecting / Disconnected)
-- Current assigned role (Singer / Spectator); if Singer, show playerId (P1/P2)
-- Live input level meter (VU meter, always active for audio monitoring)
-- Mute toggle: when enabled, the phone MUST continue to stay connected but MUST stream frames as unvoiced (equivalent to `toneValid=false` and `midiNote=255`) so the TV scores silence.
-- Leave session action (see below)
-**Active Mic screen (during countdown and singing)**
-- Shown immediately when the phone receives `assignSinger`. The phone MUST trigger a short haptic vibration (~200ms) on receiving `assignSinger` to alert the player.
-- Role badge: Singer P1 / Singer P2
-- Large countdown number during countdown phase (mirrors TV countdown; derived from `countdownMs`)
-- Live VU meter (real-time input level from active mic capture)
-- Mute toggle
-- Mic warms up locally during countdown but no frames are sent until countdown completes (`startMode="countdown"`)
-- When `tvNowMs >= endTimeTvMs`, the phone transitions back to the Waiting/Connected screen automatically
-**Post-song state**
-- After song end, the phone returns to the Waiting/Connected screen. Role label still shows the last assigned role until a new `assignSinger` or session change. No score is displayed on the phone; results are TV-only.
-**Song Library management from phone (normative)**
-- Song folder management is accessed via the phone app **Settings screen** (see below). There is no separate Song Library menu item.
-- The phone MUST scan its configured songs folder at app start, on folder change, and on manual rescan. The scan result MUST be served at `/manifest.json` (see §8.7.1).
-- The TV fetches each connected phone's `/manifest.json` on the lifecycle triggers defined in §3.1.3.
-- The phone's songs folder SHOULD default to a well-known location (e.g., `Downloads/Songs/` or `Music/KaraokeApp/`) to minimize initial setup friction.
-- **Cloud/remote storage**: songs stored in cloud-synced folders (e.g., Google Drive Offline, iCloud Drive) are supported, but require platform-level file access APIs — they are NOT transparently accessible as regular filesystem paths. See §8.6 for the normative SAF (Android) and NSFileCoordinator (iOS) access model and cloud-evicted file handling. Users must ensure songs are downloaded locally before starting a session.
-- **Songs folder picker**: on Android, opening the folder picker uses `ActivityResultContracts.OpenDocumentTree()`. On iOS, it uses `UIDocumentPickerViewController(forOpeningContentTypes: [.folder])`. Both platforms persist the selection for future scans (SAF persistent permission on Android; security-scoped bookmark on iOS).
-**Wireframes (phone app, spec-only interactions)**
+
+### 7.3.2 Join screen and session discovery
+**Join screen (normative)**
+- Shown when the phone is not connected to any session.
+- Provides two ways to join: **Scan QR** and manual **enter code**.
+- The Join screen MUST also expose **Settings** and current connection status.
+
+**Scan QR UX (normative)**
+- Tapping **Scan QR** MUST open the camera-based QR scanner.
+- If camera permission is not granted, the phone MUST request it.
+- If camera permission is denied (including "Don't ask again"), the phone MUST:
+ - Return to the Join screen.
+ - Show a blocking error modal (see below).
+
+**Join resolution (normative)**
+- The QR payload encodes the full WebSocket endpoint URL as specified in Section 8.1, including the `token` query parameter.
+- On successful QR scan, the phone connects directly to that endpoint.
+- After a successful QR scan, the phone connects directly to the endpoint encoded in the QR. The phone MAY additionally start LAN discovery (NSD/mDNS) to confirm the user is on the correct LAN and display a friendly session name if discovered, but that discovery is optional and non-blocking; failure of that discovery MUST NOT block, fail, or undo a successful QR-based connection.
+- When the user enters the join code manually, the phone MUST use mDNS to locate the matching TV session per the normative resolution algorithm in Section 8.1: browse `_karaoke._tcp`, filter discovered services by the `code` TXT field matching the normalized typed input, connect to the matching service's host/port with the join code as the session token. If no match is found within 5 seconds, show: `TV not found. Make sure your phone is on the same Wi-Fi network.`
+- If two TVs on the LAN advertise the same join code (extremely unlikely), the phone MUST prompt the user to select by instance name (Section 8.1).
+
+**LAN discovery permission UX (normative)**
+- **Android**: if LAN access is used, the phone MUST request the required Android runtime permission(s). Manual code entry uses LAN discovery; QR join uses direct LAN connection to the scanned endpoint. If denied (including "Don't ask again"), the phone MUST return to the Join screen and show the blocking error modal below, instructing the user to open Android Settings → Apps → (this app) → Permissions.
+- **iOS**: local network access is gated by the system-level `NSLocalNetworkUsageDescription` prompt (iOS 14+), which is shown automatically on the first connection attempt. If the user denies it, the phone MUST return to the Join screen and show the blocking error modal below, instructing the user to open iOS Settings → Privacy → Local Network → (this app) and enable access.
+
+**Wireframe (Join screen)**
 ```text
-Join screen
 +----------------------------------+
 | JOIN SESSION                      |
 +----------------------------------+
@@ -1274,65 +1318,8 @@ Join screen
 | Status: Disconnected              |
 | [Settings]                        |
 +----------------------------------+
-Waiting/Connected (Spectator)
-+----------------------------------+
-| CONNECTED                         |
-+----------------------------------+
-| Role: Spectator                   |
-| Input level:  |||||||             |
-| Mute: [OFF]                       |
-|                                  |
-| [Settings]   [Leave session]      |
-+----------------------------------+
-Active Mic (during countdown — 3 seconds shown)
-+----------------------------------+
-| SINGER P1                         |
-+----------------------------------+
-|                                  |
-|              3                    |
-|                                  |
-| Input level:  |||||||||           |
-| Mute: [OFF]                       |
-+----------------------------------+
-Active Mic (during singing)
-+----------------------------------+
-| SINGER P1                         |
-+----------------------------------+
-| Input level:  |||||||||           |
-| Mute: [OFF]                       |
-+----------------------------------+
 ```
-**Active Mic exit policy (normative):** The Active Mic screen MUST NOT display a Leave session or Back action during an active song. The hardware Back key MUST be suppressed (do nothing) during Active Mic. Users wishing to exit must use the device's OS navigation to background the app. This is expected MVP behaviour — session control is TV-side only.
-**Phone app settings (normative)**
-The phone app has a Settings screen accessible from the Join screen and from the Waiting/Connected screen. Settings MUST include:
-- **Songs folder**: displays the currently configured songs folder path; pressing OK opens the platform folder picker (`ActivityResultContracts.OpenDocumentTree()` on Android, `UIDocumentPickerViewController` on iOS) to change it. On selection, the phone immediately triggers a rescan and updates its `/manifest.json` endpoint. The TV picks up the new catalog on its next fetch (§3.1.3).
-- **Rescan now**: manually triggers a rescan of the current songs folder, updating `/manifest.json`.
-- **Song count**: read-only display of the number of valid songs found in the last scan.
-**Phone wireframe (Settings — unpaired or connected)**
-```text
-+----------------------------------+
-| SETTINGS                          |
-+----------------------------------+
-| Songs folder:                     |
-|   /storage/Downloads/Songs        |
-|   [Change folder]                 |
-|                                   |
-| Song count:  423 valid / 2 invalid|
-| [Rescan now]                      |
-+----------------------------------+
-```
-**Scan QR UX (normative)**
-- Tapping **Scan QR** MUST open the camera-based QR scanner.
-- If camera permission is not granted, the phone MUST request it.
-- If camera permission is denied (including "Don't ask again"), the phone MUST:
- - Return to the Join screen.
- - Show a blocking error modal (see below).
-**Join resolution (normative)**
-- The QR payload encodes the full WebSocket endpoint URL as specified in Section 8.1, including the `token` query parameter.
-- On successful QR scan, the phone connects directly to that endpoint.
-- After a successful QR scan, the phone SHOULD additionally start LAN discovery (NSD/mDNS) to confirm the user is on the correct LAN and display a friendly session name if discovered.
-- When the user enters the join code manually, the phone MUST use mDNS to locate the matching TV session per the normative resolution algorithm in Section 8.1: browse `_karaoke._tcp`, filter discovered services by the `code` TXT field matching the normalized typed input, connect to the matching service's host/port with the join code as the session token. If no match is found within 5 seconds, show: `TV not found. Make sure your phone is on the same Wi-Fi network.`
-- If two TVs on the LAN advertise the same join code (extremely unlikely), the phone MUST prompt the user to select by instance name (Section 8.1).
+
 **Wireframe (phone select TV session; used when multiple sessions are discovered)**
 ```text
 +----------------------------------+
@@ -1344,9 +1331,7 @@ The phone app has a Settings screen accessible from the Join screen and from the
 | [Back]                            |
 +----------------------------------+
 ```
-**LAN discovery permission UX (normative)**
-- **Android**: if LAN discovery (NSD/mDNS) is used, the phone MUST request the required Android runtime permission(s). If denied (including "Don't ask again"), the phone MUST return to the Join screen and show the blocking error modal below, instructing the user to open Android Settings → Apps → (this app) → Permissions.
-- **iOS**: local network access is gated by the system-level `NSLocalNetworkUsageDescription` prompt (iOS 14+), which is shown automatically on the first connection attempt. If the user denies it, the phone MUST return to the Join screen and show the blocking error modal below, instructing the user to open iOS Settings → Privacy → Local Network → (this app) and enable access.
+
 **Wireframe (phone permission denied; shared modal)**
 ```text
 +----------------------------------+
@@ -1357,7 +1342,7 @@ The phone app has a Settings screen accessible from the Join screen and from the
 | Enable:                           |
 |  - Camera (to scan QR)            |
 |  - Local Network access           |
-|    (to discover the TV on LAN)    |
+|    (to connect to the TV on LAN)  |
 |                                  |
 | Android: Settings -> Apps ->      |
 | (this app) -> Permissions         |
@@ -1368,6 +1353,103 @@ The phone app has a Settings screen accessible from the Join screen and from the
 | [OK]                              |
 +----------------------------------+
 ```
+
+### 7.3.3 Waiting/Connected screen
+**Waiting/Connected screen (normative)**
+- Shown when connected as Spectator, and again after song end.
+- Displays connection state (Connecting / Connected / Reconnecting / Disconnected).
+- Displays the current assigned role (Singer / Spectator); if Singer, show `playerId` (`P1`/`P2`).
+- Displays a live input level meter (VU meter, always active for audio monitoring).
+- Exposes a **Mute** toggle: when enabled, the phone MUST continue to stay connected but MUST stream frames as unvoiced (equivalent to `toneValid=false` and `midiNote=255`) so the TV scores silence.
+- Exposes **Leave session** (see §7.3.6).
+- After song end, the phone returns to this screen automatically. The role label still shows the last assigned role until a new `assignSinger` or session change. No score is displayed on the phone; results are TV-only.
+
+**Wireframe (Waiting/Connected — Spectator)**
+```text
++----------------------------------+
+| CONNECTED                         |
++----------------------------------+
+| Role: Spectator                   |
+| Input level:  |||||||             |
+| Mute: [OFF]                       |
+|                                  |
+| [Settings]   [Leave session]      |
++----------------------------------+
+```
+
+### 7.3.4 Active Mic screen
+**Active Mic screen (normative)**
+- Shown immediately when the phone receives `assignSinger`. The phone MUST trigger a short haptic vibration (~200ms) on receiving `assignSinger` to alert the player.
+- Displays role badge: Singer P1 / Singer P2.
+- Displays a large countdown number during countdown phase (mirrors TV countdown; derived from `countdownMs`).
+- Displays a live VU meter (real-time input level from active mic capture).
+- Exposes the **Mute** toggle.
+- The mic warms up locally during countdown but no frames are sent until countdown completes (`startMode="countdown"`).
+- When playback reaches `stopAtLyricsTimeMs` for the current assignment, or when `playbackState.state == "stopped"`, the phone stops sending pitch frames and transitions back to the Waiting/Connected screen automatically.
+
+**Active Mic exit policy (normative)**
+- The Active Mic screen MUST NOT display a Leave session or Back action during an active song.
+- The hardware Back key MUST be suppressed (do nothing) during Active Mic.
+- Users wishing to exit must use the device's OS navigation to background the app. This is expected MVP behaviour — session control is TV-side only.
+
+**Wireframe (Active Mic — countdown)**
+```text
++----------------------------------+
+| SINGER P1                         |
++----------------------------------+
+|                                  |
+|              3                    |
+|                                  |
+| Input level:  |||||||||           |
+| Mute: [OFF]                       |
++----------------------------------+
+```
+
+**Wireframe (Active Mic — singing)**
+```text
++----------------------------------+
+| SINGER P1                         |
++----------------------------------+
+| Input level:  |||||||||           |
+| Mute: [OFF]                       |
++----------------------------------+
+```
+
+### 7.3.5 Phone settings and song library management
+**Phone app settings (normative)**
+- The phone app has a Settings screen accessible from the Join screen and from the Waiting/Connected screen.
+- Song folder management is accessed via this Settings screen. There is no separate Song Library menu item.
+
+**Song library management from phone (normative)**
+- The phone MUST scan its configured songs folder at app start, on folder change, and on manual rescan. The scan result MUST be served at `/manifest.json` (see §8.7.1).
+- The TV fetches each connected phone's `/manifest.json` on the lifecycle triggers defined in §3.1.3.
+- The phone's songs folder SHOULD default to a well-known location (e.g., `Downloads/Songs/` or `Music/KaraokeApp/`) to minimize initial setup friction.
+- **Cloud/remote storage**: songs stored in cloud-synced folders (e.g., Google Drive Offline, iCloud Drive) are supported, but require platform-level file access APIs — they are NOT transparently accessible as regular filesystem paths. See §3.1.1 and §8.7.2/§8.7.3 for the normative SAF (Android), security-scoped bookmark, `NSFileCoordinator`, and cloud-evicted file handling rules. Users must ensure songs are downloaded locally before starting a session.
+- **Songs folder picker**: on Android, opening the folder picker uses `ActivityResultContracts.OpenDocumentTree()`. On iOS, it uses `UIDocumentPickerViewController(forOpeningContentTypes: [.folder])`. Both platforms persist the selection for future scans (SAF persistent permission on Android; security-scoped bookmark on iOS).
+
+**Settings contents (normative)**
+Settings MUST include:
+- **Songs folder**: displays the currently configured songs folder path; pressing OK opens the platform folder picker (`ActivityResultContracts.OpenDocumentTree()` on Android, `UIDocumentPickerViewController` on iOS) to change it. On selection, the phone immediately triggers a rescan and updates its `/manifest.json` endpoint. The TV picks up the new catalog on its next fetch (§3.1.3).
+- **Rescan now**: manually triggers a rescan of the current songs folder, updating `/manifest.json`.
+- **Mic Sensitivity**: local phone-side control with range `0–7`. This setting is the source of the sensitivity used by the phone-side detector in §5.2.5 and the voicing rules in §8.6.2.
+- **Song count**: read-only display of the number of valid songs found in the last scan.
+
+**Wireframe (Settings — unpaired or connected)**
+```text
++----------------------------------+
+| SETTINGS                          |
++----------------------------------+
+| Songs folder:                     |
+|   /storage/Downloads/Songs        |
+|   [Change folder]                 |
+|                                   |
+| Mic Sensitivity: [==|------]  2   |
+| Song count:  423 valid / 2 invalid|
+| [Rescan now]                      |
++----------------------------------+
+```
+
+### 7.3.6 Leave session and join rejection
 **Leave session UX (normative)**
 - Tapping **Leave session** MUST:
  - Close the network connection to the TV host (WebSocket).
@@ -1375,9 +1457,11 @@ The phone app has a Settings screen accessible from the Join screen and from the
  - Clear any cached session endpoint so the user MUST rejoin explicitly (Scan QR or enter code).
 - After leaving, automatic reconnect MUST NOT occur in MVP.
 - Rejoining the same session is done via the Join screen (Scan QR or enter code). The phone SHOULD reuse the same `clientId` so the TV can reclaim identity/assignment per Section 7.4.
+
 **Join rejection UX (normative)**
 - If the TV rejects a join with an `error`, the phone MUST show a blocking error message and return to the Join screen.
 - Minimum user action is `OK` (dismiss) or Back.
+
 **Wireframes (phone join rejected; spec-only interactions)**
 ```text
 Session locked
@@ -1409,17 +1493,17 @@ Protocol mismatch
 
 ## 7.4 Disconnect/Reconnect
 **Mid-song disconnect (normative)**
-- When a **required singer** (a phone assigned as P1 or P2) disconnects while a song is in progress, the TV MUST automatically pause the song and show the disconnect overlay defined in Section 10.5. The three available responses are: wait for reconnect, continue without them, or quit to Song List.
-- When a **spectator** or **song-source-only** phone disconnects mid-song, the TV MUST NOT pause or alter gameplay. The phone's songs are removed from the library immediately. **However**, if the active song's audio or video is being streamed from that phone's HTTP server, the stream will break immediately on disconnect — ExoPlayer will stall and eventually report a playback error. The TV MUST handle this as a non-fatal playback error: show a brief error toast and continue (silent fallback) rather than aborting the session. This is a known limitation of the HTTP streaming architecture.
+- When a **required singer** (a phone assigned as P1 or P2) disconnects while a song is in progress, the TV MUST automatically pause the song and show the disconnect overlay defined in §9.5. The three available responses are: wait for reconnect, continue without them, or quit to Song List.
+- When a **spectator** or **song-source-only** phone disconnects mid-song, the TV MUST NOT pause or alter gameplay solely because that device was not an assigned singer. The phone's songs are removed from the library immediately. **However**, if the active song's audio or video is being streamed from that phone's HTTP server, the stream will break immediately on disconnect and MUST follow the playback error handling defined in §9.5. This is a known limitation of the HTTP streaming architecture.
 **Reconnect mechanics (normative)**
 - Disconnect cause determines reconnect behaviour:
   - **Transport disconnect** (network drop, app backgrounded, temporary WiFi loss — not initiated by the user): the phone SHOULD automatically attempt to reconnect to the last session endpoint. While attempting, the phone MUST show `Reconnecting`. No QR/code rescan is required.
   - **User-initiated leave** (tap **Leave session**): return to Join screen and clear cached endpoint. Automatic reconnect MUST NOT occur.
   - **Host kick/forget**: the TV closes the connection. The phone MUST return to the Join screen and clear any cached endpoint (same behaviour as Leave session).
-- If the same phone reconnects within the same session, it MUST reclaim its prior identity by sending the same `clientId` in `hello` (Section 8.2).
-- **`connectionId` on reconnect (normative):** A reconnect follows the same `hello` handshake path as an initial connection. The TV MUST assign a **new** `connectionId` to the reconnecting phone (Section 8.5) and deliver it in the `sessionState` response to the reconnect `hello`. The phone MUST use this new `connectionId` in all subsequent `pitchFrame` datagrams. Any frames still in-flight with the old `connectionId` MUST be silently dropped by the TV (Section 8.5 validation).
+- If the same phone reconnects within the same session, it MUST reclaim its prior identity by sending the same `clientId` in `hello` (Section 8.2). Reconnect admission MUST be based on session identity via `clientId` already present in the current session roster, not only on a currently-live socket registry entry.
+- **`connectionId` on reconnect (normative):** A reconnect follows the same `hello` handshake path as an initial connection. The TV MUST assign a **new** `connectionId` to the reconnecting phone (Section 8.5) and deliver it in the `sessionState` response to the reconnect `hello`. The phone MUST use this new `connectionId` in all subsequent `pitchFrame` datagrams. Any frames still in-flight with the old `connectionId` MUST be silently dropped by the TV (Section 8.5 validation). When a new socket replaces an old one for the same `clientId`, cleanup of the closing socket MUST only remove connection/session state if that closing socket is still the active socket for that client.
 - On reconnect, the TV MUST fetch `/manifest.json` from the reconnected phone to refresh the song index. During **Locked** state, the TV MUST update its in-memory library index immediately with the fetched manifest (replacing songs from that phone's `clientId`). The updated library will be visible on the Song List screen when the session returns to Open. Any in-progress playback from that phone's HTTP server is interrupted; assets become unreachable until the phone reconnects and the HTTP server restarts.
-- If the phone was assigned as a Singer when it disconnected, it MUST resume that singer role on reconnect (unless the TV has removed the device via Settings > Connect Phones — Kick or Forget — in which case the device must re-join and will be treated as a new, unapproved spectator). The TV re-sends `assignSinger` with an updated `endTimeTvMs` reflecting the **remaining** song duration: for a regular song, `endTimeTvMs = tvMonotonicNowMs + remainingSongDurationMs`; for a medley, `endTimeTvMs = tvMonotonicNowMs + remainingMedleyDurationMs` (i.e., duration from the current playback position to the end of the final medley segment).
+- If the phone was assigned as a Singer when it disconnected, it MUST resume that singer role on reconnect (unless the TV has removed the device via Settings > Connect Phones — Kick or Forget — in which case the device must re-join and will be treated as a new, unapproved spectator). The TV re-sends `assignSinger` with an updated `stopAtLyricsTimeMs` reflecting the **remaining** playback plan. On reconnect during an active song, after `sessionState` and any required `assignSinger` re-send, the TV MUST send the current `playbackState` immediately.
 - If the session roster is full and the reconnect cannot be matched to an existing `clientId`, the reconnect MUST be rejected with `code="session_full"`.
 
 # 8. Network Protocol
@@ -1463,15 +1547,17 @@ The TV MUST advertise itself via mDNS for the duration of the session so phones 
   - `v=1` — protocol version.
 
 **jmDNS library (normative)**
-Add `jmdns:3.5.9` to the TV app's dependencies. This is the only mature, pure-Java mDNS implementation suitable for Android TV. NSD Manager on Android TV has known unreliability on some OEM firmware.
+Use a jmDNS-compatible mDNS implementation suitable for Android TV. NSD Manager on Android TV has known unreliability on some OEM firmware.
 
 **Multicast lock (normative)**
 Android's Wi-Fi hardware filters multicast packets by default to save battery. The TV app MUST:
-1. Declare `<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />` in `AndroidManifest.xml`.
+1. Declare `<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />` and `<uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />` in `AndroidManifest.xml`.
 2. Acquire a `WifiManager.MulticastLock` (tag: `"jmdns_lock"`) on session start, before starting jmDNS.
 3. Release the lock on session end.
 
 Without this lock, incoming multicast packets are silently dropped by the Wi-Fi driver on many Android TV devices, making the mDNS advertisement invisible to phones.
+
+On Android 17+ / targetSdk 37+, request local-network permission before starting mDNS advertisement, the TV WebSocket server, the UDP listener, or HTTP fetches to phone peers.
 
 ---
 
@@ -1552,23 +1638,40 @@ Fields:
 - `songInstanceSeq` (uint32; increments by 1 on every song start, including Restart; used in binary `pitchFrame` to identify the active song)
 - `playerId` (`"P1"` or `"P2"`)
 - `difficulty` (`"Easy" | "Medium" | "Hard"`)
-- `thresholdIndex` (0..7; derived from Settings > Audio > Mic sensitivity)
 - `effectiveMicDelayMs` (int; informational; mic delay applied by TV when selecting scoring sample timing)
 - `expectedPitchFps` (int; default 50)
 - `startMode` (`"countdown"` or `"live"`)
 - `countdownMs` (int; required if `startMode == "countdown"`)
-- `endTimeTvMs` (int; TV monotonic ms when the song or medley ends)
+- `stopAtLyricsTimeMs` (int; lyrics-time ms when the current assignment stops)
 - `udpPort` (int; the TV's UDP listener port for `pitchFrame` datagrams)
 - `songTitle` (string; informational display on phone)
 - `songArtist` (string; informational display on phone)
 
-**`endTimeTvMs` computation (normative):** `endTimeTvMs = songStartTvMs + effectiveSongDurationMs`, where `songStartTvMs` is the TV monotonic ms at audio position `startSec`. For `#END`-bounded songs: `effectiveSongDurationMs = (endMs/1000.0 - startSec) * 1000`. Otherwise: audio file duration minus `startSec`, in ms. For medley runs: `endTimeTvMs` is the TV monotonic ms at the end of the final segment's fade-out (`medleyEndSec` of the last segment). When re-sending `assignSinger` after Restart or reconnect, `endTimeTvMs` MUST be recomputed from `tvMonotonicNowMs` plus the remaining duration.
+**`stopAtLyricsTimeMs` computation (normative):** for a normal song, `#START` changes the initial playback position only; it does not redefine the timing origin. If `#END` is present and `endMs > 0`, use `stopAtLyricsTimeMs = endMs`. Otherwise use `stopAtLyricsTimeMs = audioDurationMs`. For medley runs: `stopAtLyricsTimeMs` is the lyrics-time ms at the end of the final segment's fade-out (`medleyEndSec` of the last segment, converted to ms). When re-sending `assignSinger` after Restart or reconnect, `stopAtLyricsTimeMs` MUST be recomputed from the current playback plan.
 
 **`assignSinger` semantics:** this message instructs the phone to begin the Active Mic screen, warm up pitch detection, and stream binary `pitchFrame` UDP datagrams tagged with the given `playerId` and `songInstanceSeq` to `<tv-ip>:<udpPort>`.
 - If `startMode == "countdown"`: the phone MUST delay sending frames until the countdown completes (after `countdownMs`). The phone MAY warm up pitch detection locally during countdown, but MUST NOT send frames.
 - If `startMode == "live"`: begin sending frames immediately.
 - The phone MUST treat `effectiveMicDelayMs` as informational only and MUST NOT offset `tvTimeMs` based on it.
-- End-of-song behavior is defined in §10.5.
+- `assignSinger` provides the initial local pre-roll configuration. Once a `playbackState` for the current `songInstanceSeq` is received, `playbackState` is authoritative for countdown / playing / paused / stopped phone UI state.
+- End-of-song behavior is defined in §9.5.
+
+**`playbackState`** (TV → Phone)
+
+Fields:
+- `sessionId`
+- `songInstanceSeq`
+- `revision`
+- `state` = `countdown` | `playing` | `paused` | `stopped`
+- `lyricsTimeMs`
+- `stopAtLyricsTimeMs`
+- `countdownRemainingMs`
+- `reason`
+- optional `songTitle`
+- optional `songArtist`
+- `tsTvMs`
+
+The TV MUST send `playbackState` whenever playback enters countdown, starts, pauses, resumes, seeks, or stops. On reconnect during an active song, after `sessionState` and `assignSinger`, the TV MUST send the current `playbackState` immediately.
 
 ---
 
@@ -1601,7 +1704,8 @@ These are the mandatory acceptance tests for this section. Complement with addit
 | T8.3.8 | Manifest fetch → library updated | F15 | Songs attributed to `clientId` visible |
 | T8.3.9 | Phone disconnects → songs removed | F15 | All songs for `clientId` removed immediately |
 | T8.3.10 | Manifest re-fetch replaces all prior songs for phone | F15 | Not appended; full replacement |
-| T8.3.11 | `assignSinger` contains all required fields per B.2.6 | F15 | `sessionId`, `songInstanceSeq`, `playerId`, `difficulty`, `thresholdIndex`, `effectiveMicDelayMs`, `expectedPitchFps`, `startMode`, `endTimeTvMs`, `udpPort` |
+| T8.3.11 | `assignSinger` contains all required fields per B.2.6 | F15 | `sessionId`, `songInstanceSeq`, `playerId`, `difficulty`, `effectiveMicDelayMs`, `expectedPitchFps`, `startMode`, `stopAtLyricsTimeMs`, `udpPort` |
+| T8.3.12 | `playbackState` carries playback authority fields | F15 | `sessionId`, `songInstanceSeq`, `revision`, `state`, `lyricsTimeMs`, `stopAtLyricsTimeMs`, `countdownRemainingMs`, `reason`, `tsTvMs` |
 | T8.3.12 | Optional `songTitle`/`songArtist` present when supplied | F15 | Fields present in message |
 | T8.3.13 | `connectionId` NOT in `assignSinger` | F15 | Field absent; delivered only via `sessionState` |
 
@@ -1643,7 +1747,7 @@ These are the mandatory acceptance tests for this section. Complement with addit
 |---|---|---|---|
 | T8.5.1 | First connection assigns `connectionId=1` | F15/`case_reconnect_reclaim` | In `sessionState` response |
 | T8.5.2 | Reconnect → new `connectionId=2` | F15/`case_reconnect_reclaim` | Different from first |
-| T8.5.3 | `assignSinger` re-sent after reconnect with new `songInstanceSeq` | F15/`case_reconnect_reclaim` | `connectionId` NOT present |
+| T8.5.3 | `assignSinger` re-sent after reconnect with recomputed `stopAtLyricsTimeMs` | F15/`case_reconnect_reclaim` | `connectionId` NOT present |
 | T8.5.4 | PitchFrames with old `connectionId=1` dropped | F15/`case_reconnect_reclaim` | Silently dropped |
 | T8.5.5 | Third phone rejected | F15/`case_reconnect_reclaim` | `error(code="session_full")` |
 
@@ -1685,23 +1789,13 @@ Total: **16 bytes per frame**.
 
 **Voicing / noise thresholding (normative):**
 
-The TV selects a noise gate threshold via `thresholdIndex` (0..7) and delivers it to the phone in `assignSinger`. The phone applies it locally before deciding whether a frame is voiced.
+This section uses the phone-local **Mic Sensitivity** control from §7.3 as its source of `sensitivityIndex`.
+
+The phone selects a detector sensitivity preset via the local **Mic Sensitivity** setting (`sensitivityIndex`, 0..7; see §7.3 phone Settings and §5.2.5.3). The phone applies the corresponding `maxAmpCutoff` and `dPrimeCutoff` from §5.2.5.3. A frame is unvoiced if `maxAmp < maxAmpCutoff` or if the selected YIN candidate fails the `dPrimeCutoff` acceptance rule in §5.2.5.2. When a frame is unvoiced, the phone MUST set `midiNote = 255`.
 
 `maxAmp` definition (normative): normalized peak amplitude of the audio window that produced the pitch estimate for this frame.
 - 16-bit signed PCM input: `maxAmp = clamp(max(abs(sample_i)) / 32768.0, 0, 1)`
 - Float PCM input in [−1..1]: `maxAmp = clamp(max(abs(sample_i)), 0, 1)`
-
-Threshold table:
-```
-thresholdValueByIndex = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.60]
-```
-
-Decision rule:
-```
-toneValid = (maxAmp >= thresholdValueByIndex[thresholdIndex]) AND (pitch_estimate_succeeded)
-```
-
-When `toneValid = false`, the phone MUST set `midiNote = 255`.
 
 **Frame drop rules (normative):**
 - Do not send frames with decreasing `seq`.
@@ -1754,7 +1848,7 @@ Song asset URLs are constructed by the phone at scan time and included in each `
 http://<phone-ip>:<httpPort>/songs/<percent-encoded-relative-path>
 ```
 
-Where `<relative-path>` is the asset file's path relative to the phone's songs folder root (e.g., `Queen/Bohemian%20Rhapsody/bohemian.ogg`). The phone's IP is inferred by the TV from the WebSocket connection's remote address.
+Where `<relative-path>` is the asset file's path relative to the phone's songs folder root (e.g., `Queen/Bohemian%20Rhapsody/bohemian.ogg`). The phone's IP is inferred by the TV from the WebSocket connection's remote address. The TV MUST fetch `/manifest.json` and song asset URLs only from the IP address and `httpPort` associated with the currently joined phone session that supplied the corresponding `SongEntry`. The TV MUST reject or ignore asset URLs that resolve outside that joined-peer context.
 
 
 **Song catalog endpoint (normative):**
@@ -1862,25 +1956,16 @@ If the user backgrounds the phone app during a song, iOS may suspend the process
 The TV app MUST include the following file at `res/xml/network_security_config.xml` and reference it in `AndroidManifest.xml` via `android:networkSecurityConfig="@xml/network_security_config"`. Without it, all `http://` requests to phone IPs throw `CLEARTEXT_NOT_PERMITTED` on API 28+:
 
 ```xml
-<!-- res/xml/network_security_config.xml -->
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <!-- RFC-1918 class C: 192.168.x.x -->
-        <domain includeSubdomains="false">192.168.0.0</domain>
-        <!-- RFC-1918 class A: 10.x.x.x — Android domain-config does not support CIDR.
-             Enumerate common home subnets explicitly: -->
-        <domain includeSubdomains="false">10.0.0.0</domain>
-        <domain includeSubdomains="false">10.0.1.0</domain>
-        <!-- RFC-1918 class B: 172.16.x.x – 172.31.x.x -->
-        <domain includeSubdomains="false">172.16.0.0</domain>
-        <domain includeSubdomains="false">172.20.0.0</domain>
-        <domain includeSubdomains="false">172.24.0.0</domain>
-        <domain includeSubdomains="false">172.28.0.0</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>
 ```
 
-> **Implementation note:** Android `<domain>` entries match by host string, not CIDR and cannot express subnet ranges. The entries above cover the most common home and corporate Wi-Fi subnets. For a production release, use the `<base-config cleartextTrafficPermitted="false">` pattern with a debug-only override. A simpler but less secure alternative acceptable for MVP LAN-only play is `<base-config cleartextTrafficPermitted="true">` restricted via Play Store internal track instead.
+> **Implementation note:** The TV fetches HTTP assets from dynamically addressed LAN phones. Use app-level cleartext opt-in via `base-config cleartextTrafficPermitted="true"`; do not use `domain-config` to enumerate RFC-1918 addresses.
 
 #### 8.7.5.2 Android Phone — `AndroidManifest.xml`
 
@@ -1889,6 +1974,8 @@ Required permissions (normative):
 ```xml
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
 <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 <!-- Android 12+ (API 31+) for NSD/mDNS browsing -->
 <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
@@ -2054,7 +2141,7 @@ This section is normative for MVP UI and navigation on Android TV.
 - When no long-press action is defined, long-press MUST behave the same as a normal OK.
 
 ## 9.2 Song preview playback
-This section defines the behavior for Song List preview playback (Section 3.4) and the related Preview Volume setting (10.4.3).
+This section defines the behavior for Song List preview playback (Section 3.4) and the related Preview Volume setting (§9.4.3).
 **When preview plays (normative; USDX-aligned)**
 - A preview MAY start only when:
   - A song tile is focused, AND
@@ -2190,7 +2277,7 @@ Blocking state (no phones connected)
    - If two players selected: Player 1 -> `P1`, Player 2 -> `P2` (swapped if the user selects Swap Parts).
    - If one player selected: `P1` or `P2` based on the user's duet-part selection.
 - The TV MUST NOT send `assignSinger` to non-selected devices.
-- When a song ends, phones stop streaming based on `endTimeTvMs` (Section 10.5). When the user quits early, the TV MUST stop scoring and SHOULD transition phones out of Singing via `sessionState.inSong=false` and/or closing the session.
+- When a song ends, phones stop streaming based on `stopAtLyricsTimeMs` and/or `playbackState` (§9.5). When the user quits early, the TV MUST stop scoring and SHOULD transition phones out of Singing via `sessionState.inSong=false` and/or closing the session.
 - Countdown mapping (from Settings > Gameplay):
  - If Ready countdown is ON: send `startMode="countdown"` and `countdownMs = countdownSeconds*1000`.
  - If OFF: send `startMode="live"` and omit `countdownMs`.
@@ -2368,7 +2455,7 @@ For each connected phone the TV MUST show:
 ### 9.4.3 Settings > Audio
 - **Preview Volume** (normative):
  - Slider 0–100.
- - Controls only Song List preview playback volume (Section 10.2). TV/music playback volume during singing uses Android system volume and is not controlled by this app.
+ - Controls only Song List preview playback volume (§9.2). TV/music playback volume during singing uses Android system volume and is not controlled by this app.
  - A value of 0 results in silence (disables preview).
  - **Slider DPAD interaction**: Left/Right adjusts value by ±1 per press; long-press Left/Right adjusts by ±10 per repeat. OK on the slider opens the numeric keypad dialog for direct value entry.
 - **Vocals Volume** (normative):
@@ -2376,13 +2463,8 @@ For each connected phone the TV MUST show:
  - Controls the mix volume of the `#VOCALS` acapella track when a song provides both `#INSTRUMENTAL` and `#VOCALS` (Section 1.1). Has no effect when `#VOCALS` is absent.
  - A value of 0 silences the vocal guide entirely (pure instrumental karaoke mode). A value of 100 plays the acapella at full volume.
  - **Slider DPAD interaction**: same as Preview Volume slider.
- - **Implementation (TV, normative)**: The TV MUST combine the instrumental and vocals tracks using `MergingMediaSource` (Media3), merging one `ProgressiveMediaSource` per track. Vocals volume MUST be applied by wrapping the vocals `ProgressiveMediaSource` in a `DefaultMediaSourceFactory` that inserts a `ScalingAudioProcessor` into the audio pipeline with a gain factor of `vocalsVolume / 100.0`. The `ScalingAudioProcessor` MUST be applied only to the vocals track; the instrumental track plays at full gain. `player.setVolume()` MUST NOT be used for this purpose (it controls master output, not per-track gain). If the two tracks have different durations, the player MUST stop when the shorter track ends (Media3 default). Track sync differences due to HTTP buffering are tolerated as best-effort on LAN.
-- **Mic sensitivity** (normative):
- - Slider 0–7 mapping to `thresholdIndex` (Section 8.3).
- - Display labels: 0=Low, 1=Med-Low, 2=Medium, 3=Med-High, 4=High, 5=Higher, 6=Very High, 7=Max.
- - Default: 2 (threshold value 0.15; suitable for typical room noise).
- - This global setting is used by the TV when populating the `thresholdIndex` field of `assignSinger`. No per-phone override in MVP.
- - **Slider DPAD interaction**: same as Preview Volume slider.
+ - **Implementation (TV, normative)**: The TV MUST play the instrumental and vocals tracks simultaneously with independent volume control. The vocals track volume MUST be adjustable to `vocalsVolume / 100.0` without affecting the instrumental track volume. If the two tracks have different durations, playback MUST stop when the shorter track ends. Track sync differences due to HTTP buffering are tolerated as best-effort on LAN. The implementation approach (e.g., two `ExoPlayer` instances with `player.setVolume()`, or `MergingMediaSource` with `ScalingAudioProcessor`) is non-normative; the requirement is correct per-track gain control on the target hardware profile (§1.3).
+- **Mic sensitivity** (normative): configured on each phone in phone Settings (§7.3). The TV MUST NOT own or override this setting in MVP.
 **Wireframe (Audio)**
 ```text
 +--------------------------------------+
@@ -2390,7 +2472,6 @@ For each connected phone the TV MUST show:
 +--------------------------------------+
 | Preview Volume:  [=====|-----]  60    |
 | Vocals Volume:   [==|------]    50    |
-| Mic sensitivity: [==|------]  Medium  |
 +--------------------------------------+
 | Hints: Left/Right=Adjust  OK=Enter value  Back=Return |
 +--------------------------------------+
@@ -2399,7 +2480,7 @@ For each connected phone the TV MUST show:
 ### 9.4.4 Settings > Scoring Timing
 - Manual mic delay baseline (ms). This value compensates for hardware audio pipeline latency (microphone → digital → network). Hardware latency is constant for a given phone model, so a one-time manual calibration is sufficient. See §5.2.4.
 **Interaction rules (normative)**
-- Selecting **Manual mic delay** and pressing OK MUST open the numeric keypad dialog (see "Numeric setting edit" in Section 10.4).
+- Selecting **Manual mic delay** and pressing OK MUST open the numeric keypad dialog (see "Numeric setting edit" in §9.4).
  - The manual mic delay value MUST be an integer number of milliseconds (>= 0, <= 400).
 **Wireframe (Scoring Timing)**
 ```text
@@ -2418,7 +2499,7 @@ For each connected phone the TV MUST show:
 - Countdown length (seconds): integer 1-10 (default 3). Countdown displays at 1 Hz: N, N-1, ... , 1. After displaying `1`, playback and scoring start.
 - Optional: show note lines ON/OFF (visual only; USDX: Ini.NoteLines).
 **Interaction rules (normative)**
-- Selecting **Countdown seconds** and pressing OK MUST open the numeric keypad dialog (see "Numeric setting edit" in Section 10.4).
+- Selecting **Countdown seconds** and pressing OK MUST open the numeric keypad dialog (see "Numeric setting edit" in §9.4).
  - Validation MUST enforce the range 1-10.
 - Selecting **Line bonus**, **Ready countdown**, or **Show note lines** and pressing OK MUST toggle ON/OFF.
 **Wireframe (Gameplay)**
@@ -2556,11 +2637,20 @@ Disconnect auto-pause overlay
 
 **Rendering and performance guidance (normative)**
 - The singing screen MUST prioritize frame stability over decorative effects. Any visual treatment that introduces noticeable lag or jumping during singing is non-conformant.
-- The singing screen MAY be implemented using Jetpack Compose for screen structure. Real-time lane rendering SHOULD use a custom drawing surface with minimal recomposition.
+- The singing screen MAY use Jetpack Compose for non-real-time screen structure only. Real-time lane rendering MUST follow the `SurfaceView` architecture defined below; Compose MUST NOT own pitch-lane frame rendering.
 - Implementations SHOULD render each active singer lane as a single drawing surface rather than one UI element per note.
 - Cached geometry and drawing primitives SHOULD be reused across frames. Per-frame object allocation in lane rendering SHOULD be avoided.
 - Readability overlays behind lyrics, score, or lane labels SHOULD use a static dark panel or static gradient. Runtime background blur, `RenderEffect`, or similar live post-processing effects MUST NOT be required.
 - Pitch targets SHOULD use flat rectangular shapes. Heavy bevel, live shadow, or runtime glow effects are not required.
+**Pitch lane rendering architecture (normative)**
+
+The singing screen MUST separate real-time pitch lane rendering from Compose UI rendering.
+
+- The pitch lane (note targets, pitch cursor, hit/miss indicators, instrumental gap animation) MUST be rendered via a `SurfaceView` with a dedicated render thread, decoupled from Compose recomposition. The render thread MUST target 30fps.
+- All other singing screen elements (score counters, lyrics with highlight, sentence rating labels, countdown, pause overlay, disconnect overlay, medley segment indicator) MUST be rendered via Compose and overlaid on top of the `SurfaceView`.
+- The pitch lane drawing logic MUST be implemented as a pure function `drawPitchLane(canvas: Canvas, viewport: Rect, state: LaneRenderState)` where `LaneRenderState` is an immutable data class. This function MUST NOT hold references to Views, Contexts, or lifecycle-scoped objects.
+- This separation enables JVM-based screenshot testing of the drawing function via `Bitmap`-backed `Canvas` in Robolectric `@GraphicsMode(Mode.NATIVE)` without requiring an emulator.
+
 **Lyrics rendering (normative)**
 - Lyrics MUST remain spatially stable during a sentence. Continuous scrolling lyrics are not supported.
 - Sentence-based paging is required. The current sentence remains in place while the highlight progresses with playback.
@@ -2594,6 +2684,19 @@ After each sentence ends, a brief rating label is displayed for the correspondin
 - Default focus MUST be on `OK`.
 - On `OK`, the modal MUST close and the user remains on Select Players.
 
+**Playback error handling (normative)**
+If ExoPlayer reports a non-recoverable playback error during singing (e.g., `PlaybackException` with `ERROR_CODE_DECODER_INIT_FAILED`, `ERROR_CODE_DECODING_FAILED`, or `ERROR_CODE_IO_NETWORK_CONNECTION_FAILED`), the TV MUST:
+1. Stop playback and scoring immediately.
+2. Return to Song List.
+3. Show a blocking error modal:
+   - Title: `ERROR`
+   - Body line 1: `This song can't be played.`
+   - Body line 2: the ExoPlayer error message (truncated to 120 characters).
+   - Single action: `OK` (default focus).
+The error MUST NOT crash the app, corrupt session state, or leave the session in Locked state. The session MUST return to Open on error exit.
+
+Supported audio codecs are determined by the device's hardware and software decoders at runtime. No compile-time format whitelist is maintained. Songs with unsupported audio formats will fail at playback time and be handled by this error path.
+
 **Tests**
 
 These are the mandatory acceptance tests for this section. Complement with additional unit tests to meet the ≥80% overall / ≥60% per-file coverage targets (Appendix D.1).
@@ -2626,7 +2729,7 @@ These are the mandatory acceptance tests for this section. Complement with addit
 +--------------------------------------+
 ```
  - **Resume**: resumes playback and scoring from the current position.
- - **Restart Song**: opens a confirm dialog (default focus Cancel). On OK: resets all per-player scores and state, seeks audio to `startSec` (and video to `videoGapSec + startSec`), resets beat cursors, and re-sends `assignSinger` to assigned phones with a new `songInstanceSeq`. In medley mode, **Restart Song restarts the full medley from segment 1** — scores for all segments are cleared, and `endTimeTvMs` MUST be recomputed as: `endTimeTvMs = tvMonotonicNowMs + totalMedleyDurationMs`, where `totalMedleyDurationMs = sum over all medley segments of (medleyEndSec[i] - medleyStartSec[i])`, using the `medleyStartSec`/`medleyEndSec` computed per segment per §10.5.1.
+ - **Restart Song**: opens a confirm dialog (default focus Cancel). On OK: resets all per-player scores and state, seeks audio to `startSec` (and video to `videoGapSec + startSec`), resets beat cursors, and re-sends `assignSinger` to assigned phones with a new `songInstanceSeq`. In medley mode, **Restart Song restarts the full medley from segment 1** — scores for all segments are cleared, and `stopAtLyricsTimeMs` MUST be recomputed from the rebuilt medley playback plan using the `medleyStartSec`/`medleyEndSec` computed per segment per §9.5.1.
  - **Quit to Song List**: confirm dialog (default focus Cancel). On OK: stops playback, returns to Song List.
 **Disconnect auto-pause (normative)**
 - When a **required** singer (a phone assigned as P1 or P2) disconnects mid-song, the TV MUST **automatically pause** the song and show the following overlay:
@@ -2640,22 +2743,22 @@ These are the mandatory acceptance tests for this section. Complement with addit
 |    Quit to Song List                 |
 +--------------------------------------+
 ```
- - **Wait for reconnect**: song stays paused. If the phone reconnects (Section 7.4), the TV re-sends `assignSinger` with an updated `endTimeTvMs` reflecting the remaining song duration, and the song resumes from the paused position.
+ - **Wait for reconnect**: song stays paused. If the phone reconnects (Section 7.4), the TV re-sends `assignSinger` with an updated `stopAtLyricsTimeMs`, then sends current `playbackState`, and the song resumes from the paused position.
  - **Continue without them**: song resumes. No pitch frames will arrive for that player; they contribute no further score.
  - **Quit to Song List**: same as normal Quit behavior.
 - Spectator disconnects (phones not assigned as singers) MUST NOT trigger auto-pause.
 **Song end (normative)**
 Definition:
-- `endTimeTvMs` is the authoritative song end time for each assigned singer, expressed in TV monotonic milliseconds.
-  - For a normal song: `endTimeTvMs = songStartTvMs + effectiveSongDurationMs`. Where `effectiveSongDurationMs`: if `#END` is present and `endMs > 0`, use `(endMs/1000.0 - startSec) * 1000`; otherwise use audio file duration minus `startSec`, in ms.
-  - For a medley: `endTimeTvMs` is the TV monotonic ms at the end of the final segment's `medleyEndSec` (including `MEDLEY_FADE_OUT_SEC`).
+- `stopAtLyricsTimeMs` is the authoritative stop point for each assigned singer, expressed in lyrics-time milliseconds.
+  - For a normal song: `stopAtLyricsTimeMs = songAbsoluteEndMs`. If `#END` is present and `endMs > 0`, `songAbsoluteEndMs = endMs`; otherwise `songAbsoluteEndMs = audio file duration in ms`. `#START` changes the initial playback position only; it does not change the timing origin.
+  - For a medley: `stopAtLyricsTimeMs` is the lyrics-time ms at the end of the final segment's `medleyEndSec` (including `MEDLEY_FADE_OUT_SEC`).
 Phone behavior:
-- When `tvNowMs >= endTimeTvMs`, the phone MUST:
+- When playback reaches `stopAtLyricsTimeMs` for the current assignment, or when `playbackState.state == "stopped"`, the phone MUST:
   - stop audio capture and pitch detection
   - stop transmitting any further `pitchFrame` UDP datagrams for that `songInstanceSeq`
   - transition its UI state to the Waiting/Connected screen
 TV behavior:
-- The TV MUST ignore any `pitchFrame` with `tvTimeMs >= endTimeTvMs` for scoring.
+- The TV MUST ignore any `pitchFrame` whose corresponding note lies at or beyond `stopAtLyricsTimeMs` for scoring.
 - The TV MUST finalize scoring and transition to Results when playback reaches the chart/medley end.
 
 ### 9.5.1 Singing Screen (Medley mode)
@@ -2665,8 +2768,8 @@ Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, bu
   - This avoids coupling medley playback to the Song List screen lifecycle (the Song List playlist may be cleared when the user leaves that screen).
 - The medley run snapshot MUST preserve the playlist order.
 **Medley start flow (normative)**
-- When the user starts a medley (Song List; **Play Medley**), the app MUST show **Select Players** once (Section 10.3) with subtitle `Medley — <n> songs`.
-- On **Start**, apply countdown rules (Countdown subsection in Section 10.5) and then begin playback of segment 1.
+- When the user starts a medley (Song List; **Play Medley**), the app MUST show **Select Players** once (§9.3) with subtitle `Medley — <n> songs`.
+- On **Start**, apply countdown rules (Countdown subsection in §9.5) and then begin playback of segment 1.
 - The selected players MUST remain assigned for the entire medley run; the app MUST NOT prompt again between segments.
 - On segment end, automatically advance to the next song (or end medley if the last segment finished).
 **Cancel behavior (normative)**
@@ -2693,7 +2796,7 @@ Medley mode plays a **sequence of songs** (the Medley playlist) back-to-back, bu
 - Implementations MAY overlap the tail of fade-out with the head of fade-in (crossfade) if audio mixing is available; if not, a sequential fade-out then fade-in is acceptable.
 **Segment failure handling (normative)**
 - If `audioUrl` is null for any segment when the medley reaches it, the TV MUST skip that segment and proceed to the next, showing a brief error toast.
-- If a segment's audio URL becomes unreachable during playback (e.g., the source phone disconnected mid-segment), the current medley run MUST be aborted and the app MUST follow **Song start failure** behavior (Section 10.3): return to Song List and show the same blocking error modal.
+- If a segment's audio URL becomes unreachable during playback (e.g., the source phone disconnected mid-segment), the current medley run MUST be aborted and the app MUST follow **Song start failure** behavior (§9.3): return to Song List and show the same blocking error modal.
 **Scoring scope (parity-aligned; normative)**
 - Only notes within the medley window contribute to score.
   - Parity note: in USDX, entering medley mode converts notes outside `[startBeat, endBeat)` to **Freestyle**; Freestyle has `ScoreFactor=0`, so those notes contribute 0 points.
@@ -2796,50 +2899,6 @@ These are the mandatory acceptance tests for this section. Complement with addit
 +--------------------------------------------------------------------------------+
 ```
 
-# Appendix A: Library Dependency Reference
-This appendix is **normative**. Implementations MUST use the pinned libraries below for the designated concerns. Using alternative libraries for these concerns is not permitted without a spec revision, because the choice of library directly affects wire compatibility, audio behavior, or performance on the target hardware.
-
-## A.1 Android TV Host App (Kotlin)
-| Concern | Library | Pinned Version | Justification |
-|---|---|---|---|
-| WebSocket server | `io.ktor:ktor-server-cio` + `io.ktor:ktor-server-websockets` | `3.4.1` | CIO engine is coroutine-native, ~500 KB, zero native dependencies. Handles `/` WebSocket routing and token validation trivially. Netty is prohibited — it adds ~8 MB of native binaries and complex thread pool management. |
-| JSON serialization (all control messages, hot path) | `org.jetbrains.kotlinx:kotlinx-serialization-json` | `1.10.0` | Compile-time code generation; no reflection. Mandatory on the scoring receive path. Gson and Moshi (reflection-based) are prohibited on any path that handles incoming WebSocket frames during gameplay. |
-| Audio playback + VOCALS mixing | `androidx.media3:media3-exoplayer` + `androidx.media3:media3-datasource-okhttp` | `1.9.2` | `MergingMediaSource` for dual-track (#INSTRUMENTAL + #VOCALS) mixing with `ScalingAudioProcessor` for per-track volume control (§10.4.3). `ProgressiveMediaSource` for HTTP streaming. The OkHttp data source is required — the default `DefaultHttpDataSource` uses `HttpURLConnection` which does not handle concurrent range requests efficiently; without it seeking on LAN-served audio is noticeably slower on mid-tier hardware. |
-| Image loading (cover/background art) | `io.coil-kt.coil3:coil-compose` + `io.coil-kt.coil3:coil-network-okhttp` | `3.4.0` | Coroutine-native, Compose-compatible image loader. `coil-network-okhttp` artifact required for HTTP URL loading (coil3's core no longer includes a network backend by default). Handles LRU memory cache and lazy loading of cover art tiles in the song grid. |
-| QR code generation (session join code display) | `com.journeyapps:zxing-android-embedded` | `4.3.0` | Mature, widely used, no camera permission required for generation-only use. |
-| Settings persistence (device names, audio prefs) | `androidx.datastore:datastore-preferences` | `1.2.1` | Idiomatic replacement for SharedPreferences on Android. Room is overkill for flat key-value preferences. |
-| Network Discovery (mDNS/DNS-SD) | `org.jmdns:jmdns` | `3.6.3` | Lightweight, pure Java implementation of multi-cast DNS. Used for local network service discovery to allow mobile clients to find the TV instance without manual IP entry. |
-
-## A.2 Android Companion App (Kotlin)
-| Concern | Library | Pinned Version | Justification |
-|---|---|---|---|
-| WebSocket client | `com.squareup.okhttp3:okhttp` |`5.3.2` | Same OkHttp already used by TV host (transitive via ExoPlayer). `WebSocket` API built-in. No additional dependency. |
-| QR code scanning | `com.google.mlkit:barcode-scanning` + `androidx.camera:camera-camera2` + `androidx.camera:camera-lifecycle` + `androidx.camera:camera-view` | `barcode-scanning: 17.3.0`, `camera-*: 1.5.3` | ML Kit barcode scanning on CameraX. GPU-accelerated on all target hardware. |
-| LAN discovery (NSD/mDNS) | `android.net.nsd.NsdManager` (platform API) | n/a — SDK built-in (API 16+) | No third-party dependency required. Browse `_karaoke._tcp` using `NsdManager.discoverServices`. |
-| HTTP file server | `io.ktor:ktor-server-cio` + `io.ktor:ktor-server-partial-content` | `3.4.1` | Same Ktor version as TV host. `ktor-server-partial-content` handles `Accept-Ranges` / `206 Partial Content` automatically. |
-| SAF directory listing | `androidx.documentfile:documentfile` | `1.1.0` | Transitive dependency of `androidx.core`. `DocumentFile.fromTreeUri()` for SAF tree traversal. No additional library needed. |
-| FFT Operations | `com.github.wendykierp:JTransforms`| 3.2 | Fast, GC-free primitive float array FFT implementations for Java/Kotlin.|
-| Haptic feedback (200ms on assignSinger) | `android.os.VibrationEffect` (platform API) | n/a — SDK built-in (API 26+) | `VibrationEffect.createOneShot(200, DEFAULT_AMPLITUDE)`. No third-party library. |
-| Settings persistence | `androidx.datastore:datastore-preferences` | `1.2.1` | Same as TV host. |
-## A.3 iOS Companion App (Swift)
-| Concern | Library | Pinned Version | Justification |
-|---|---|---|---|
-| WebSocket client | `URLSessionWebSocketTask` (platform API) | n/a — Foundation built-in (iOS 13+) | Zero dependencies. Handles WebSocket over `URLSession`. |
-| QR code scanning | `AVFoundation` + `AVCaptureMetadataOutput` (platform API) | n/a — SDK built-in | `AVCaptureMetadataOutput` with `metadataObjectTypes = [.qr]`. No third-party dependency. |
-| LAN discovery (mDNS) | `Network.framework` `NWBrowser` (platform API) | n/a — SDK built-in (iOS 13+) | Browse `_karaoke._tcp.` using `NWBrowser`. Modern replacement for deprecated `NSNetServiceBrowser`. |
-| HTTP file server | `Swifter` | `1.5.0` | SPM: `https://github.com/httpswift/swifter`. Pure Swift, actively maintained, zero transitive dependencies. `Range` header handling is ~20 lines of explicit code in the request handler. |
-| Haptic feedback (on assignSinger) | `UIImpactFeedbackGenerator` (platform API) | n/a — UIKit built-in | `UIImpactFeedbackGenerator(style: .medium).impactOccurred()`. No third-party library. |
-| Settings persistence | `UserDefaults` (platform API) | n/a — Foundation built-in | Sufficient for flat key-value preferences (songs folder bookmark, mic delay). |
-| FFT Operations | Accelerate.framework (vDSP) |  | Native Apple framework, highly optimized for C-level primitive array operations. Zero third-party dependencies. |
-
-## A.4 Prohibited Patterns
-- **Reflection-based JSON on the scoring path**: any library that uses runtime reflection is prohibited for decoding control messages received during an active song. Use `kotlinx.serialization` (Android/TV) and `Codable` with `JSONDecoder` (iOS) instead.
-- **Netty engine for Ktor**: use CIO only.
-- **ZIP-based song transfer**: §8.6 mandates direct HTTP streaming. No ZIP building, extraction, or WebSocket binary chunk framing for song files.
-- **`shelf_static` or equivalent static file middleware for audio/video**: does not implement `Accept-Ranges`. Use a custom route handler that parses the `Range` header and returns the correct byte range.
-- **Direct `file://` path access to SAF URIs on Android**: use `ContentResolver` exclusively. Calling `uri.path` and opening it as a `File` is broken on Android 10+ scoped storage and MUST NOT be used.
-- **`NSNetServiceBrowser` on iOS**: deprecated since iOS 16. Use `NWBrowser` from `Network.framework` exclusively.
-
 # Appendix B: Protocol Schemas
 This appendix is **normative** and defines JSON Schemas for MVP protocol messages described in Section 8.
 Schema notes:
@@ -2891,7 +2950,7 @@ All messages are JSON objects and MUST include:
   "properties": {
     "type": {"const": "sessionState"},
     "protocolVersion": {"type": "integer", "const": 1},
-    "tsTvMs": {"type": "number"},
+    "tsTvMs": {"type": ["number", "null"]},
     "sessionId": {"type": "string", "minLength": 1},
     "slots": {
       "type": "object",
@@ -2919,8 +2978,8 @@ All messages are JSON objects and MUST include:
       }
     },
     "inSong": {"type": "boolean"},
-    "songTimeSec": {"type": "number"},
-    "connectionId": {"type": "integer", "description": "uint16 sender ID assigned by TV per connection; present only in the initial sessionState response to hello; included in every pitchFrame datagram"}
+    "songTimeSec": {"type": ["number", "null"]},
+    "connectionId": {"type": ["integer", "null"], "description": "uint16 sender ID assigned by TV per connection; present only in the initial sessionState response to hello. Null or absent in broadcast sessionState messages."}
   }
 }
 ```
@@ -3010,21 +3069,20 @@ All messages are JSON objects and MUST include:
   "title": "assignSinger",
   "type": "object",
   "additionalProperties": false,
-  "required": ["type", "protocolVersion", "sessionId", "songInstanceSeq", "playerId", "difficulty", "thresholdIndex", "effectiveMicDelayMs", "expectedPitchFps", "startMode", "endTimeTvMs", "udpPort"],
+  "required": ["type", "protocolVersion", "sessionId", "songInstanceSeq", "playerId", "difficulty", "effectiveMicDelayMs", "expectedPitchFps", "startMode", "stopAtLyricsTimeMs", "udpPort"],
   "properties": {
     "type": {"const": "assignSinger"},
     "protocolVersion": {"type": "integer", "const": 1},
-    "tsTvMs": {"type": "number"},
+    "tsTvMs": {"type": ["number", "null"]},
     "sessionId": {"type": "string", "minLength": 1},
     "songInstanceSeq": {"type": "integer", "minimum": 0, "description": "uint32 counter; increments on every song start including Restart"},
     "playerId": {"type": "string", "enum": ["P1", "P2"]},
     "difficulty": {"type": "string", "enum": ["Easy", "Medium", "Hard"]},
-    "thresholdIndex": {"type": "integer", "minimum": 0, "maximum": 7},
     "effectiveMicDelayMs": {"type": "integer", "minimum": 0},
     "expectedPitchFps": {"type": "integer", "minimum": 1},
     "startMode": {"type": "string", "enum": ["countdown", "live"]},
-    "countdownMs": {"type": "integer", "minimum": 0},
-    "endTimeTvMs": {"type": "integer"},
+    "countdownMs": {"type": ["integer", "null"], "minimum": 0, "description": "Required when startMode is countdown; null or absent when startMode is live."},
+    "stopAtLyricsTimeMs": {"type": "integer", "minimum": 0},
     "udpPort": {"type": "integer", "minimum": 1024, "maximum": 65535},
     "songTitle": {"type": "string"},
     "songArtist": {"type": "string"}
@@ -3038,7 +3096,33 @@ All messages are JSON objects and MUST include:
 }
 ```
 
-### B.2.7 `pitchFrame` (binary; not JSON)
+### B.2.7 `playbackState`
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "playbackState",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "protocolVersion", "sessionId", "songInstanceSeq", "revision", "state", "lyricsTimeMs", "stopAtLyricsTimeMs", "countdownRemainingMs", "reason", "tsTvMs"],
+  "properties": {
+    "type": {"const": "playbackState"},
+    "protocolVersion": {"type": "integer", "const": 1},
+    "sessionId": {"type": "string", "minLength": 1},
+    "songInstanceSeq": {"type": "integer", "minimum": 0},
+    "revision": {"type": "integer", "minimum": 0},
+    "state": {"type": "string", "enum": ["countdown", "playing", "paused", "stopped"]},
+    "lyricsTimeMs": {"type": "integer", "minimum": 0},
+    "stopAtLyricsTimeMs": {"type": "integer", "minimum": 0},
+    "countdownRemainingMs": {"type": ["integer", "null"], "minimum": 0, "description": "Present only when state is countdown; null otherwise."},
+    "reason": {"type": "string"},
+    "songTitle": {"type": "string"},
+    "songArtist": {"type": "string"},
+    "tsTvMs": {"type": ["number", "null"]}
+  }
+}
+```
+
+### B.2.8 `pitchFrame` (binary; not JSON)
 `pitchFrame` is a **binary UDP datagram**, not a JSON message. There is no JSON schema for it. See §8.3 for the full 16-byte layout. For reference:
 ```
 Offset  Size  Type    Field
@@ -3050,10 +3134,10 @@ Offset  Size  Type    Field
  14      2   uint16  connectionId (assigned by TV at hello handshake)
 ```
 
-### B.2.8 `requestSongList` — REMOVED
+### B.2.9 `requestSongList` — REMOVED
 Replaced by HTTP manifest endpoint (`GET /manifest.json`). See §8.7.1.
 
-### B.2.9 `songListUpdate` — REMOVED
+### B.2.10 `songListUpdate` — REMOVED
 The `SongEntry` schema is retained below for use by the `/manifest.json` HTTP response. The WebSocket message wrapper is removed.
 
 **`SongEntry` schema (used by `/manifest.json`):**
@@ -3062,12 +3146,9 @@ The `SongEntry` schema is retained below for use by the `/manifest.json` HTTP re
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SongEntry",
   "type": "object",
-  "required": ["relativeTxtPath", "isValid", "modifiedTimeMs", "title", "artist", "isDuet", "hasRap", "hasVideo", "hasInstrumental", "canMedley"],
+  "required": ["relativeTxtPath", "modifiedTimeMs", "title", "artist", "isDuet", "hasRap", "hasVideo", "hasInstrumental", "canMedley"],
   "properties": {
     "relativeTxtPath": {"type": "string", "minLength": 1},
-    "isValid": {"type": "boolean"},
-    "invalidReasonCode": {"type": ["string", "null"]},
-    "invalidLineNumber": {"type": ["integer", "null"], "description": "1-based; present when isValid=false and error is line-associated; null otherwise"},
     "modifiedTimeMs": {"type": "integer"},
     "title": {"type": "string"},
     "artist": {"type": "string"},
@@ -3239,14 +3320,11 @@ Validates recursive song discovery and accept/reject validation across multiple 
     {
       "songDirRel": "a/valid_minimal",
       "songTxtRel": "a/valid_minimal/song.txt",
-      "isValid": true,
-      "invalidReasonCode": null,
-      "invalidLineNumber": null
     }
   ]
 }
 ```
-Fields: `songDirRel` and `songTxtRel` are relative to `songs_root/`. `invalidReasonCode` and `invalidLineNumber` MUST be `null` when `isValid=true`.
+Fields: `songDirRel` and `songTxtRel` are relative to `songs_root/`. Invalid songs remain local diagnostics and are not emitted in `/manifest.json`.
 **Usage**: covers Sections 3.2 and 4.3.
 
 ### D.3.4 Protocol/session fixture (`type: "protocol"`)
