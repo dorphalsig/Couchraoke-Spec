@@ -1,0 +1,29 @@
+{
+  "valid": [
+    "Idle->Loading",
+    "Loading->Countdown",
+    "Loading->Playing",
+    "Loading->Idle",
+    "Countdown->Playing",
+    "Countdown->Idle",
+    "Playing->Paused",
+    "Playing->DisconnectPaused",
+    "Playing->Stopped",
+    "Paused->Playing",
+    "Paused->Loading",
+    "Paused->Idle",
+    "DisconnectPaused->Playing",
+    "DisconnectPaused->Idle",
+    "Stopped->Results",
+    "Results->Idle"
+  ],
+  "invalid": [
+    "Idle->Paused",
+    "Idle->Playing",
+    "Loading->Results",
+    "Countdown->Paused",
+    "Playing->Loading",
+    "Stopped->Playing",
+    "Results->Playing"
+  ]
+}

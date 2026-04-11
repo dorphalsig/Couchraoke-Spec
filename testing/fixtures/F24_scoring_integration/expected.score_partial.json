@@ -1,0 +1,12 @@
+{
+  "playerId": "P1",
+  "scoreInt": 5000,
+  "scoreGoldenInt": 0,
+  "scoreLineInt": 550,
+  "scoreTotalInt": 5550,
+  "notes": [
+    { "index": 0, "hits": 2, "samples": 3 },
+    { "index": 1, "hits": 1, "samples": 3 },
+    { "index": 2, "hits": 1, "samples": 3 }
+  ]
+}

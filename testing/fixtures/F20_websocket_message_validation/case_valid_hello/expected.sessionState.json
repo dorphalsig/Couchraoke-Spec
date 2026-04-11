@@ -1,0 +1,13 @@
+{
+  "accepted": true,
+  "type": "sessionState",
+  "protocolVersion": 1,
+  "sessionId": "sess-001",
+  "slots": {
+    "P1": { "connected": false, "deviceName": "" },
+    "P2": { "connected": false, "deviceName": "" }
+  },
+  "inSong": false,
+  "songTimeSec": null,
+  "connectionId": 1001
+}

@@ -1,0 +1,30 @@
+[
+  {
+    "songId": "phone-a::songs/alpha/alpha.txt",
+    "phoneClientId": "phone-a",
+    "title": "Alpha",
+    "artist": "Artist A",
+    "album": "Album 1",
+    "coverUrl": "http://10.0.0.2:34781/songs/alpha/cover.jpg",
+    "audioUrl": "http://10.0.0.2:34781/songs/alpha/audio.mp3",
+    "videoUrl": null,
+    "txtUrl": "http://10.0.0.2:34781/songs/alpha/alpha.txt",
+    "isDuet": false,
+    "canMedley": true,
+    "previewStartSec": 12.0
+  },
+  {
+    "songId": "phone-a::songs/golf/golf.txt",
+    "phoneClientId": "phone-a",
+    "title": "Golf",
+    "artist": "Artist E",
+    "album": "Album 3",
+    "coverUrl": null,
+    "audioUrl": "http://10.0.0.2:34781/songs/golf/audio.mp3",
+    "videoUrl": null,
+    "txtUrl": "http://10.0.0.2:34781/songs/golf/golf.txt",
+    "isDuet": false,
+    "canMedley": true,
+    "previewStartSec": 9.0
+  }
+]

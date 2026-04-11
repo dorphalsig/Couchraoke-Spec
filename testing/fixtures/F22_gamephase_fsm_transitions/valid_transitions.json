@@ -1,0 +1,18 @@
+[
+  { "from": "Idle", "to": "Loading", "trigger": "start_song" },
+  { "from": "Loading", "to": "Countdown", "trigger": "ready_with_countdown" },
+  { "from": "Loading", "to": "Playing", "trigger": "ready_without_countdown" },
+  { "from": "Loading", "to": "Idle", "trigger": "prepare_error" },
+  { "from": "Countdown", "to": "Playing", "trigger": "countdown_complete" },
+  { "from": "Countdown", "to": "Idle", "trigger": "required_singer_disconnect" },
+  { "from": "Playing", "to": "Paused", "trigger": "user_back" },
+  { "from": "Playing", "to": "DisconnectPaused", "trigger": "required_singer_disconnect" },
+  { "from": "Playing", "to": "Stopped", "trigger": "song_end" },
+  { "from": "Paused", "to": "Playing", "trigger": "resume" },
+  { "from": "Paused", "to": "Loading", "trigger": "restart" },
+  { "from": "Paused", "to": "Idle", "trigger": "quit" },
+  { "from": "DisconnectPaused", "to": "Playing", "trigger": "reconnect_and_resume" },
+  { "from": "DisconnectPaused", "to": "Idle", "trigger": "quit" },
+  { "from": "Stopped", "to": "Results", "trigger": "finalization_complete" },
+  { "from": "Results", "to": "Idle", "trigger": "back_to_song_list" }
+]

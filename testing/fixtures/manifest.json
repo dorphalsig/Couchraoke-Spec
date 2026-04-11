@@ -18,6 +18,11 @@
     { "id": "F16_medley_sequencer", "covers": ["9.5.1", "9.6.2"] },
     { "id": "F17_yin_dsp_pipeline_accuracy", "covers": ["5.2.5.2"] },
     { "id": "F18_http_server_range_coordination", "covers": ["8.7"] },
-    { "id": "F19_icloud_eviction_handling", "covers": ["8.7.3"] }
+    { "id": "F19_icloud_eviction_handling", "covers": ["8.7.3"] },
+    { "id": "F20_websocket_message_validation", "covers": ["8.3.2.1", "8.3.3"] },
+    { "id": "F21_clock_sync_tv_side", "covers": ["8.8"] },
+    { "id": "F22_gamephase_fsm_transitions", "covers": ["2.4"] },
+    { "id": "F23_library_multiphone", "covers": ["3.1.3", "3.2", "3.3"] },
+    { "id": "F24_scoring_integration", "covers": ["5.2.3", "6.1", "6.5", "6.6"] }
   ]
 }

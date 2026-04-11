@@ -1,0 +1,14 @@
+{
+  "songCount": 5,
+  "sortedSongIds": [
+    "phone-a::songs/alpha/alpha.txt",
+    "phone-b::songs/delta/delta.txt",
+    "phone-b::songs/echo/echo.txt",
+    "phone-b::songs/foxtrot/foxtrot.txt",
+    "phone-a::songs/golf/golf.txt"
+  ],
+  "removedSongIds": [
+    "phone-a::songs/bravo/bravo.txt",
+    "phone-a::songs/charlie/charlie.txt"
+  ]
+}

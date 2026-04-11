@@ -9,6 +9,7 @@
 !.gitignore
 !split_spec.py
 !couchraoke_spec.md
+!tv_app_functional_spec.md
 !couchraoke_spec_split_plan.csv
 
 # Serena project config
@@ -22,3 +23,6 @@
 # testing
 !testing/testing_policy.md
 !testing/fixtures/**
+
+# architecture
+!architecture/**

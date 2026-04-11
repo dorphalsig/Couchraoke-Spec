@@ -1,0 +1,44 @@
+[
+  {
+    "songId": "phone-a::songs/alpha/alpha.txt",
+    "phoneClientId": "phone-a",
+    "title": "Alpha",
+    "artist": "Artist A",
+    "album": "Album 1",
+    "coverUrl": "http://10.0.0.2:34781/songs/alpha/cover.jpg",
+    "audioUrl": "http://10.0.0.2:34781/songs/alpha/audio.mp3",
+    "videoUrl": null,
+    "txtUrl": "http://10.0.0.2:34781/songs/alpha/alpha.txt",
+    "isDuet": false,
+    "canMedley": true,
+    "previewStartSec": 12.0
+  },
+  {
+    "songId": "phone-a::songs/bravo/bravo.txt",
+    "phoneClientId": "phone-a",
+    "title": "Bravo",
+    "artist": "Artist B",
+    "album": "Album 1",
+    "coverUrl": null,
+    "audioUrl": "http://10.0.0.2:34781/songs/bravo/audio.mp3",
+    "videoUrl": null,
+    "txtUrl": "http://10.0.0.2:34781/songs/bravo/bravo.txt",
+    "isDuet": false,
+    "canMedley": true,
+    "previewStartSec": 20.0
+  },
+  {
+    "songId": "phone-a::songs/charlie/charlie.txt",
+    "phoneClientId": "phone-a",
+    "title": "Charlie",
+    "artist": "Artist B",
+    "album": "Album 2",
+    "coverUrl": null,
+    "audioUrl": "http://10.0.0.2:34781/songs/charlie/audio.mp3",
+    "videoUrl": null,
+    "txtUrl": "http://10.0.0.2:34781/songs/charlie/charlie.txt",
+    "isDuet": true,
+    "canMedley": false,
+    "previewStartSec": 15.0
+  }
+]

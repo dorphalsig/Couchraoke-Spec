@@ -1,0 +1,44 @@
+[
+  {
+    "songId": "phone-b::songs/delta/delta.txt",
+    "phoneClientId": "phone-b",
+    "title": "Delta",
+    "artist": "Artist A",
+    "album": "Album 2",
+    "coverUrl": null,
+    "audioUrl": "http://10.0.0.3:34781/songs/delta/audio.mp3",
+    "videoUrl": null,
+    "txtUrl": "http://10.0.0.3:34781/songs/delta/delta.txt",
+    "isDuet": false,
+    "canMedley": true,
+    "previewStartSec": 18.0
+  },
+  {
+    "songId": "phone-b::songs/echo/echo.txt",
+    "phoneClientId": "phone-b",
+    "title": "Echo",
+    "artist": "Artist C",
+    "album": "Album 1",
+    "coverUrl": null,
+    "audioUrl": "http://10.0.0.3:34781/songs/echo/audio.mp3",
+    "videoUrl": null,
+    "txtUrl": "http://10.0.0.3:34781/songs/echo/echo.txt",
+    "isDuet": false,
+    "canMedley": true,
+    "previewStartSec": 10.0
+  },
+  {
+    "songId": "phone-b::songs/foxtrot/foxtrot.txt",
+    "phoneClientId": "phone-b",
+    "title": "Foxtrot",
+    "artist": "Artist D",
+    "album": null,
+    "coverUrl": null,
+    "audioUrl": "http://10.0.0.3:34781/songs/foxtrot/audio.mp3",
+    "videoUrl": null,
+    "txtUrl": "http://10.0.0.3:34781/songs/foxtrot/foxtrot.txt",
+    "isDuet": false,
+    "canMedley": true,
+    "previewStartSec": 8.0
+  }
+]
