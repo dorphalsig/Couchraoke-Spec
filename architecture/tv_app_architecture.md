@@ -26,6 +26,7 @@
   - [4.3 Scoring Coroutine](#43-scoring-coroutine)
   - [4.4 Jitter Buffer](#44-jitter-buffer)
   - [4.5 Clock Sync Logic](#45-clock-sync-logic)
+  - [4.6 Beat-Time Conversion](#46-beat-time-conversion)
 - [5. Resolved Blockers](#5-resolved-blockers)
 - [6. Test Fixtures](#6-test-fixtures)
 - [7. Project Plan](#7-project-plan)
@@ -94,11 +95,47 @@ Ordered by priority. These describe *how* the system should be built.
 
 **Why**: Target hardware constraints (2GB RAM, Mali-G31, slow eMMC).
 
+### Target Hardware Profile
+
+Normative target device: mid-tier Android TV stick/box.
+
+| Component | Spec | Constraint |
+|-----------|------|------------|
+| SoC | Amlogic S905X4 (quad-core Cortex-A55 @ 1.8GHz) | Decent CPU, weak GPU. No complex shaders. |
+| RAM | 2GB DDR3/DDR4 | App budget: ≤512MB including ExoPlayer buffers. |
+| Storage | 16GB eMMC | Very slow R/W. No temp files during playback. |
+| GPU | Mali-G31 MP2 (OpenGL ES 3.2) | Flat rendering only. No blur, glow, or post-processing. |
+| OS | Android TV 11–14 | Min API 30. Multicast lock required for mDNS. |
+
+Higher-spec devices (4GB RAM) must work without degradation; lower-spec (1GB RAM, S805) are out of scope.
+
+### Memory Budgets
+
+| Resource | Budget | Notes |
+|----------|--------|-------|
+| App total | ≤512MB | Heap + native + ExoPlayer. System overhead ~800MB–1GB on 2GB devices. |
+| ExoPlayer audio buffer | ≤64MB | `DefaultLoadControl.Builder` |
+| ExoPlayer video buffer | ≤128MB | `DefaultLoadControl.Builder` |
+| Disk writes during playback | Zero | No temp files, no disk cache |
+
+### Performance Targets
+
+| Screen | Target |
+|--------|--------|
+| Singing screen | ≥30fps sustained with 1–2 active pitch lanes |
+| Song list grid | ≥60fps scroll at 1080p, 3-column grid with covers |
+| Library index | ≥1000 songs in memory without UI jank |
+
+### Implementation Requirements
+
 | Requirement | Implementation |
 |-------------|----------------|
 | No per-frame allocation in hot paths | Pre-allocated buffers |
 | Single-activity architecture | No fragment transaction overhead |
 | Lazy initialization | ExoPlayer, mDNS created on demand |
+| ExoPlayer workaround for S905X4 | Custom `MediaCodecSelector` bypassing `PerformancePoint` checks (see below) |
+
+**ExoPlayer Device Workaround**: Amlogic S905X4 devices report inaccurate `PerformancePoint` capabilities. Media3 may mark HD/FHD tracks as `NO_EXCEEDS_CAPABILITIES`, causing unnecessary downscaling. Add target `Build.DEVICE`/`Build.MODEL` to custom `MediaCodecSelector` that bypasses `PerformancePoint` checks, following Media3's `MediaCodecInfo.needsIgnorePerformancePointsWorkaround()` pattern.
 
 ---
 
@@ -131,6 +168,20 @@ Six L1 components directly under the TV app.
 **Responsibility**: Single source of truth for game phase. Orchestrates all subsystems during song lifecycle. Owns `songInstanceSeq`. Manages clock sync logic. Derives session locked state.
 
 **Lifecycle**: Scoped to app lifetime.
+
+### Responsibilities (Normative)
+
+1. Own and increment `songInstanceSeq` (`UInt`) on every song start, including Restart.
+2. Drive song start: fetch and parse chart, configure scoring, set active song for pitch ingestion, prepare playback, lock session, send `assignSinger`, then start countdown or playback; capture `songStartTvMs` when playback begins and push into scoring.
+3. Construct `PlaybackStateMessage` on each playback-bearing game-phase transition and push to network layer.
+4. Coordinate pause, resume, restart, and quit across playback, scoring, and phone state.
+5. Handle required-singer disconnects by auto-pausing and presenting wait / continue / quit options.
+6. Handle reconnect by updating `connectionId`, re-sending `assignSinger`, and sending current `playbackState`.
+7. Drive medley segment transitions ([§4.2](#42-medley-segment-transitions)).
+8. Capture `songStartTvMs` per timing spec and push into scoring before note finalization begins.
+9. Trigger clock-sync re-exchange at song end.
+10. Transition session FSM between Open and Locked at song start/end.
+11. Interact with subsystems only through narrow interfaces (`ScoringEngine`, `NetworkController`, etc.). No direct references to implementation classes.
 
 ### Public API
 
@@ -349,6 +400,81 @@ sealed class PhoneEvent {
 - **HttpClient**: Ktor client, fetches manifests and txt files
 - **ConnectionRegistry**: Tracks clientId → connectionId mapping
 - **JoinCodeValidator**: Checks token on WebSocket connect
+- **MdnsAdvertiser**: jmDNS-based service advertisement (see below)
+
+### mDNS Service Advertisement (Normative)
+
+TV MUST advertise via mDNS for session duration:
+
+| Field | Value |
+|-------|-------|
+| Service type | `_karaoke._tcp` |
+| Instance name | `KaraokeTV-<last4>` (last 4 chars of join code, e.g., `KaraokeTV-EFGH`) |
+| Port | WebSocket server port |
+| TXT `code` | Full join code, uppercase, no hyphens (e.g., `code=ABCDEFGH`) |
+| TXT `v` | `1` (protocol version) |
+
+**Library**: Use jmDNS (not NsdManager — unreliable on some OEM firmware).
+
+**Multicast Lock (Required)**:
+1. Declare permissions in `AndroidManifest.xml`:
+   - `android.permission.CHANGE_WIFI_MULTICAST_STATE`
+   - `android.permission.ACCESS_LOCAL_NETWORK`
+2. Acquire `WifiManager.MulticastLock` (tag: `"jmdns_lock"`) before starting jmDNS.
+3. Release on session end.
+
+Without lock, multicast packets silently dropped on many Android TV devices.
+
+**Android 17+**: Request local-network permission before starting mDNS, WebSocket server, UDP listener, or HTTP fetches to peers.
+
+### connectionId Assignment (Normative)
+
+- Assign unique `connectionId` (uint16) on successful `hello` handshake. Simple incrementing counter from 1.
+- Deliver in `sessionState` response to `hello`.
+- On reconnect: assign **new** `connectionId` (not reuse old one).
+
+### UDP Frame Validation (Normative)
+
+On receipt of UDP datagram:
+1. Datagram must be exactly 16 bytes (else silently drop).
+2. Look up `connectionId` (bytes 14–15) in active connection table.
+3. Verify it matches expected connection for `playerId` (byte 12).
+4. Verify `songInstanceSeq` matches active song.
+5. If any check fails: silently drop.
+
+This is best-effort routing, not a security control.
+
+### Pitch Frame Processing
+
+**MIDI-to-scoring conversion**:
+```
+Tone = midiNote - 36    (C2=36 → Tone=0)
+```
+This value is input to octave normalization in scoring.
+
+**Live pitch stream**: After validation and jitter buffer insert, emit `PitchEvent` on `SharedFlow` for UI pitch cursor. `SharedFlow` config: `replay=0`, `extraBufferCapacity=64`, `onBufferOverflow=DROP_OLDEST`. UI stream does not affect scoring; jitter buffer is scoring source of truth.
+
+### HTTP Cleartext Configuration (Required)
+
+TV fetches HTTP assets from LAN phones. Include in `res/xml/network_security_config.xml` and reference via `android:networkSecurityConfig` in manifest:
+
+```xml
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
+```
+
+Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED` on API 28+.
+
+### Asset Streaming
+
+- Pass song URLs directly to ExoPlayer (`MediaItem.fromUri(audioUrl)`) or Coil (images). No intermediate storage.
+- ExoPlayer begins playback after ~2–4s buffered. MUST NOT wait for full download.
+- HTTP failure (404, timeout): suppress for images; recoverable error for audio.
 
 ### Source
 
@@ -360,9 +486,7 @@ Functional spec: transport and protocol contract
 
 ### Knowledge Gaps
 
-| Gap | Severity |
-|-----|----------|
-| mDNS library choice (jmDNS vs NsdManager) | Deferrable — test on real device in Iter 1 |
+None.
 
 ---
 
@@ -510,6 +634,18 @@ data class IndexedSong(
 - **SongIndex**: In-memory map, keyed by songId
 - **SortComparator**: Artist → Album → Title ordering
 
+### Catalog Fetch Triggers (Normative)
+
+TV rebuilds library by fetching `GET /manifest.json` from each phone at exactly these points:
+
+1. **Phone connection**: After successful `hello`/`sessionState` handshake, fetch manifest before making songs visible.
+2. **Results screen**: When Results displayed (after any song/medley run), re-fetch all manifests. Ensures catalog changes (e.g., rescan during song) are reflected.
+3. **Manual refresh**: When user triggers Refresh in Settings > Song Library.
+
+Fetch replaces all songs for that `clientId` (not append). On failure: retain previous catalog, show error toast.
+
+**Phone disconnect**: Immediately remove all songs for that `clientId` from library.
+
 ### Source
 
 Functional spec: library lifecycle and song index
@@ -584,7 +720,29 @@ sealed class PlaybackIntent {
 - **ResultsScreen**: Final scores, per-segment breakdown for medley
 - **SettingsScreen**: Subpages per functional spec §9.4
 - **SelectPlayersModal**: Player assignment, difficulty selection
-- **PitchLaneRenderer**: Canvas-based, 30fps render loop
+- **PitchLaneRenderer**: SurfaceView-based, 30fps render loop (see below)
+
+### Pitch Lane Rendering Architecture (Normative)
+
+Singing screen MUST separate real-time pitch lane rendering from Compose UI:
+
+| Layer | Content | Technology |
+|-------|---------|------------|
+| Background | Pitch lane (note targets, pitch cursor, hit/miss, instrumental gap) | `SurfaceView` with dedicated render thread @30fps |
+| Foreground | Score counters, lyrics, rating labels, countdown, pause overlay | Compose overlay on top of SurfaceView |
+
+**Implementation Requirements**:
+- Render thread decoupled from Compose recomposition.
+- Drawing logic as pure function: `drawPitchLane(canvas: Canvas, viewport: Rect, state: LaneRenderState)` where `LaneRenderState` is immutable.
+- No references to Views, Contexts, or lifecycle-scoped objects in drawing function.
+- Enables JVM-based screenshot testing via `Bitmap`-backed `Canvas` in Robolectric `@GraphicsMode(Mode.NATIVE)`.
+
+**Performance Guidelines**:
+- Each singer lane as single drawing surface (not one UI element per note).
+- Reuse cached geometry/primitives across frames.
+- No per-frame object allocation in lane rendering.
+- Static dark panel or gradient for readability overlays (no runtime blur).
+- Flat rectangular shapes for pitch targets (no live glow/shadow).
 
 ### Source
 
@@ -597,9 +755,7 @@ Functional spec: TV UI screens and flows
 
 ### Knowledge Gaps
 
-| Gap | Severity |
-|-----|----------|
-| Pitch lane render technique (Compose Canvas vs SurfaceView) | Deferrable — prototype in Iter 2 |
+None.
 
 ---
 
@@ -923,6 +1079,14 @@ private suspend fun transitionMedleySegment(
 - `MEDLEY_FADE_IN_SEC = 8.0f`
 - Prebuffer trigger: 5 seconds before segment end
 
+**Error Handling (Normative)**:
+- If `txtUrl` fetch fails: skip that segment and continue to next remaining segment.
+- If audio is unreachable: medley MUST abort and follow playback-error exit path (show error modal, return to song list).
+
+**Audio Prebuffering (Normative)**:
+
+`PlaybackController` MUST support preparing a second ExoPlayer instance in background. At segment boundary, active and prebuffered players swap: prebuffered becomes active (with fade-in), old active released. If prebuffering is not complete at transition point, coordinator MUST fall back to sequential prepare-and-play path with brief audio gap.
+
 ---
 
 ## 4.3 Scoring Coroutine
@@ -987,6 +1151,8 @@ class JitterBuffer(
     private val bufferP2 = RingBuffer<PitchFrame>(capacity = (capacityMs / frameIntervalMs).toInt())
     
     fun insert(frame: PitchFrame) {
+        val buffer = if (frame.playerId == P1) bufferP1 else bufferP2
+        
         // Validate lateness
         val latenessMs = frame.arrivalTvMs - frame.tvTimeMs
         if (latenessMs > MAX_PLAYOUT_DELAY_MS) {
@@ -994,7 +1160,24 @@ class JitterBuffer(
             return
         }
         
-        val buffer = if (frame.playerId == P1) bufferP1 else bufferP2
+        // Validate sequence ordering (per-player)
+        val lastSeq = buffer.lastOrNull()?.seq
+        if (lastSeq != null && frame.seq <= lastSeq) {
+            log("Decreasing seq: $lastSeq → ${frame.seq}, dropping")
+            return
+        }
+        
+        // Validate timestamp regression (per-player)
+        val lastTvTimeMs = buffer.lastOrNull()?.tvTimeMs
+        if (lastTvTimeMs != null) {
+            val regression = lastTvTimeMs - frame.tvTimeMs
+            if (regression > MAX_TIMESTAMP_REGRESSION_MS) {
+                log("tvTimeMs regression ${regression}ms > 200ms, dropping")
+                return
+            }
+            // Note: regression ≤200ms is accepted (network reordering tolerance)
+        }
+        
         buffer.add(frame)
     }
     
@@ -1014,6 +1197,7 @@ class JitterBuffer(
     companion object {
         const val TARGET_PLAYOUT_DELAY_MS = 220
         const val MAX_PLAYOUT_DELAY_MS = 450
+        const val MAX_TIMESTAMP_REGRESSION_MS = 200
     }
 }
 ```
@@ -1023,6 +1207,11 @@ class JitterBuffer(
 ## 4.5 Clock Sync Logic
 
 NTP-lite protocol, best-of-N selection.
+
+**Sync Schedule (Normative)**:
+- Run **5 exchanges** (100ms apart) on connection to establish initial offset.
+- **Suspend** during active singing. LAN clock drift over ~3 min song is negligible (<1ms).
+- Resume with single exchange on song end or disconnect/reconnect.
 
 ```kotlin
 class ClockSyncLogic(
@@ -1068,6 +1257,56 @@ class ClockSyncLogic(
 
 data class ClockSample(val rtt: Long, val offsetMs: Long, val pingId: String)
 ```
+
+---
+
+## 4.6 Beat-Time Conversion
+
+USDX beat numbers in `.txt` files are the authoritative beat grid (quarter-beat resolution).
+
+**Internal Beat Unit**:
+- File beats: integers in note lines (`startBeat`, `duration`) and sentence lines.
+- Internal beats: identical to file beats (no scaling): `internalBeat = fileBeat`.
+- Parsing rule: use beat values as-is (no `*4`).
+
+**Internal BPM**:
+- `BPM_internal = BPM_file * 4`
+
+```kotlin
+object BeatCalculator {
+    /**
+     * Convert time (seconds relative to chart origin) to internal beat position.
+     * Chart origin = lyricsTimeSec - GAPms/1000.0 (may be negative).
+     */
+    fun timeSecToMidBeatInternal(tSec: Double, bpmInternal: Float): Double {
+        return tSec * (bpmInternal / 60.0)
+    }
+    
+    /**
+     * Convert internal beat to time (seconds relative to chart origin).
+     */
+    fun beatInternalToTimeSec(beatInt: Double, bpmInternal: Float): Double {
+        return beatInt * (60.0 / bpmInternal)
+    }
+}
+```
+
+**Visual vs Scoring Beat (Normative)**:
+
+Two beat computations from the same `BPM_internal` and `GAPms`:
+
+| Consumer | Formula | micDelayMs |
+|----------|---------|------------|
+| **Lyrics beat** (highlight, elapsed display) | `floor(timeSecToMidBeatInternal(lyricsTimeSec - GAPms/1000.0))` | 0 |
+| **Lane beat** (pitch targets, scoring windows) | `songStartTvMs + beatInternalToTimeSec(startBeat)*1000 + GAPms + effectiveMicDelayMs` | Configured |
+
+- Lyrics beat tracks what audience hears from speakers.
+- Lane beat tracks where singer's voice should appear given mic/network delay.
+- Pitch lane renders targets using lane beat. Live cursor driven by `PitchEvent.tvTimeMs` — correct performance aligns cursor with targets.
+
+**Boundary Convention**: `noteActive if startBeat <= beat < endBeat` (start inclusive, end exclusive).
+
+**Implementation**: Beat conversion logic MUST accept `micDelayMs` parameter (default 0). Using wrong delay for a consumer is a conformance error.
 
 ---
 
