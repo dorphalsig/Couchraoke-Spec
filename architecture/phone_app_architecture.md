@@ -153,6 +153,27 @@ Six components in a layered monolith (single `:app` module with package boundari
 - `TxtParser` — header + body parsing (shared with TV)
 - `ValidationEngine` — applies §3.2 acceptance rules
 
+### Validation Rules (Normative)
+
+A song is accepted if and only if:
+
+1. **Required headers present**:
+   - `#TITLE` and `#ARTIST` non-empty
+   - `#BPM` parseable as non-zero float
+   - Audio tag: `#AUDIO` or `#MP3` (v1.0.0+: `#AUDIO` precedence; legacy: `#MP3` required)
+
+2. **Required audio file exists**: resolved relative to `.txt` directory
+
+3. **Notes parse without fatal errors**: unknown tokens warn, fatal numeric errors reject
+
+4. **Each track has ≥1 non-empty sentence after cleanup**
+
+**Error codes**:
+- `ERROR_CORRUPT_SONG_MISSING_REQUIRED_HEADER`
+- `ERROR_CORRUPT_SONG_FILE_NOT_FOUND`
+- `ERROR_CORRUPT_SONG_MALFORMED_HEADER`
+- `ERROR_CORRUPT_SONG_NO_NOTES`
+
 **Source**: §3.1, §3.2, §3.3
 
 **NFRs**: 1.4 (scan performance), 1.5 (memory)
@@ -171,7 +192,7 @@ Six components in a layered monolith (single `:app` module with package boundari
 - Stops on session end
 
 **Functional Boundary**:
-- `GET /manifest.json` from in-memory byte array
+- `GET /manifest.json` from in-memory byte array (Cache-Control: no-cache)
 - `GET /songs/<path>` with range request support
 - Maps relative paths to SAF URIs
 - 404 for missing, 416 for invalid ranges
@@ -180,6 +201,39 @@ Six components in a layered monolith (single `:app` module with package boundari
 - `KtorServer` — Ktor CIO + partial-content plugin
 - `UriMapper` — relativePath → platformURI lookup
 - `RangeHandler` — parses Range header, streams bytes
+
+### Libraries (Pinned)
+
+| Platform | Library | Version |
+|----------|---------|---------|
+| Android | `io.ktor:ktor-server-cio` | 2.3.12 |
+| Android | `io.ktor:ktor-server-partial-content` | 2.3.12 |
+| iOS | Swifter | 1.5.0 |
+
+### Server Configuration
+
+- Default port: `34781` (fallback to ephemeral if busy)
+- Report actual port in `hello.httpPort`
+
+### SAF File Reads (Android)
+
+```kotlin
+// File reads via ContentResolver (not java.io.File)
+contentResolver.openAssetFileDescriptor(uri, "r")
+contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), ...)
+
+// Cloud file check: if SIZE=0 or null, treat as absent
+```
+
+### Security-Scoped Reads (iOS)
+
+```swift
+url.startAccessingSecurityScopedResource()
+NSFileCoordinator().coordinate(readingItemAt: fileURL, options: .withoutChanges) { ... }
+url.stopAccessingSecurityScopedResource()
+
+// iCloud check: ubiquitousItemDownloadingStatus == .current
+```
 
 **Source**: §8.7.1, §8.7.2, §8.7.3
 
@@ -211,6 +265,64 @@ Six components in a layered monolith (single `:app` module with package boundari
 - `MedianFilter` — 3-byte circular buffer
 - `SensitivityTable` — 8 presets from §5.2.5.3
 
+### Pre-Allocated Buffers (Normative)
+
+All buffers allocated once at init, reused every frame (zero GC):
+
+| Buffer | Size | Purpose |
+|--------|------|---------|
+| `audioBuffer` | 1024 floats | Raw PCM input |
+| `paddedBuffer` | 2048 floats | Zero-padded FFT input |
+| `fftComplexBuffer` | 4096 floats | In-place FFT (interleaved real/imag) |
+| `diffBuffer` | 1024 floats | d_t difference function |
+| `normBuffer` | 1024 floats | d' normalized function |
+| `medianHistory` | 3 bytes | Temporal smoothing |
+
+### Algorithm Pipeline (Normative)
+
+**Step 1: Voicing Gate**
+```
+maxAmp = max(abs(audioBuffer[i])) for i in 0..1023
+if maxAmp < sensitivityTable[index].maxAmpCutoff:
+    rawMidiNote = 255  // skip Steps 2-4
+```
+
+**Step 2: Linear Autocorrelation via FFT**
+1. Zero-pad: copy audioBuffer to paddedBuffer[0..1023], fill [1024..2047] with 0
+2. Forward FFT in-place
+3. Power spectrum: `Re² + Im²`, zero imaginary
+4. Inverse FFT: first 1024 reals = `r_t(tau)`
+
+**Step 3: Squared Difference and Normalization**
+```
+d_t(tau) = E_start + E_shift(tau) - 2 * r_t(tau)
+d'(0) = 1.0
+d'(tau) = d_t(tau) / ((1/tau) * sum(d_t(1..tau)))
+```
+
+**Step 4: Candidate Selection**
+- Find first local minimum where `d'(tau) < dPrimeCutoff`
+- If none, use absolute minimum
+- If `d'(tau) > 0.40`: unvoiced
+- Else: `hz = 44100 / tau`, `rawMidiNote = clamp(round(69 + 12*log2(hz/440)), 0, 127)`
+
+**Step 5: Temporal Smoothing**
+- 3-frame rolling median
+- If any of 3 frames is 255: output 255 (silence breaks combo)
+
+### Sensitivity Table
+
+| Index | maxAmpCutoff | dPrimeCutoff | Environment |
+|-------|--------------|--------------|-------------|
+| 0 | 0.01 | 0.10 | Whisper/Studio |
+| 1 | 0.02 | 0.15 | High Sensitivity |
+| 2 | 0.04 | 0.20 | Medium-High |
+| **3** | **0.06** | **0.25** | **Default (Karaoke Room)** |
+| 4 | 0.09 | 0.30 | Noisy Room |
+| 5 | 0.13 | 0.35 | Low |
+| 6 | 0.18 | 0.40 | Loud Party |
+| 7 | 0.25 | 0.45 | Extreme Noise |
+
 **Source**: §5.2.5
 
 **NFRs**: 1.1 (pitch latency - CRITICAL), 1.6 (battery)
@@ -241,6 +353,45 @@ Six components in a layered monolith (single `:app` module with package boundari
 - `MessageCodec` — JSON serialization
 - `PitchFrameEncoder` — 16-byte binary encoding
 
+### Pitch Frame Wire Format (16 bytes, little-endian)
+
+```
+Offset  Size  Type     Field
+  0      4    uint32   seq              — frame counter
+  4      4    int32    tvTimeMs         — phone's estimate of TV monotonic ms
+  8      4    uint32   songInstanceSeq  — from assignSinger
+ 12      1    uint8    playerId         — 0=P1, 1=P2
+ 13      1    uint8    midiNote         — 0-127 voiced, 255=unvoiced
+ 14      2    uint16   connectionId     — from sessionState
+```
+
+### mDNS Discovery (Manual Code Entry)
+
+1. Normalize input: strip spaces/hyphens, uppercase
+2. Browse `_karaoke._tcp`
+3. Match TXT field `code` against normalized input
+4. Connect to matching service's host:port
+5. Timeout: 5 seconds → "TV not found"
+
+**Android**: Acquire `WifiManager.MulticastLock` during browse
+
+**Required Permissions (Android)**:
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+<uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+```
+
+**Required Plist (iOS)**:
+```xml
+<key>NSLocalNetworkUsageDescription</key>
+<key>NSBonjourServices</key><array><string>_karaoke._tcp</string></array>
+<key>NSCameraUsageDescription</key>
+<key>NSMicrophoneUsageDescription</key>
+```
+
 **Source**: §8.1, §8.2, §8.3, §8.5, §8.6
 
 **NFRs**: 1.1 (pitch latency), 1.2 (reliability)
@@ -254,8 +405,9 @@ Six components in a layered monolith (single `:app` module with package boundari
 **Responsibility**: Compute and maintain `clockOffsetMs` to estimate TV time.
 
 **Lifecycle**:
-- 5 exchanges on connect
-- Resumes on song end
+- 5 exchanges on connect (100ms apart)
+- Suspend during singing
+- Resume on song end or reconnect
 - Provides offset for frame `tvTimeMs`
 
 **Functional Boundary**:
@@ -268,6 +420,45 @@ Six components in a layered monolith (single `:app` module with package boundari
 - `ClockSample` — t1, t2, t3, t4, RTT, offset
 - `SampleBuffer` — 5-sample ring
 - `BestOfNSelector` — picks lowest RTT
+
+### Clock Sync Protocol
+
+```
+TV ──ping(pingId, tTvSendMs)──► Phone
+              │
+              ▼
+         record t2 = phoneMonotonicMs at receipt
+         record t3 = phoneMonotonicMs at send
+              │
+Phone ──pong(pingId, tTvSendMs, tPhoneRecvMs, tPhoneSendMs)──► TV
+              │
+              ▼
+TV ──clockAck(pingId, tTvRecvMs)──► Phone
+```
+
+### Per-Sample Computation (Phone)
+
+```
+t1 = tTvSendMs      (from ping, echoed)
+t2 = tPhoneRecvMs   (phone's record)
+t3 = tPhoneSendMs   (phone's record)
+t4 = tTvRecvMs      (from clockAck)
+
+RTT = (t4 - t1) - (t3 - t2)
+clockOffsetMs = ((t2 - t1) + (t3 - t4)) / 2
+```
+
+### Sample Selection
+
+- Keep last 5 samples
+- Discard if `RTT < 0` or `RTT > 2000`
+- Use sample with smallest RTT
+
+### TV Time Estimation
+
+```kotlin
+fun toTvTime(phoneMonotonicMs: Long): Long = phoneMonotonicMs + clockOffsetMs
+```
 
 **Source**: §8.8
 
