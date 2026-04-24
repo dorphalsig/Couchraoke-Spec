@@ -17,8 +17,7 @@
   },
   "timing": {
     "bpmChanges": [
-      { "startBeatFile": 0, "bpmFile": 120 },
-      { "startBeatFile": 6, "bpmFile": 150 }
+      { "startBeatFile": 0, "bpmFile": 120 }
     ],
     "startBeatFile": null,
     "endBeatFile": null,
