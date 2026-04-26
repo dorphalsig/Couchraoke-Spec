@@ -1,8 +1,9 @@
 # Couchraoke TV App — Specification
 
-**Version**: 1.2
-**Date**: 2026-04-21
+**Version**: 1.3
+**Date**: 2026-04-25
 **Scope**: Android TV Host App (phone companion OOS)
+**Changelog since 1.2**: Playback backend migrated from Media3/ExoPlayer to LibVLC. §1.1 Testability, §1.6 Minimal Footprint, §2.1 PlaybackCoordinator (songStartTvMs Capture, Playback error handling, new Audio Focus subsection), §2.6 UI Layer (new Playback Backend Seam), §2.6.16 SingingScreen (new SurfaceView z-order rule), §3.1/§3.2 flow diagrams, and §4.2 Medley Audio Prebuffering all updated. AV-sync and dual-track mixing resolved: §2.1 Audio/Video Asset Coupling added (two-MP model, audio master, #VIDEOGAP arithmetic). Phone pre-mixes #INSTRUMENTAL/#VOCALS; TV always receives a single audioUrl. instrumentalUrl/vocalsUrl removed from all wire schemas.
 **Changelog since 1.1**: §2.6 Design Tokens and Visual System added; screen subsections updated with token references, revised song-card composition, interruption-overlay shell, winner-emphasis rule, and singing-screen motion budget. Source: `2026-04-21-tv-app-design.md` (merged and retired).
 ---
 
@@ -57,7 +58,7 @@ Ordered by priority. These describe *how* the system should be built.
 | Requirement | Implementation |
 |-------------|----------------|
 | Timing-sensitive logic accepts injected clocks | `FakeClock` / `TestCoroutineScheduler` |
-| All I/O behind interfaces | Network, Media3, filesystem mockable |
+| All I/O behind interfaces | Network, playback (LibVLC via `LibVlcPlayerHandle`), filesystem mockable |
 | Scoring testable with fixture pitch streams | No real UDP required |
 | Coverage gates | 80% overall / 60% per-file (see testing/testing_policy.md) |
 
@@ -114,7 +115,7 @@ Normative target device: mid-tier Android TV stick/box.
 | Component | Spec | Constraint |
 |-----------|------|------------|
 | SoC | Amlogic S905X4 (quad-core Cortex-A55 @ 1.8GHz) | Decent CPU, weak GPU. No complex shaders. |
-| RAM | 2GB DDR3/DDR4 | App budget: ≤512MB including ExoPlayer buffers. |
+| RAM | 2GB DDR3/DDR4 | App budget: ≤512MB including LibVLC buffers. |
 | Storage | 16GB eMMC | Very slow R/W. No temp files during playback. |
 | GPU | Mali-G31 MP2 (OpenGL ES 3.2) | Flat rendering only. No blur, glow, or post-processing. |
 | OS | Android TV 11–14 | Min API 30. Multicast lock required for mDNS. |
@@ -125,9 +126,9 @@ Higher-spec devices (4GB RAM) must work without degradation; lower-spec (1GB RAM
 
 | Resource | Budget | Notes |
 |----------|--------|-------|
-| App total | ≤512MB | Heap + native + ExoPlayer. System overhead ~800MB–1GB on 2GB devices. |
-| ExoPlayer audio buffer | ≤64MB | `DefaultLoadControl.Builder` |
-| ExoPlayer video buffer | ≤128MB | `DefaultLoadControl.Builder` |
+| App total | ≤512MB | Heap + native + LibVLC. System overhead ~800MB–1GB on 2GB devices. |
+| LibVLC caching | `--file-caching=2000`, `--network-caching=3000`, `--live-caching=300` (all ms). Passed at `LibVLC` construction. | Caching is time-based, not byte-based; LibVLC does not expose a hard byte budget. Empirically yields ≤80MB combined audio+video on the target SoC. |
+| LibVLC AAR ABI filter | `splits.abi { include 'arm64-v8a' }` (build-time) | Drops the `org.videolan.android:libvlc-all:3.6.0` AAR from ~82MB to ~25MB. Android TV stick/box devices in scope are all arm64. |
 | Disk writes during playback | Zero | No temp files, no disk cache |
 
 ### Performance Targets
@@ -144,10 +145,10 @@ Higher-spec devices (4GB RAM) must work without degradation; lower-spec (1GB RAM
 |-------------|----------------|
 | No per-frame allocation in hot paths | Pre-allocated buffers |
 | Single-activity architecture | No fragment transaction overhead |
-| Lazy initialization | ExoPlayer, mDNS created on demand |
-| ExoPlayer workaround for S905X4 | Custom `MediaCodecSelector` bypassing `PerformancePoint` checks (see below) |
+| Lazy initialization | LibVLC instance, mDNS created on demand |
+| Amlogic S905X4 codec workaround | ⚠ Needs hardware retest under LibVLC. Pass `--codec=mediacodec_ndk,all` to LibVLC at construction. If HD/FHD playback still fails on the S905X4 reference device in QA, fall back to `#BACKGROUND` still image (existing fallback path in §2.6.15.6). See paragraph below for context. |
 
-**ExoPlayer Device Workaround**: Amlogic S905X4 devices report inaccurate `PerformancePoint` capabilities. Media3 may mark HD/FHD tracks as `NO_EXCEEDS_CAPABILITIES`, causing unnecessary downscaling. Add target `Build.DEVICE`/`Build.MODEL` to custom `MediaCodecSelector` that bypasses `PerformancePoint` checks, following Media3's `MediaCodecInfo.needsIgnorePerformancePointsWorkaround()` pattern.
+**LibVLC codec selection on Amlogic S905X4 (open)**: Under Media3, the S905X4 reported inaccurate `PerformancePoint` capabilities, causing unnecessary HD/FHD downscaling, and required a custom `MediaCodecSelector` workaround. LibVLC routes hardware decode through `MediaCodec` as well, so the same underlying device bug *may* still bite. The required mitigation under LibVLC is unknown until QA verification on the reference device. The construction-time option `--codec=mediacodec_ndk,all` instructs LibVLC to prefer the NDK MediaCodec backend, which is the closest analogue to the Media3 workaround. **Action**: verify HD/FHD playback on the S905X4 reference unit before MVP sign-off. If verification fails, the existing `#BACKGROUND` still-image fallback (§2.6.15.6) is the only ship-blocker mitigation and Video MUST be forced OFF on the affected device profile via runtime device-model match.
 
 ---
 
@@ -169,7 +170,7 @@ Six L1 components directly under the TV app.
 │    │                                                             │
 │    ├── LibraryManager                                            │
 │    │                                                             │
-│    └── UI Layer (Compose + Media3)                               │
+│    └── UI Layer (Compose + LibVLC)                               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -196,12 +197,14 @@ Six L1 components directly under the TV app.
 
 ### songStartTvMs Capture (Normative)
 
-`songStartTvMs` is the TV monotonic ms value corresponding to audio position 0 (before any `#START` offset). The coordinator MUST gate scoring on this value, but Media3 timing capture belongs to the UI layer because the UI owns Media3.
+`songStartTvMs` is the TV monotonic ms value corresponding to audio position 0 (before any `#START` offset). The coordinator MUST gate scoring on this value. LibVLC timing capture belongs to the UI layer because the UI owns the `LibVlcPlayerHandle` (§2.6.1 Public API — Playback Backend Seam).
 
-1. The UI layer MUST register `AnalyticsListener.onAudioPositionAdvancing` on Media3/ExoPlayer before calling `play()`.
-2. When the callback fires, the UI layer computes `songStartTvMs = tvMonotonicNow − player.currentPosition`.
-3. The UI layer MUST capture a fallback at the moment `play()` is called: `System.nanoTime() / 1_000_000`.
-4. If `onAudioPositionAdvancing` has not fired within 500ms, the UI layer uses the fallback and logs a warning.
+The TV's monotonic clock for all `*TvMs` values throughout this spec is `System.nanoTime() / 1_000_000`. Wall-clock sources (`System.currentTimeMillis()`) MUST NOT be used for any `*TvMs` field.
+
+1. The UI layer MUST register a single event listener on the `LibVlcPlayerHandle` before calling `play()`. The underlying LibVLC `MediaPlayer.Event` callbacks fire on a libvlc native thread; the handle adapter MUST dispatch translated `LibVlcEvent` values onto the UI ViewModel's main scope before any coordinator-visible state is touched.
+2. On the **first** `LibVlcEvent.Playing` after `play()`, the UI layer MUST compute `songStartTvMs = (System.nanoTime() / 1_000_000) − playerHandle.timeMs` and emit `PlaybackEvent.Ready(songStartTvMs)`. The first `Playing` event fires when audio output actually begins, which is the most accurate single-shot anchor LibVLC exposes; do **not** wait for `LibVlcEvent.TimeChanged`, whose default cadence (~250 ms) is too coarse to anchor scoring.
+3. The UI layer MUST capture a fallback at the moment `play()` is called: `fallbackStartTvMs = System.nanoTime() / 1_000_000`.
+4. If `LibVlcEvent.Playing` has not fired within 500 ms of `play()`, the UI layer MUST use `fallbackStartTvMs`, emit `PlaybackEvent.Ready(fallbackStartTvMs)`, and log a warning.
 5. Before countdown or live playback begins, the UI layer MUST already have emitted `PlaybackEvent.Prepared(effectivePlaybackDurationMs)` to the coordinator.
 6. The coordinator computes `stopAtLyricsTimeMs` from chart data plus the prepared playback-plan duration, sends `assignSinger`, then starts countdown or playback.
 7. When playback begins, the UI layer emits `PlaybackEvent.Ready(songStartTvMs)` to the coordinator.
@@ -214,10 +217,51 @@ Six L1 components directly under the TV app.
 
 ### START/END Playback Behavior (Normative)
 
-- `#START` (seconds): if present, playback seeks forward to `startSec` on song start. Video seeks to `videoGapSec + startSec`.
+- `#START` (seconds): if present, audio MP seeks to `startSec`. Video MP target position is `(videoGapSec ?? 0) + startSec`, applied per the Audio/Video Asset Coupling rules below.
 - `#END` (milliseconds): if present and > 0, playback MUST end when `songTimeSec >= endMs / 1000.0`.
 - If `#END` is absent or ≤ 0, song duration is determined by audio track length.
-- **Restart**: resets per-player scores/state and seeks playback back to `startSec` (and video to `videoGapSec + startSec`).
+- **Restart**: resets per-player scores/state and seeks audio MP back to `startSec`; video MP restarted per Audio/Video Asset Coupling rules.
+
+### Audio/Video Asset Coupling (Normative)
+
+The TV uses **two independent LibVLC `MediaPlayer` instances** for songs that carry a video asset: an audio MP (master) and a video MP (decoration). For audio-only songs a single audio MP is used. The video MP is an optional decoration; its failure MUST NOT affect audio, scoring, or session state.
+
+**Phone-side audio preparation (normative)**: the phone's HTTP server MUST serve a single pre-mixed audio file at `audioUrl` for every song entry. If the song's source files contain both `#INSTRUMENTAL` and `#VOCALS` tracks, the phone MUST mix them into a single audio file before (or at first) serving. The TV MUST NOT attempt to fetch or mix `#INSTRUMENTAL`/`#VOCALS` URLs directly; those URLs MUST NOT appear in any TV-facing wire message.
+
+**Two-MP start sequence (normative)**: when `videoUrl` is non-null and video is enabled (§2.6.15.6):
+
+```kotlin
+val gapMs = ((parsedSong.videoGapSec ?: 0f) * 1000L).toLong()
+
+when {
+    gapMs == 0L -> {
+        audioHandle.play()
+        videoHandle.play()                    // simultaneous start
+    }
+    gapMs > 0 -> {
+        audioHandle.play()
+        scope.launch {
+            delay(gapMs)                      // #VIDEOGAP > 0: video starts after audio
+            videoHandle.play()
+        }
+    }
+    else /* gapMs < 0 */ -> {
+        videoHandle.seekTo(-gapMs)            // #VIDEOGAP < 0: seek video forward, start together
+        audioHandle.play()
+        videoHandle.play()
+    }
+}
+```
+
+**`songStartTvMs` is always captured from the audio MP's `LibVlcEvent.Playing`**, regardless of whether a video MP is present. The video MP's event stream MUST NOT influence scoring timing.
+
+**Video MP configuration**: the video MP MUST be constructed with `:no-audio` to disable its audio decoder and prevent audio-focus contention with the audio MP.
+
+**Drift (normative)**: no active drift correction is required for MVP. The two MPs share the same device system clock; observed drift over a 3–5 minute song on the target hardware is expected to be imperceptible for a decorative music-video backdrop. If QA on the reference device (Amlogic S905X4) shows drift > 300 ms, add a single resync at medley segment boundaries only.
+
+**Video MP failure handling**: if the video MP encounters `LibVlcEvent.EncounteredError`, the TV MUST release it and fall back to `#BACKGROUND` image (§2.6.15.6 fallback path). Audio MP continues unaffected. The error MUST be logged but MUST NOT surface an error modal.
+
+**Multi-MP stability note**: running two LibVLC `MediaPlayer` instances in-process is not an officially documented use case for libvlc-android. The risk is assessed as low (Android's plugin set differs from desktop vlcj where warnings originate) but is a known yellow flag. If sustained QA on the reference device reveals instability, fall back to single-MP with `addSlave(Type.Audio, audioUri, true)` for audio, accepting that non-zero `#VIDEOGAP` values will produce a visually offset video.
 
 ### Public API
 
@@ -865,11 +909,11 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 
 **`/manifest.json` serving (normative)**: the phone MUST serve `/manifest.json` from an **in-memory JSON byte array** rebuilt on each scan. It MUST NOT read from disk on each HTTP request. The scan populates the byte array; the HTTP handler serves it directly. This ensures low-latency manifest responses and avoids I/O during playback.
 
-- Pass song URLs directly to ExoPlayer (`MediaItem.fromUri(audioUrl)`) or Coil (images). No intermediate storage.
-- ExoPlayer begins playback after ~2–4s buffered. MUST NOT wait for full download.
+- Pass song URLs directly to LibVLC or Coil (images). No intermediate storage.
+- LibVLC begins playback after buffering (file-caching default 2000ms). MUST NOT wait for full download.
 - HTTP failure (connection refused, 404, timeout): suppress for images; recoverable error for audio (treat same as missing optional asset vs. missing required audio respectively).
 
-**HTTP contract requirements the TV relies on (normative)** — the phone server MUST satisfy these for ExoPlayer to work correctly:
+**HTTP contract requirements the TV relies on (normative)** — the phone server MUST satisfy these for LibVLC to work correctly:
 - `Range` requests: server MUST support HTTP `Range` for all audio/video. ExoPlayer requires range support for seeking without re-downloading. Server MUST respond with `206 Partial Content` and a correct `Content-Range` header; MUST include `Accept-Ranges: bytes` on all audio/video responses.
 - `Content-Length`: MUST be set on all responses.
 - `/manifest.json`: server MUST set `Cache-Control: no-cache` to ensure the TV always receives the latest catalog.
@@ -988,7 +1032,7 @@ data class SongHeader(
     val cover: String?,              // #COVER
     val background: String?,         // #BACKGROUND
     val instrumental: String?,       // #INSTRUMENTAL (sole backing track when present; replaces #AUDIO/#MP3)
-    val vocals: String?,             // #VOCALS (mixed with #INSTRUMENTAL at vocalsVolume; ignored if #INSTRUMENTAL absent)
+    val vocals: String?,             // #VOCALS (phone mixes with #INSTRUMENTAL before serving; TV receives single pre-mixed audioUrl)
 
     // Optional metadata
     val version: String,             // #VERSION if present; "0.3.0" treated as default when absent
@@ -1093,10 +1137,9 @@ data class BeatRange(
 data class MedleySegment(
     val index: Int,               // 0-based position in the medley run
     val txtUrl: String,
-    val audioUrl: String?,        // single-track backing, null → segment is skipped on reach
+    val audioUrl: String?,        // pre-mixed backing track (phone mixes stems); null → segment skipped
     val videoUrl: String?,        // optional video asset for this segment
-    val instrumentalUrl: String?, // dual-track backing timing authority when non-null
-    val vocalsUrl: String?,       // optional guide vocal, follows instrumental timing
+    val videoGapSec: Float?,      // #VIDEOGAP for this segment's video asset
     val medleyStartSec: Float,    // max(0, timeFromBeat(startBeat) − MEDLEY_FADE_IN_SEC)
     val medleyEndSec: Float,      // timeFromBeat(endBeat) + MEDLEY_FADE_OUT_SEC
     val beatWindow: BeatRange,    // scoring window and medley beat bounds: startBeat inclusive, endBeat exclusive
@@ -1306,14 +1349,11 @@ data class IndexedSong(
     val videoUrl: String?,
     val coverUrl: String?,
     val backgroundUrl: String?,
-    val instrumentalUrl: String?,    // when non-null + reachable, replaces audioUrl per §2.6
-    val vocalsUrl: String?,          // mixed with instrumentalUrl; ignored if instrumentalUrl == null
-
     // Chart feature flags (computed by phone during validation, wired in manifest)
     val isDuet: Boolean,
     val hasRap: Boolean,             // R/G tokens detected in body
     val hasVideo: Boolean,           // invariant: == (videoUrl != null)
-    val hasInstrumental: Boolean,    // invariant: == (instrumentalUrl != null)
+    val hasInstrumental: Boolean,    // phone-detected: true if song has #INSTRUMENTAL track (phone serves pre-mixed audio regardless)
 
     // Medley
     val canMedley: Boolean,
@@ -1367,7 +1407,8 @@ The `IndexedSong` fields are defined by the data class in §2.5 Public API above
 - `relativeTxtPath` normalization: path separators MUST be `/`; MUST NOT start with `/`; MUST NOT contain `.` or `..` segments; case MUST be preserved.
 - `modifiedTimeMs`: Unix epoch milliseconds, TXT last-modified at scan time on phone.
 - `txtUrl` and `audioUrl` MUST be non-null for entries that appear in `/manifest.json` (validity prerequisite from the Discovery and Validation Rules above).
-- `hasVideo == (videoUrl != null)`; `hasInstrumental == (instrumentalUrl != null)`. Violation → reject manifest entry.
+- `hasVideo == (videoUrl != null)`. Violation → reject manifest entry.
+- `hasInstrumental`: set by the phone based on whether the song source contains a `#INSTRUMENTAL` tag. The TV uses this flag only to display the `I` chip (§2.5 Song Grid Tag Overlays); it MUST NOT use it to decide playback strategy. `instrumentalUrl` and `vocalsUrl` are NOT present in the manifest.
 - `medleySource == "tag"` ⇒ `medleyStartBeat` and `medleyEndBeat` both non-null, and `medleyStartBeat < medleyEndBeat`.
 - `medleySource == null` ⇒ `canMedley == false`.
 - `previewStartSec` derivation: `#PREVIEWSTART` if present and > 0; else if `medleySource != null` use `timeFromBeat(medleyStartBeat)`; else `0.0`.
@@ -1431,13 +1472,11 @@ The `/manifest.json` response is a JSON array of `SongEntry` objects. Each entry
   "audioUrl": "http://<phone-ip>:<port>/songs/Artist - Title/audio.mp3",
   "videoUrl": "http://<phone-ip>:<port>/songs/Artist - Title/video.mp4",
   "coverUrl": "http://<phone-ip>:<port>/songs/Artist - Title/cover.jpg",
-  "backgroundUrl": null,
-  "instrumentalUrl": null,
-  "vocalsUrl": null
+  "backgroundUrl": null
 }
 ```
 
-Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet`, `hasRap`, `hasVideo`, `hasInstrumental`, `canMedley`, `startSec`, `previewStartSec`, `txtUrl`, `audioUrl`. Optional URL fields (`videoUrl`, `coverUrl`, `backgroundUrl`, `instrumentalUrl`, `vocalsUrl`) are `null` when the corresponding file is absent.
+Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet`, `hasRap`, `hasVideo`, `hasInstrumental`, `canMedley`, `startSec`, `previewStartSec`, `txtUrl`, `audioUrl`. Optional URL fields (`videoUrl`, `coverUrl`, `backgroundUrl`) are `null` when the corresponding file is absent. `instrumentalUrl` and `vocalsUrl` are NOT included in the manifest; the phone serves a pre-mixed `audioUrl`.
 
 ### Acceptance Tests (Library, Discovery, Index)
 
@@ -1487,7 +1526,7 @@ None.
 
 ## 2.6 UI Layer
 
-**Responsibility**: All Compose screens. Owns Media3 for playback. Observes state from other components. Emits user intents and playback events.
+**Responsibility**: All Compose screens. Owns the `LibVlcPlayerHandle` (the single seam to the LibVLC `MediaPlayer`; see §2.6.1 Public API — Playback Backend Seam) for playback. Observes state from other components. Emits user intents and playback events.
 
 **Lifecycle**: Standard Android Activity/Compose lifecycle.
 
@@ -1525,9 +1564,8 @@ sealed class PlaybackIntent {
     data class Prepare(
         val audioUrl: String,
         val videoUrl: String?,
-        val seekToSec: Float,
-        val instrumentalUrl: String? = null,
-        val vocalsUrl: String? = null
+        val videoGapSec: Float?,      // #VIDEOGAP in seconds; null treated as 0
+        val seekToSec: Float
     ) : PlaybackIntent()
     object Play : PlaybackIntent()
     object Pause : PlaybackIntent()
@@ -1536,13 +1574,55 @@ sealed class PlaybackIntent {
     data class PrebufferNext(
         val audioUrl: String,
         val videoUrl: String? = null,
-        val seekToSec: Float,
-        val instrumentalUrl: String? = null,
-        val vocalsUrl: String? = null
+        val videoGapSec: Float? = null,
+        val seekToSec: Float
     ) : PlaybackIntent()
     data class FadeOut(val durationSec: Float) : PlaybackIntent()   // Fade out current segment and stop
     data class Crossfade(val fadeOutSec: Float, val fadeInSec: Float) : PlaybackIntent()
 }
+
+// ─── Playback Backend Seam (normative) ────────────────────────────────
+// The UI layer is the ONLY component that imports `org.videolan.libvlc.*`.
+// All other components (PlaybackCoordinator, ScoringEngine, tests) interact
+// with playback exclusively through the `LibVlcPlayerHandle` interface and
+// the `LibVlcEvent` sealed class defined below.
+//
+// This seam exists so that:
+//   1. Production code can be unit-tested without instantiating a real
+//      `org.videolan.libvlc.MediaPlayer` (whose `Event` constructors are
+//      package-private and cannot be invoked from test code).
+//   2. The playback backend can be swapped (e.g., back to Media3, or to a
+//      future LibVLC 4.x) by replacing the adapter implementation alone.
+
+interface LibVlcPlayerHandle {
+    /** Translated, main-thread-dispatched event stream. */
+    val events: SharedFlow<LibVlcEvent>
+
+    /** Current playhead position in ms. Reads `mediaPlayer.time` directly. */
+    val timeMs: Long
+
+    fun prepare(audioUrl: String, videoUrl: String?, seekToSec: Float)
+    fun play()
+    fun pause()
+    fun stop()
+    fun seekTo(positionMs: Long)
+    fun setAudioDelay(micros: Long)         // for #VIDEOGAP — see Playback Backend Configuration
+    fun setVolume(percent: Int)             // 0..100
+    fun release()
+}
+
+sealed class LibVlcEvent {
+    object Playing : LibVlcEvent()
+    object Paused : LibVlcEvent()
+    object EndReached : LibVlcEvent()
+    data class TimeChanged(val timeMs: Long) : LibVlcEvent()
+    data class EncounteredError(val lastLogLine: String?) : LibVlcEvent()
+}
+
+// The adapter implementation (production) wraps `org.videolan.libvlc.MediaPlayer`,
+// translates raw `MediaPlayer.Event` values into `LibVlcEvent`, and dispatches
+// onto the UI ViewModel's main scope. Tests use a fake implementation that
+// emits `LibVlcEvent` values directly with no libvlc dependency.
 
 // Chart-derived render contract for SingingScreen.
 // Built before countdown or active singing begins.
@@ -1902,15 +1982,11 @@ Singing screen MUST separate real-time pitch lane rendering from Compose UI:
 
 ### 2.6.7 #INSTRUMENTAL / #VOCALS Playback
 
-When `instrumentalUrl` is non-null and the file is reachable:
-- The TV MUST treat playback as a dual-track case.
-- The TV MUST use the `#INSTRUMENTAL` track as the **sole backing track** for the entire song, replacing `#AUDIO`/`#MP3`. There is no gap-based track switching; the instrumental track plays from start to end uninterrupted.
-- The instrumental track is the sole timing authority for audio position, seek, pause, resume, and `currentPositionMs` reporting. In dual-track mode, `PlaybackObservable.currentPositionMs` MUST expose the instrumental track position.
-- When `vocalsUrl` is also non-null, the TV MUST mix the vocals track simultaneously at a user-configurable volume (**Settings > Audio > Vocals Volume**, default 50%). This allows players to use the original singer as a pitch guide.
-- The vocals track MUST follow the instrumental track's timing authority and MUST NOT establish an independent timing source.
-- If `instrumentalUrl` is absent, playback is a single-track case and `#VOCALS` is ignored; `#AUDIO`/`#MP3` plays throughout as the sole timing authority.
-- Implementation approach (e.g., two `ExoPlayer` instances with `player.setVolume()`, or `MergingMediaSource` with `ScalingAudioProcessor`) is non-normative. Requirement: correct per-track gain control on target hardware profile. If the two tracks have different durations, playback MUST stop when the shorter track ends.
-- Before countdown or live playback begins, the UI MUST emit `PlaybackEvent.Prepared(effectivePlaybackDurationMs)` for the active playback plan. In single-track mode this is the prepared `audioUrl` duration. In dual-track mode this is the natural stop duration of the coupled playback plan after applying the shorter-track rule.
+The TV always plays a single pre-mixed `audioUrl` per song. The phone is responsible for mixing `#INSTRUMENTAL` and `#VOCALS` tracks before serving; the TV MUST NOT attempt dual-track mixing.
+
+- `hasInstrumental == true` affects only the `I` chip display in the song list (§2.5). It has no effect on TV playback logic.
+- **Settings > Audio > Vocals Volume** (default 50%): this control is reserved for a future release in which the phone exposes a mix-parameter endpoint. For MVP it MUST be rendered as a disabled slider with a "Coming soon" label.
+- Before countdown or live playback begins, the UI MUST emit `PlaybackEvent.Prepared(effectivePlaybackDurationMs)` equal to the duration of the prepared `audioUrl`.
 
 ### 2.6.8 Instrumental Gap Indicator
 
@@ -2407,7 +2483,7 @@ Shows song contribution status per connected phone: device name and song count. 
 
 #### 2.6.15.3 Settings > Audio
 - **Preview Volume**: slider 0–100. Controls Song List preview only. 0 = silence and disables preview. **Slider DPAD interaction**: Left/Right adjusts ±1 per press; long-press Left/Right adjusts ±10 per repeat. OK opens numeric keypad dialog.
-- **Vocals Volume**: slider 0–100 (default 50). Controls the `#VOCALS` acapella track volume when a song provides both `#INSTRUMENTAL` and `#VOCALS`. Has no effect when `#VOCALS` is absent. A value of 0 silences the vocal guide entirely (pure instrumental mode). **Slider DPAD interaction**: same as Preview Volume. TV MUST play both tracks simultaneously with independent volume control (`vocalsVolume / 100.0`); stop when shorter track ends.
+- **Vocals Volume**: slider 0–100 (default 50). Reserved for a future release; the phone will expose a mix-parameter endpoint. For MVP this control MUST be rendered as a **disabled slider** with a `Coming soon` sub-label beneath it. It MUST NOT affect playback.
 - **Mic sensitivity**: configured on each phone in phone Settings. The TV MUST NOT own or override this setting in MVP.
 
 ##### Audio Wireframe
@@ -2478,6 +2554,8 @@ Video enabled ON/OFF. When disabled or unavailable, background fallback: 1) `#BA
 ### 2.6.16 SingingScreen Behavior
 
 **Overall layout**: top metadata strip, lane region, full-width bottom lyrics band. The screen is designed for video backgrounds; overlay surfaces remain readable over moving footage via `SurfaceLaneBand` / `SurfaceLyricsBand` at `LaneBandAlpha` / `LyricsBandAlpha`.
+
+**Video surface z-order (normative)**: the video surface MUST be a `SurfaceView` with `setZOrderMediaOverlay(true)`. With this flag set, Compose lane bands, lyrics, score boxes, badges, and the pause/quit interruption overlay all composite **above** the video without routing through Compose's GPU composition pipeline. `TextureView` MUST NOT be used for fullscreen video on the singing screen — the additional GL composition cost on the Mali-G31 reference GPU is incompatible with the §1.6 30fps singing-screen target.
 
 **Layout tokens (global):**
 
@@ -2639,18 +2717,42 @@ Spectator disconnects (phones not assigned as singers) MUST NOT trigger auto-pau
 - `stopAtLyricsTimeMs` is the authoritative stop point, expressed in lyrics-time milliseconds.
   - Normal song: if `#END > 0`, `stopAtLyricsTimeMs = endMs`; otherwise `stopAtLyricsTimeMs` uses the effective playback-plan duration reported by `PlaybackEvent.Prepared` (`audioDurationMs` for single-track playback; for dual-track playback, the coupled plan's natural stop duration after applying the shorter-track rule). `#START` changes initial playback position only — it does NOT change the timing origin.
   - Medley: `stopAtLyricsTimeMs` is lyrics-time ms at the end of the final segment's `medleyEndSec`.
-- UI MUST enforce `stopAtLyricsTimeMs` as the active playback stop boundary on Media3.
-- When UI reaches `stopAtLyricsTimeMs`, it MUST stop Media3 and emit `PlaybackEvent.Ended`; the coordinator treats that event as the authoritative trigger for `Stopped` → scoring finalization → `Results`, unless an explicit error or quit path overrides it.
+- UI MUST enforce `stopAtLyricsTimeMs` as the active playback stop boundary on the LibVLC `MediaPlayer` (via `LibVlcPlayerHandle`).
+- When UI reaches `stopAtLyricsTimeMs`, it MUST call `LibVlcPlayerHandle.stop()` and emit `PlaybackEvent.Ended`; the coordinator treats that event as the authoritative trigger for `Stopped` → scoring finalization → `Results`, unless an explicit error or quit path overrides it.
 - The TV MUST **ignore** any `pitchFrame` whose corresponding note lies at or beyond `stopAtLyricsTimeMs`.
 
 **Playback error handling (normative)**:
-If ExoPlayer reports a non-recoverable error during singing (e.g., `ERROR_CODE_IO_NETWORK_CONNECTION_FAILED`, decoder init/decode failure), the TV MUST:
-1. Stop playback and scoring immediately.
+LibVLC's error model is coarse: a single `LibVlcEvent.EncounteredError` with no granular code. To preserve diagnostic value the TV MUST register a `LibVLC.OnLogListener` at LibVLC construction and maintain a single-slot ring buffer of the most recent log line at level `WARNING` or `ERROR`:
+
+```kotlin
+@Volatile private var lastLogLine: String? = null
+libVLC.setOnLogListener { level, ctx, msg ->
+    if (level == LogLevel.WARNING || level == LogLevel.ERROR) {
+        lastLogLine = msg.take(120)
+    }
+}
+```
+
+The log listener fires on a libvlc native thread; the volatile field is the only synchronisation needed and there is no allocation in the steady state.
+
+On `LibVlcEvent.EncounteredError` during singing, the TV MUST:
+1. Stop playback and scoring immediately (`LibVlcPlayerHandle.stop()`).
 2. Return to Song List.
-3. Show blocking error modal: title `ERROR`, body line 1 `This song can't be played.`, body line 2 = ExoPlayer error message (truncated to 120 chars), single `OK`.
+3. Show blocking error modal: title `ERROR`, body line 1 `This song can't be played.`, body line 2 = the volatile `lastLogLine` truncated to 120 chars; if `lastLogLine` is `null`, body line 2 is omitted. Single `OK`.
+
 The error MUST NOT crash the app, corrupt session state, or leave the session Locked. Session returns to Open on error exit.
 
-**Codec support (normative)**: supported audio formats are determined by the device's hardware and software decoders at runtime. No compile-time format whitelist is maintained. Songs with unsupported audio formats fail at playback time and are handled by this error path.
+**Codec support (normative)**: supported audio and video formats are determined by the device's hardware and software decoders at runtime, surfaced through LibVLC. No compile-time format whitelist is maintained. Songs with unsupported formats fail at playback time and are handled by this error path.
+
+**Audio focus (normative)**: LibVLC does not interact with `AudioManager` automatically. The UI layer MUST request audio focus before playback and respond to focus changes:
+
+1. Before `LibVlcPlayerHandle.play()`, request `AUDIOFOCUS_GAIN` on `STREAM_MUSIC` via `AudioManager.requestAudioFocus(AudioFocusRequest)`. If the request is not granted, the UI layer MUST emit `PlaybackEvent.Error` and follow the Playback error handling path above.
+2. Register an `OnAudioFocusChangeListener` for the lifetime of playback:
+   - `AUDIOFOCUS_LOSS_TRANSIENT` or `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` → emit `PlaybackIntent.Pause`. The coordinator pauses scoring per the existing pause/resume rules (`pauseStartedTvMs` / `totalPausedDurationMs`, steps 10–12 of §2.1 songStartTvMs Capture).
+   - `AUDIOFOCUS_GAIN` after a transient loss → emit `PlaybackIntent.Play` (resume).
+   - `AUDIOFOCUS_LOSS` (permanent) → follow the Playback error handling path above.
+3. The listener fires on a binder thread; the UI layer MUST dispatch onto the ViewModel's main scope before emitting any intent.
+4. On song end, error exit, or Restart, the UI layer MUST call `AudioManager.abandonAudioFocusRequest`.
 
 #### Singing Screen Wireframe
 
@@ -2750,7 +2852,7 @@ Quit confirm (default focus Cancel)
 - Scoring window: only notes within `[medleyStartBeat, medleyEndBeat)` use normal ScoreFactor; notes outside treated as Freestyle (ScoreFactor=0).
 
 **Video positioning**: if video present and enabled, position to `videoGapSec + medleyStartSec`.
-- `MedleySegment` and `PlaybackIntent.PrebufferNext` MUST carry the same per-segment media asset types needed for medley playback: `audioUrl`, optional `videoUrl`, optional `instrumentalUrl`, and optional `vocalsUrl`.
+- `MedleySegment` and `PlaybackIntent.PrebufferNext` MUST carry the per-segment media assets needed for medley playback: `audioUrl` (pre-mixed, non-null for playable segments), optional `videoUrl`, and optional `videoGapSec`.
 
 **Segment failure handling (normative)**:
 - If the full medley `SingingRenderModel` cannot be built before countdown (e.g., any required segment `txtUrl` fetch or parse fails), the medley MUST fail before start and return to Song List with an error modal.
@@ -2991,7 +3093,7 @@ NetworkCtrl.broadcastPlaybackState()
 NetworkCtrl.sendAssignSinger()
     │
     ▼
-UI.Play() ──→ Media3 starts ──→ PlaybackEvent.Ready(songStartTvMs)
+UI.Play() ──→ LibVLC starts ──→ PlaybackEvent.Ready(songStartTvMs)
                                         │
                                         ▼
                               ScoringEngine.setSongStart()
@@ -3052,7 +3154,7 @@ ScoringCoroutine (deadline-driven loop)
 **Pattern**: Intent/Event (unidirectional data flow)
 
 ```
-Coordinator ──(PlaybackIntent)──→ UI ──(executes Media3)
+Coordinator ──(PlaybackIntent)──→ UI ──(executes via LibVlcPlayerHandle)
            ←──(PlaybackEvent)────┘
            ←──(StateFlow<positionMs>)──┘
 ```
@@ -3290,9 +3392,8 @@ private suspend fun transitionMedleySegment(
                 PlaybackIntent.PrebufferNext(
                     audioUrl = nextNext.audioUrl,
                     videoUrl = nextNext.videoUrl,
-                    seekToSec = nextNext.medleyStartSec,
-                    instrumentalUrl = nextNext.instrumentalUrl,
-                    vocalsUrl = nextNext.vocalsUrl
+                    videoGapSec = nextNext.videoGapSec,
+                    seekToSec = nextNext.medleyStartSec
                 )
             )
         }
@@ -3311,7 +3412,7 @@ private suspend fun transitionMedleySegment(
 
 **Audio Prebuffering (Normative)**:
 
-`PlaybackController` MUST support preparing a second ExoPlayer instance in background. At segment boundary, active and prebuffered players swap: prebuffered becomes active (with fade-in), old active released. If prebuffering is not complete at transition point, coordinator MUST fall back to sequential prepare-and-play path with brief audio gap.
+`PlaybackController` MUST support preparing a second **audio+video pair** (`LibVlcPlayerHandle` × 2, or audio-only if no `videoUrl`) in background. At segment boundary, the active pair is released and the prebuffered pair becomes active (with fade-in). If prebuffering is not complete at transition point, coordinator MUST fall back to sequential prepare-and-play with a brief audio gap. All `LibVlcPlayerHandle` instances within a session share a single `LibVLC` engine — only the `MediaPlayer` is duplicated.
 
 ---
 
@@ -3609,8 +3710,8 @@ The note is finalized when TV monotonic clock reaches `noteEndTvMs + NOTE_FINALI
 
 | ID | Issue | Resolution |
 |----|-------|------------|
-| BLOCKER-1 | Media3 ↔ PlaybackCoordinator interaction | Intent/Event pattern. Coordinator emits `PlaybackIntent`, UI observes and executes, emits `PlaybackEvent` back. |
-| BLOCKER-3 | playback start and duration handoff | UI reports effective playback-plan duration in `PlaybackEvent.Prepared`, then captures `songStartTvMs` from Media3 `onAudioPositionAdvancing` in `PlaybackEvent.Ready`; Coordinator uses the former for `stopAtLyricsTimeMs` and the latter for ScoringEngine start. |
+| BLOCKER-1 | LibVLC ↔ PlaybackCoordinator interaction | Intent/Event pattern via `LibVlcPlayerHandle`. Coordinator emits `PlaybackIntent`, UI layer executes via audio/video handle pair, emits `PlaybackEvent` back. |
+| BLOCKER-3 | playback start and duration handoff | UI reports effective playback-plan duration in `PlaybackEvent.Prepared`, then captures `songStartTvMs` from `LibVlcEvent.Playing` on the audio MP in `PlaybackEvent.Ready`; Coordinator uses the former for `stopAtLyricsTimeMs` and the latter for ScoringEngine start. |
 | GAP-1 | Clock sync timing relative to song start | Gate song start on ≥1 valid clock sync sample. Coordinator checks before `assignSinger`. |
 | GAP-2 | Manifest re-fetch trigger on Results | Coordinator calls `libraryManager.refreshAll()` during Stopped→Results transition. |
 | GAP-3 | Pitch frame routing | NetworkController exposes `pitchFrames: SharedFlow<PitchFrame>`. ScoringEngine subscribes. |
@@ -3824,7 +3925,7 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 | Pause overlay | UI: SingingScreen | [§2.6](#26-ui-layer) |
 | Settings screens | UI: SettingsScreen | [§2.6](#26-ui-layer) |
 | Video backgrounds | UI: SingingScreen | [§2.6](#26-ui-layer) |
-| Instrumental + vocals mixing | UI | [§2.6](#26-ui-layer), [§2.4](#24-usdxparser) |
+| Instrumental + vocals mixing | Phone (see phone spec) | Phone pre-mixes before serving; no TV deliverable |
 
 **DOD**:
 - [ ] Two phones connect, both appear in SelectPlayers
@@ -4213,8 +4314,7 @@ Struct: <IqIBBH (little-endian)
     "videoUrl": {"type": ["string", "null"], "format": "uri"},
     "coverUrl": {"type": ["string", "null"], "format": "uri"},
     "backgroundUrl": {"type": ["string", "null"], "format": "uri"},
-    "instrumentalUrl": {"type": ["string", "null"], "format": "uri"},
-    "vocalsUrl": {"type": ["string", "null"], "format": "uri"}
+    "hasInstrumental": {"type": "boolean"}
   }
 }
 ```
