@@ -144,7 +144,7 @@ Higher-spec devices (4GB RAM) must work without degradation; lower-spec (1GB RAM
 | Requirement | Implementation |
 |-------------|----------------|
 | No per-frame allocation in hot paths | Pre-allocated buffers |
-| Single-activity architecture | No fragment transaction overhead |
+| Single-activity architecture | No fragment transaction overhead; `navigation-compose` `NavHost` manages the screen back stack |
 | Lazy initialization | LibVLC instance, mDNS created on demand |
 | Amlogic S905X4 codec workaround | ⚠ Needs hardware retest under LibVLC. Pass `--codec=mediacodec_ndk,all` to LibVLC at construction. If HD/FHD playback still fails on the S905X4 reference device in QA, fall back to `#BACKGROUND` still image (existing fallback path in §2.6.15.6). See paragraph below for context. |
 
@@ -1533,6 +1533,7 @@ None.
 ### UI Overview
 
 Use this section as the primary home for UI behavior and screen-level requirements:
+- entry point, theme, navigation, and DI wiring: **Entry Point and Wiring** (below)
 - API/render contracts and ownership boundaries: **2.6.1–2.6.4**
 - shared visual foundations: **2.6.5 Design Tokens and Visual System** and **2.6.11 Interruption Overlay Shell**
 - singing-specific playback and rendering: **2.6.6–2.6.10**
@@ -1541,6 +1542,53 @@ Use this section as the primary home for UI behavior and screen-level requiremen
 - UI verification and completion criteria: **2.6.19–2.6.22**
 
 Use [§3.1](#31-data-flow-diagrams) and [§3.2](#32-interaction-contracts) for end-to-end flow context; screen behavior remains owned here.
+
+### Entry Point and Wiring (Normative)
+
+**Entry point**: `MainActivity` is the single Android Activity. `setContent {}` is the only call site for theme and navigation host instantiation.
+
+```kotlin
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            CouchraokeTheme {
+                AppNavHost()
+            }
+        }
+    }
+}
+```
+
+**Theme**: `CouchraokeTheme` is a thin Compose function in `ui/theme/CouchraokeTheme.kt` that applies the §2.6.5 design tokens as a `MaterialTheme` color scheme and typography. It is called exactly once, at the `setContent {}` root. No other file in the codebase applies theme overrides or creates a nested `MaterialTheme`.
+
+**Navigation**: `AppNavHost` uses `androidx.navigation:navigation-compose`. Routes are a sealed type:
+
+```kotlin
+sealed class Screen(val route: String) {
+    object SongList      : Screen("song_list")
+    object SelectPlayers : Screen("select_players")
+    object Singing       : Screen("singing")
+    object Results       : Screen("results")
+    object Settings      : Screen("settings")
+    // settings sub-screens as nested objects, e.g. Screen.Settings.ConnectPhones
+}
+```
+
+`NavHost` manages the back stack. Back handling uses the default `BackHandler` provided by `navigation-compose` — no custom stack management. The back rules in [§2.6.9](#269-global-navigation-and-input) are implemented as `navController.navigate()` and `navController.popBackStack()` calls in each screen composable's DPAD Back handler. `SelectPlayersModal` and `JoinOverlay` are modal composables shown within `SongListScreen`, not separate `NavHost` destinations.
+
+**Dependency injection**: Hilt. `Application` is annotated `@HiltAndroidApp`; `MainActivity` is annotated `@AndroidEntryPoint`. All six top-level components (`PlaybackCoordinator`, `ScoringEngine`, `NetworkController`, `UsdxParser`, `LibraryManager`, and the `LibVLC` instance) are provided as `@Singleton` from a Hilt `@Module`. No component is instantiated directly in screen or ViewModel code.
+
+**ViewModels**: per-screen, scoped to the `NavBackStackEntry`, obtained via `hiltViewModel()`. Each ViewModel receives only the components its screen needs — e.g. `SingingViewModel` receives `PlaybackCoordinator` and `ScoringEngine`; `SongListViewModel` receives `LibraryManager` and `NetworkController`. There is no top-level `AppViewModel`; the domain components are the app-level state owners.
+
+**Library versions** (normative; also pin in constitution):
+
+| Artifact | Version |
+|---|---|
+| `androidx.navigation:navigation-compose` | `2.8.x` |
+| `com.google.dagger:hilt-android` | `2.51.x` |
+| `androidx.hilt:hilt-navigation-compose` | `1.2.x` |
 
 ### 2.6.1 Public API (Exposed to System)
 
@@ -1707,7 +1755,7 @@ data class VerticalPitchMapping(
 ### 2.6.4 L2 Visible Shapes
 
 - **SongListScreen**: Grid, preview, medley playlist, search
-- **SingingScreen**: Lyrics, pitch lane, score overlay, Media3 PlayerView
+- **SingingScreen**: Lyrics, pitch lane, score overlay, LibVLC `SurfaceView` (via `LibVlcPlayerHandle`)
 - **ResultsScreen**: Final scores, per-segment breakdown for medley
 - **SettingsScreen**: Connect Phones, Song Library, Audio, Scoring Timing, Gameplay, Video (see SettingsScreen Behavior below)
 - **SelectPlayersModal**: Player assignment, difficulty selection
@@ -3844,13 +3892,13 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 
 **Goal**: Pure-logic components fully tested with fixtures.
 
-| Deliverable | Component | Fixtures |
-|-------------|-----------|----------|
-| USDX parser | UsdxParser | F01, F02, F03, F04, F05 |
-| Beat↔time conversion | ScoringEngine (partial) | F06 |
-| Per-note scoring math | ScoringEngine (partial) | F08, F09, F10 |
-| Line bonus + rounding | ScoringEngine (partial) | F11 |
-| Fixture harness | Test infra | — |
+| Deliverable | Component | Spec Ref | Fixtures |
+|-------------|-----------|----------|----------|
+| USDX parser | UsdxParser | [§2.4](#24-usdxparser) | F01, F02, F03, F04, F05 |
+| Beat↔time conversion | ScoringEngine (partial) | [§4.6](#46-beat-time-conversion) | F06 |
+| Per-note scoring math | ScoringEngine (partial) | [§2.2](#22-scoringengine) | F08, F09, F10 |
+| Line bonus + rounding | ScoringEngine (partial) | [§2.2](#22-scoringengine) | F11 |
+| Fixture harness | Test infra | [Appendix A](#appendix-a-peer-boundary-test-utilities) | — |
 
 **DOD**:
 - [x] All fixture tests pass: F01–F06, F08–F11
@@ -3863,16 +3911,19 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 
 **Goal**: End-to-end: browse library → select song → play audio with lyrics.
 
-| Deliverable | Component | Spec Ref |
-|-------------|-----------|----------|
-| WebSocket server | NetworkController | [§2.3](#23-networkcontroller) |
-| mDNS advertisement | NetworkController | [§2.3](#23-networkcontroller) |
-| HTTP client | NetworkController | [§2.3](#23-networkcontroller) |
-| Manifest aggregation | LibraryManager | [§2.5](#25-librarymanager) |
-| Song grid UI | UI: SongListScreen | [§2.6](#26-ui-layer) |
-| Playback UI | UI: SingingScreen | [§2.6](#26-ui-layer) |
-| Media3 integration | UI | [§2.6](#26-ui-layer) |
-| GamePhase FSM | PlaybackCoordinator | [§4.1](#41-gamephase-fsm) |
+| Deliverable | Component | Spec Ref | Fixtures |
+|-------------|-----------|----------|----------|
+| WebSocket server | NetworkController | [§2.3](#23-networkcontroller) | F15 |
+| mDNS advertisement | NetworkController | [§2.3](#23-networkcontroller) | F15 |
+| HTTP client | NetworkController | [§2.3](#23-networkcontroller) | F15 |
+| Manifest aggregation | LibraryManager | [§2.5](#25-librarymanager) | F14 |
+| Song grid UI | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | F14 |
+| Join overlay | UI: JoinOverlay | [§2.6.13](#2613-join-overlay-behavior) | F15 |
+| Interruption overlay shell (loading/error variants) | UI: Shared overlay shell | [§2.6.11](#2611-interruption-overlay-shell) | F22 |
+| Playback UI | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | F22 |
+| `CouchraokeTheme` + `AppNavHost` wiring | UI | [Entry Point and Wiring](#entry-point-and-wiring-normative) | — |
+| LibVLC integration (`LibVlcPlayerHandle` wiring) | UI | [§2.6.1](#261-public-api-exposed-to-system) | F22 |
+| GamePhase FSM | PlaybackCoordinator | [§4.1](#41-gamephase-fsm) | F22 |
 
 **DOD**:
 - [ ] App discovers phone via mDNS, completes handshake
@@ -3890,16 +3941,16 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 
 **Goal**: Complete scoring loop — pitch frames flow, scores accumulate, results display.
 
-| Deliverable | Component | Fixtures |
-|-------------|-----------|----------|
-| Clock sync protocol | PlaybackCoordinator | F14v2, F21 |
-| UDP listener | NetworkController | F12v2 |
-| Pitch frame validation | NetworkController | — |
-| Jitter buffer | ScoringEngine | F13 |
-| Scoring coroutine | ScoringEngine | F08, F24 |
-| Pitch lane UI | UI: SingingScreen | — |
-| Live score display | UI: SingingScreen | — |
-| Results screen | UI: ResultsScreen | — |
+| Deliverable | Component | Spec Ref | Fixtures |
+|-------------|-----------|----------|----------|
+| Clock sync protocol | PlaybackCoordinator | [§2.1](#21-playbackcoordinator) | F14v2, F21 |
+| UDP listener | NetworkController | [§2.3](#23-networkcontroller) | F12v2 |
+| Pitch frame validation | NetworkController | [§2.3](#23-networkcontroller) | — |
+| Jitter buffer | ScoringEngine | [§5.2.3](#523-jitter-buffer-behavior) | F13 |
+| Scoring coroutine | ScoringEngine | [§2.2](#22-scoringengine) | F08, F24 |
+| Pitch lane UI | UI: SingingScreen | [§2.6.6](#266-pitch-lane-rendering-architecture), [§2.6.16](#2616-singingscreen-behavior) | — |
+| Live score display | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — |
+| Results screen | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen) | — |
 
 **DOD**:
 - [ ] Clock sync completes before song start
@@ -3916,16 +3967,16 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 
 **Goal**: 2-player support, duet songs, production-quality UX.
 
-| Deliverable | Component | Spec Ref |
-|-------------|-----------|----------|
-| 2-phone handling | NetworkController | [§2.3](#23-networkcontroller) |
-| P1/P2 assignment | PlaybackCoordinator | [§2.6](#26-ui-layer) |
-| Duet chart routing | UsdxParser, ScoringEngine | [§2.4](#24-usdxparser), [§2.2](#22-scoringengine) |
-| Disconnect/reconnect | PlaybackCoordinator | [§2.3](#23-networkcontroller) |
-| Pause overlay | UI: SingingScreen | [§2.6](#26-ui-layer) |
-| Settings screens | UI: SettingsScreen | [§2.6](#26-ui-layer) |
-| Video backgrounds | UI: SingingScreen | [§2.6](#26-ui-layer) |
-| Instrumental + vocals mixing | Phone (see phone spec) | Phone pre-mixes before serving; no TV deliverable |
+| Deliverable | Component | Spec Ref | Fixtures |
+|-------------|-----------|----------|----------|
+| 2-phone handling | NetworkController | [§2.3](#23-networkcontroller) | F23 |
+| P1/P2 assignment | PlaybackCoordinator | [§2.6.16](#2616-singingscreen-behavior) | F23 |
+| Duet chart routing | UsdxParser, ScoringEngine | [§2.4](#24-usdxparser), [§2.2](#22-scoringengine) | F23, F24 |
+| Disconnect/reconnect | PlaybackCoordinator | [§2.3](#23-networkcontroller) | F23 |
+| Pause overlay | UI: SingingScreen | [§2.6.11](#2611-interruption-overlay-shell) | F22 |
+| Settings screens | UI: SettingsScreen | [§2.6.15](#2615-settingsscreen) | — |
+| Video backgrounds | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — |
+| Instrumental + vocals mixing | Phone (see phone spec) | Phone pre-mixes before serving; no TV deliverable | — |
 
 **DOD**:
 - [ ] Two phones connect, both appear in SelectPlayers
@@ -3943,17 +3994,17 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 
 **Goal**: Medley mode complete, performance optimized, MVP shippable.
 
-| Deliverable | Component | Fixtures |
-|-------------|-----------|----------|
-| Medley playlist UI | UI: SongListScreen | — |
-| Medley sequencer | PlaybackCoordinator | F16 |
-| Segment transitions | PlaybackCoordinator + UI | F16 |
-| Audio prebuffer/crossfade | UI (Media3) | — |
-| Medley scoring windows | ScoringEngine | F11 |
-| Medley results | UI: ResultsScreen | — |
-| Preview playback | UI: SongListScreen | — |
-| Search/filter | UI: SongListScreen | — |
-| Device tuning | All | — |
+| Deliverable | Component | Spec Ref | Fixtures |
+|-------------|-----------|----------|----------|
+| Medley playlist UI | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | — |
+| Medley sequencer | PlaybackCoordinator | [§4.2](#42-medley-queue-management) | F16 |
+| Segment transitions | PlaybackCoordinator + UI | [§4.2](#42-medley-queue-management), [§2.6.17](#2617-singingscreen-medley-mode) | F16 |
+| Audio prebuffer/crossfade | UI (LibVLC) | [§4.2](#42-medley-queue-management) | — |
+| Medley scoring windows | ScoringEngine | [§6.6](#66-medley-aggregation) | F11 |
+| Medley results | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen) | — |
+| Preview playback | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | — |
+| Search/filter | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | — |
+| Device tuning | All | [§1.1](#11-testability), [§1.6](#16-minimal-footprint) | — |
 
 **DOD**:
 - [ ] Medley playlist, start, transitions work
