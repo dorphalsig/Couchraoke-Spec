@@ -526,6 +526,208 @@ If not `.current`, treat as absent. Call `FileManager.default.startDownloadingUb
 
 iOS may suspend the process ~30 seconds after backgrounding, terminating the HTTP server socket. Users must keep the phone app in the foreground during a song. Show "Keep app in foreground" banner when singing or serving.
 
+### Phone-Side Audio Mixing (Normative)
+
+When a song has both `#INSTRUMENTAL` and `#VOCALS` files with matching decoded sample rate and channel count, the phone MUST generate a single mixed WAV playback resource and expose it as the effective `audioUrl`.
+
+#### Mix Decision Rules
+
+A song is eligible for mixing if and only if:
+1. `#INSTRUMENTAL` resolves to a local file
+2. `#VOCALS` resolves to a local file
+3. Both files decode to the **same sample rate** (e.g., 44100 Hz or 48000 Hz)
+4. Both files have the **same channel count** (1 = mono, 2 = stereo)
+
+Differing compressed bitrates (e.g., 128 kbps vs 320 kbps) are allowed and do not affect eligibility.
+
+If any condition fails, fall back to the base `#AUDIO` or `#MP3` asset and emit a warn diagnostic.
+
+#### Generated Resource Lifecycle
+
+1. **Scan time**: Store relative paths for `#INSTRUMENTAL` and `#VOCALS`; determine eligibility; record in scan metadata
+2. **Manifest construction**: If eligible, set `audioUrl` to `/songs/generated/<relativeTxtPath-with-.txt-replaced-by-.wav>`
+3. **First GET request**: Decode both MP3s, mix to WAV, cache in memory
+4. **Subsequent requests**: Serve from cache
+5. **Song end or session leave**: Discard cached WAV
+
+#### Android Mixing Implementation
+
+**Decoding library**: `MediaCodec` + `MediaExtractor` (Android SDK, API 21+)
+
+**Algorithm**:
+```kotlin
+// 1. Extract metadata
+val instrumentalExtractor = MediaExtractor().apply { setDataSource(context, instrumentalUri, null) }
+val vocalsExtractor = MediaExtractor().apply { setDataSource(context, vocalsUri, null) }
+
+val format1 = instrumentalExtractor.getTrackFormat(0)
+val format2 = vocalsExtractor.getTrackFormat(0)
+
+val sampleRate = format1.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+val channels = format1.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+val durationUs = min(format1.getLong(MediaFormat.KEY_DURATION), format2.getLong(MediaFormat.KEY_DURATION))
+
+// Eligibility check
+if (sampleRate != format2.getInteger(MediaFormat.KEY_SAMPLE_RATE) ||
+    channels != format2.getInteger(MediaFormat.KEY_CHANNEL_COUNT)) {
+    // Fall back to base audio
+}
+
+// 2. Decode to PCM
+val decoder1 = MediaCodec.createDecoderByType(format1.getString(MediaFormat.KEY_MIME)!!)
+val decoder2 = MediaCodec.createDecoderByType(format2.getString(MediaFormat.KEY_MIME)!!)
+
+decoder1.configure(format1, null, null, 0)
+decoder2.configure(format2, null, null, 0)
+
+decoder1.start()
+decoder2.start()
+
+val pcm1 = mutableListOf<ShortArray>()
+val pcm2 = mutableListOf<ShortArray>()
+
+// Decode loop (standard MediaCodec pattern, omitted for brevity)
+// Output: List<ShortArray> of PCM16 samples
+
+// 3. Mix: sample-by-sample addition with clipping
+val mixed = ShortArray(pcm1.sumOf { it.size })
+var writeIdx = 0
+for (chunkIdx in pcm1.indices) {
+    val chunk1 = pcm1[chunkIdx]
+    val chunk2 = pcm2.getOrNull(chunkIdx) ?: ShortArray(chunk1.size) // pad if unequal
+    for (i in chunk1.indices) {
+        val sum = chunk1[i].toInt() + chunk2[i].toInt()
+        mixed[writeIdx++] = sum.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+    }
+}
+
+// 4. Write WAV header + PCM data
+val wavBytes = buildWavFile(mixed, sampleRate, channels)
+```
+
+**WAV Header Format** (RIFF/WAV PCM16LE, 44 bytes):
+```
+Offset | Bytes | Value
+-------|-------|------
+0      | 4     | "RIFF" (0x52494646)
+4      | 4     | fileSize - 8 (little-endian uint32)
+8      | 4     | "WAVE" (0x57415645)
+12     | 4     | "fmt " (0x666d7420)
+16     | 4     | 16 (subchunk1 size, LE uint32)
+20     | 2     | 1 (audio format = PCM, LE uint16)
+22     | 2     | channels (1 or 2, LE uint16)
+24     | 4     | sampleRate (LE uint32)
+28     | 4     | sampleRate * channels * 2 (byte rate, LE uint32)
+32     | 2     | channels * 2 (block align, LE uint16)
+34     | 2     | 16 (bits per sample, LE uint16)
+36     | 4     | "data" (0x64617461)
+40     | 4     | pcmDataSize in bytes (LE uint32)
+44     | N     | PCM samples (shorts in LE byte order)
+```
+
+**Caching**: LRU in-memory cache, max 3 songs (~90 MB for three 3-minute stereo 48kHz WAVs). Evict least-recently-used on 4th song.
+
+**Timing**: First request decodes both files (~2-3s on mid-tier 2022 hardware), subsequent requests <100ms from cache.
+
+#### iOS Mixing Implementation
+
+**Decoding library**: `AVAssetReader` + `AVAssetReaderTrackOutput` (iOS SDK)
+
+**Algorithm**:
+```swift
+let asset1 = AVURLAsset(url: instrumentalURL)
+let asset2 = AVURLAsset(url: vocalsURL)
+
+let track1 = asset1.tracks(withMediaType: .audio)[0]
+let track2 = asset2.tracks(withMediaType: .audio)[0]
+
+let format1 = track1.formatDescriptions[0] as! CMAudioFormatDescription
+let format2 = track2.formatDescriptions[0] as! CMAudioFormatDescription
+
+let asbd1 = CMAudioFormatDescriptionGetStreamBasicDescription(format1)!.pointee
+let asbd2 = CMAudioFormatDescriptionGetStreamBasicDescription(format2)!.pointee
+
+// Eligibility check
+guard asbd1.mSampleRate == asbd2.mSampleRate,
+      asbd1.mChannelsPerFrame == asbd2.mChannelsPerFrame else {
+    // Fall back
+}
+
+let reader1 = try AVAssetReader(asset: asset1)
+let reader2 = try AVAssetReader(asset: asset2)
+
+let outputSettings: [String: Any] = [
+    AVFormatIDKey: kAudioFormatLinearPCM,
+    AVLinearPCMBitDepthKey: 16,
+    AVLinearPCMIsNonInterleaved: false,
+    AVLinearPCMIsFloatKey: false,
+    AVLinearPCMIsBigEndianKey: false
+]
+
+let output1 = AVAssetReaderTrackOutput(track: track1, outputSettings: outputSettings)
+let output2 = AVAssetReaderTrackOutput(track: track2, outputSettings: outputSettings)
+
+reader1.add(output1)
+reader2.add(output2)
+
+reader1.startReading()
+reader2.startReading()
+
+var pcm1: [Int16] = []
+var pcm2: [Int16] = []
+
+while reader1.status == .reading {
+    if let buffer = output1.copyNextSampleBuffer() {
+        let blockBuffer = CMSampleBufferGetDataBuffer(buffer)!
+        var length: Int = 0
+        var dataPtr: UnsafeMutablePointer<Int8>?
+        CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &dataPtr)
+        let shorts = dataPtr!.withMemoryRebound(to: Int16.self, capacity: length / 2) { Array(UnsafeBufferPointer(start: $0, count: length / 2)) }
+        pcm1.append(contentsOf: shorts)
+    }
+}
+
+// Same for pcm2
+
+// Mix
+var mixed: [Int16] = []
+for i in 0..<min(pcm1.count, pcm2.count) {
+    let sum = Int32(pcm1[i]) + Int32(pcm2[i])
+    mixed.append(Int16(clamping: sum))
+}
+
+// Write WAV (same header format as Android)
+```
+
+**Caching**: Same LRU strategy as Android.
+
+#### Range Request Support
+
+Generated WAV responses MUST support HTTP Range requests. The cached WAV byte array includes the 44-byte header + PCM data. For a range request:
+
+```
+Range: bytes=100000-200000
+
+1. Validate range against total WAV size
+2. If valid, respond with:
+   Status: 206 Partial Content
+   Content-Range: bytes 100000-200000/<totalSize>
+   Content-Length: 100001
+   Body: wavBytes[100000..200000]
+```
+
+#### Determinism Requirement
+
+For a given `#INSTRUMENTAL` + `#VOCALS` pair and fixed mix parameters, the generated WAV MUST be byte-identical across requests. This ensures correct `Content-Length` and allows LibVLC to cache byte ranges.
+
+#### SLA Update
+
+| Metric | Limit | Test |
+|--------|-------|------|
+| First byte (uncached mix) | ≤3s | F18 + timing wrapper |
+| First byte (cached) | ≤100ms | F18 |
+| Mix determinism | Exact byte identity | F01/`d/mix_pair_same_rate_channels` repeated GET |
+
 ### Tests (Normative)
 
 | ID | What | Fixture | Expected |
@@ -543,12 +745,18 @@ iOS may suspend the process ~30 seconds after backgrounding, terminating the HTT
 | T8.7.10b | Published host uses active WebSocket local address | `inline` [I] | Published manifest URLs use the local socket address of the TV connection |
 | T8.7.10c | Generated playback path is reserved and ends in `.wav` | F01/`d/mix_pair_same_rate_channels` | `audioUrl` path is under `/songs/generated/` and ends in `.wav` |
 | T8.7.11 | iCloud evicted file → `audioUrl=null` (iOS) | F19 | `audioUrl=null`, `coverUrl` present |
+| T8.7.12 | Mix with matching sample rate/channels | F01/`d/mix_pair_same_rate_channels` | Generates WAV, serves under `/songs/generated/` |
+| T8.7.13 | Mix with mismatched sample rate | F01/`d/mix_pair_mismatched_sample_rate` | Falls back to base audio, warn emitted |
+| T8.7.14 | Mix with mismatched channels | F01/`d/mix_pair_mismatched_channels` | Falls back to base audio, warn emitted |
+| T8.7.15 | Generated WAV has correct RIFF header | F01/`d/mix_pair_same_rate_channels` | Bytes 0-3 = "RIFF", 8-11 = "WAVE", format = PCM16LE |
+| T8.7.16 | Generated WAV Range request | F01/`d/mix_pair_same_rate_channels` | Subsequent Range request returns correct subset |
+| T8.7.17 | Cache eviction (4th song) | `inline` [I] | LRU evicted, 4th song decoded fresh |
 
 **Source**: §8.7.1, §8.7.2, §8.7.3
 
 **NFRs**: 1.3 (HTTP throughput), 1.2 (reliability)
 
-**Acceptance**: F18, F19
+**Acceptance**: F18, F19, F01
 
 ---
 
@@ -1119,6 +1327,285 @@ When `stopAtLyricsTimeMs` reached or `playbackState.state == "stopped"`, the pho
 
 ---
 
+## 2.7 UI Layer
+
+**Responsibility**: All screens, navigation, theme. Observes state from other components. Emits user intents.
+
+**Lifecycle**: Standard platform app lifecycle (Android Activity/iOS UIViewController).
+
+### Entry Point and Wiring (Normative)
+
+**Android Entry Point**: `MainActivity` is the single Activity. Uses Jetpack Compose.
+
+```kotlin
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            CouchraokePhoneTheme {
+                AppNavHost()
+            }
+        }
+    }
+}
+```
+
+**iOS Entry Point**: SwiftUI `App` with single `WindowGroup`.
+
+```swift
+@main
+struct CouchraokePhoneApp: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+        }
+    }
+}
+```
+
+**Theme**: Material Design 3 (Android) / iOS Human Interface Guidelines (iOS).
+
+**Navigation**: 
+- Android: `androidx.navigation:navigation-compose`
+- iOS: NavigationStack
+
+**Dependency injection**:
+- Android: Hilt (`@HiltAndroidApp`, `@AndroidEntryPoint`)
+- iOS: Environment Objects or manual DI
+
+**Library versions** (Android):
+
+| Artifact | Version |
+|---|---|
+| `androidx.navigation:navigation-compose` | `2.8.x` |
+| `com.google.dagger:hilt-android` | `2.51.x` |
+| `androidx.compose.material3:material3` | `1.3.x` |
+| `androidx.camera:camera-camera2` | `1.4.x` |
+| `com.google.mlkit:barcode-scanning` | `17.3.x` |
+
+**Library versions** (iOS):
+
+| Artifact | Version |
+|---|---|
+| Swifter | `1.5.0` |
+| SwiftUI | Built-in (iOS 15+) |
+
+### 2.7.1 Design System
+
+#### Color Scheme
+
+**Android** (Material Design 3 Dynamic Color):
+- Primary: `Color(0xFF6750A4)` light / `Color(0xFFD0BCFF)` dark
+- Surface: `Color(0xFFFFFBFE)` light / `Color(0xFF1C1B1F)` dark
+- Error: `Color(0xFFB3261E)` light / `Color(0xFFF2B8B5)` dark
+
+**iOS** (System colors):
+- Primary: `.accent`
+- Background: `.systemBackground`
+- Error: `.systemRed`
+
+#### Typography
+
+**Android**:
+- Headline Large: 32sp bold
+- Title Large: 22sp semibold
+- Body Large: 16sp regular
+- Label Large: 14sp medium
+
+**iOS**:
+- Large Title: 34pt bold
+- Title: 28pt semibold
+- Body: 17pt regular
+- Caption: 12pt regular
+
+#### Spacing
+
+8pt grid: `4dp`, `8dp`, `16dp`, `24dp` (screen padding), `32dp`
+
+#### Components
+
+- **Buttons**: Filled (primary), Outlined (secondary), Text
+- **Text fields**: OutlinedTextField (Android) / TextField with border (iOS)
+- **Cards**: 12dp/pt corner radius, elevation 1
+- **VU Meter**: 8dp/pt height horizontal bar, primary color, animated
+
+### 2.7.2 Screen Specifications
+
+#### Join Screen
+
+**State**: Disconnected
+
+**Layout**:
+```
+┌────────────────────────┐
+│  Couchraoke            │
+│                        │
+│  [Scan QR Code]        │
+│                        │
+│  — or —                │
+│                        │
+│  Enter code:           │
+│  [ABCD-EFGH    ] [Join]│
+│                        │
+│  [Settings]            │
+└────────────────────────┘
+```
+
+**Behavior**:
+- **Scan QR**: Opens camera, parses `ws://...` payload, connects
+- **Manual code**: mDNS browse for 5s → connect or "TV not found" error
+- **Settings**: Navigate to Settings screen
+
+**Camera**: CameraX + MLKit (Android) / AVCaptureSession + Vision (iOS)
+
+#### Waiting/Connected Screen
+
+**State**: Connected as Spectator or Singer (not singing)
+
+**Layout**:
+```
+┌────────────────────────┐
+│  Connected             │
+│  Role: Spectator       │
+│                        │
+│  Input level:          │
+│  ████████░░░░░░        │
+│                        │
+│  [ ] Mute              │
+│                        │
+│  [Leave Session]       │
+│  [Settings]            │
+└────────────────────────┘
+```
+
+**Behavior**:
+- **VU meter**: Realtime amplitude from pitch detector
+- **Mute**: When ON, sends `midiNote=255`
+- **Medley source**: If `playbackState.reason="medley_source"`, show "Your songs in use — keep app open"
+
+**Screen wake**: `FLAG_KEEP_SCREEN_ON` (Android) / `isIdleTimerDisabled=true` (iOS)
+
+#### Active Mic Screen
+
+**State**: Assigned Singer, countdown or singing
+
+**Entry**: On `assignSinger`. Trigger 200ms haptic.
+
+**Layout (Countdown)**:
+```
+┌────────────────────────┐
+│     SINGER P1          │
+│                        │
+│         3              │
+│                        │
+│  Input: ████████░░░░   │
+│  [ ] Mute              │
+└────────────────────────┘
+```
+
+**Layout (Singing)**:
+```
+┌────────────────────────┐
+│  SINGER P1             │
+│                        │
+│  Input: █████████░░░   │
+│  [ ] Mute              │
+└────────────────────────┘
+```
+
+**Behavior**:
+- **Countdown**: Display 3, 2, 1. Mic warms, no frames sent
+- **Singing**: Stream 50fps UDP pitch frames
+- **Back**: SUPPRESSED (must background to exit)
+- **Exit**: On `stopAtLyricsTimeMs` or `playbackState.stopped` → Waiting
+
+**iOS banner**: "Keep app in foreground" shown during Active Mic
+
+#### Settings Screen
+
+**Accessible from**: Join, Waiting (disabled if serving song)
+
+**Layout**:
+```
+┌────────────────────────┐
+│  Settings              │
+│                        │
+│  Songs folder:         │
+│  /Downloads/Songs      │
+│  [Change Folder]       │
+│                        │
+│  Mic Sensitivity:      │
+│  [====|====] 3         │
+│  0   3   5   7         │
+│                        │
+│  423 valid, 2 invalid  │
+│  [Rescan Now]          │
+│                        │
+│  [Back]                │
+└────────────────────────┘
+```
+
+**Behavior**:
+- **Change Folder**: SAF picker (Android) / security-scoped bookmark picker (iOS), triggers rescan
+- **Mic Sensitivity**: 0-7 slider, updates `PitchDetector.setSensitivity()`
+- **Rescan**: Disabled if `inSong=true` and phone serves current song
+- **Default folder**: `Downloads/Songs/` (Android) / Documents (iOS)
+
+#### Error Modals
+
+**Permission denied**:
+```
+Permission Required
+
+Enable:
+• Camera (scan QR)
+• Microphone (pitch)
+• Local Network (TV)
+
+Android: Settings → Apps
+iOS: Settings → Privacy
+
+[OK]
+```
+
+**Session locked**: "A song is in progress. Try again in a moment."
+
+**Session full**: "Maximum players reached."
+
+**Protocol mismatch**: "App version incompatible. Please update."
+
+### 2.7.3 Navigation Flow
+
+```
+Join ──[connect]──► Waiting ──[assignSinger]──► ActiveMic
+ ▲                     │                            │
+ └─────[leave]─────────┴──[playbackState.stopped]──┘
+
+Settings: accessible from Join or Waiting
+```
+
+**Back handling**:
+- Join: Exit app
+- Waiting: Confirm → Join
+- ActiveMic: SUPPRESSED
+- Settings: Previous screen
+
+### 2.7.4 Platform Notes
+
+**Android**:
+- Permissions: Runtime request for `CAMERA`, `RECORD_AUDIO`, `NEARBY_WIFI_DEVICES`
+- Network: `network_security_config.xml` with `cleartextTrafficPermitted=true`
+- Background: Mic + HTTP continue when backgrounded
+
+**iOS**:
+- Permissions: Info.plist descriptions required
+- Background: Suspended after ~30s → HTTP socket closed
+- AVAudioSession: `.record` category, `.measurement` mode
+- Security-scoped bookmarks: Call `startAccessingSecurityScopedResource()` before serving
+
+---
+
 # 3. Component APIs
 
 ## 3.1 SongScanner
@@ -1352,7 +1839,9 @@ All tests are JVM-only unless noted.
 
 | Metric | Limit | Test |
 |--------|-------|------|
-| First byte | ≤100ms | F18 with Ktor testApplication |
+| First byte (static assets) | ≤100ms | F18 with Ktor testApplication |
+| First byte (generated mix, uncached) | ≤3s | F18 + timing wrapper |
+| First byte (generated mix, cached) | ≤100ms | F18 |
 | Range correctness | Exact boundaries | F18 |
 | Generated mixed `audioUrl` content length | Present on full and range responses | F01/`d/mix_pair_same_rate_channels` |
 | Generated mixed `audioUrl` repeatability | Exact byte identity for repeated GETs of the same path/range | F01/`d/mix_pair_same_rate_channels` |
@@ -1597,5 +2086,3 @@ mock-tv/
     ├── sing_10s.json
     └── reconnect.json
 ```
-
-~300 lines total.

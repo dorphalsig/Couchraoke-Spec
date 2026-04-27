@@ -397,7 +397,7 @@ data class PitchEvent(
 ### Scoring Algorithm (Normative)
 
 **Scoring coroutine (normative)**: scoring evaluation MUST run on a **dedicated coroutine**, independent of the UI render loop. The coroutine MUST:
-1. Poll `System.nanoTime() / 1_000_000` (TV monotonic clock) often enough to finalize due notes within the latency SLA. (`ExoPlayer.getCurrentPosition()` is used separately for lyrics beat position, not for note-window comparisons.)
+1. Poll `System.nanoTime() / 1_000_000` (TV monotonic clock) often enough to finalize due notes within the latency SLA. (`LibVLC player position` is used separately for lyrics beat position, not for note-window comparisons.)
 2. Maintain the jitter buffer of incoming pitch frames.
 3. Keep pending note finalizations in chronological order by `noteEndTvMs + NOTE_FINALIZATION_DELAY_MS`.
 4. Finalize every note whose deadline is due when TV monotonic clock reaches or exceeds that deadline.
@@ -718,7 +718,7 @@ The TV sends `assignSinger` to instruct the phone as follows:
 
 **`reason` value enum**: `""`, `"user_pause"`, `"singer_disconnected"`, `"song_end"`, `"user_quit"`, `"restart"`, `"segment_transition"`, `"medley_source"`, `"medley_end"`.
 
-**`lyricsTimeMs`**: current ExoPlayer position at message construction time.
+**`lyricsTimeMs`**: current LibVLC playback position at message construction time.
 
 The TV MUST send `playbackState` whenever playback enters countdown, starts, pauses, resumes, seeks, or stops. On reconnect during an active song, after `sessionState` and any required `assignSinger`, the TV MUST send the current `playbackState` immediately.
 
@@ -914,7 +914,7 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 - HTTP failure (connection refused, 404, timeout): suppress for images; recoverable error for audio (treat same as missing optional asset vs. missing required audio respectively).
 
 **HTTP contract requirements the TV relies on (normative)** — the phone server MUST satisfy these for LibVLC to work correctly:
-- `Range` requests: server MUST support HTTP `Range` for all audio/video. ExoPlayer requires range support for seeking without re-downloading. Server MUST respond with `206 Partial Content` and a correct `Content-Range` header; MUST include `Accept-Ranges: bytes` on all audio/video responses.
+- `Range` requests: server MUST support HTTP `Range` for all audio/video. LibVLC requires range support for seeking without re-downloading. Server MUST respond with `206 Partial Content` and a correct `Content-Range` header; MUST include `Accept-Ranges: bytes` on all audio/video responses.
 - `Content-Length`: MUST be set on all responses.
 - `/manifest.json`: server MUST set `Cache-Control: no-cache` to ensure the TV always receives the latest catalog.
 
@@ -2326,7 +2326,7 @@ Song Grid: 4 cards / row at 4K, 3 at 1080p. Cover art fills top of card; title s
 
 **Empty state**: no phones connected → blocking message `No phones connected` with action to open Settings > Connect Phones.
 
-**Song start**: asset URLs from manifest. On Start, TV fetches `txtUrl` synchronously, parses, hands `audioUrl`/`videoUrl` to ExoPlayer. If `audioUrl` is null: error `Cannot load song — audio file is unavailable on the phone.`
+**Song start**: asset URLs from manifest. On Start, TV fetches `txtUrl` synchronously, parses, hands `audioUrl`/`videoUrl` to LibVLC. If `audioUrl` is null: error `Cannot load song — audio file is unavailable on the phone.`
 
 **Medley render-model build (normative)**: for medley play, the coordinator MUST fetch and parse all segment `txtUrl` values required to build the full medley `SingingRenderModel` before countdown begins. This pre-start build MUST compute medley-wide vertical pitch bounds for each player from the union of that player's scorable notes across all medley segments.
 
@@ -3598,9 +3598,11 @@ NTP-lite protocol, best-of-N selection.
 
 **Sync Schedule (Normative)**:
 - Run **5 exchanges** (100ms apart) on connection to establish initial offset.
-- Before any `assignSinger` with `startMode="countdown"` or `startMode="live"`, the TV MUST have at least one valid clock-sync sample for each assigned singer. Countdown MUST NOT begin until this requirement has been satisfied.
+- Before any `assignSigner` with `startMode="countdown"` or `startMode="live"`, the TV MUST have at least one valid clock-sync sample for each assigned singer. Countdown MUST NOT begin until this requirement has been satisfied.
+- **If zero valid samples after 5 exchanges**: Retry once (5 more exchanges at 100ms intervals). If still zero valid samples, abort song start and show error modal: "Network too unstable for accurate sync. Check WiFi connection and try again." Do NOT proceed with zero offset — pitch frames would be systematically misaligned.
 - **Suspend** during active singing after countdown completes or live playback begins. LAN clock drift over ~3 min song is negligible (<1ms).
-- Resume with single exchange on song end or disconnect/reconnect.
+- **On Resume from Paused state**: Run single quick-sync exchange before resuming playback. Use new offset only if new sample has better RTT than current best; otherwise retain existing offset. This prevents drift from extended pauses (e.g., user pauses for 10+ minutes, phone clock may jump due to OS sleep/wake or NTP adjustment).
+- Resume with single exchange on song end or disconnect/reconnect (full reconnect follows standard 5-exchange protocol).
 - Any prior clock-sync result is scoped to the current TV session and active control connection. After reconnect, the TV MUST complete a fresh clock-sync exchange before treating resumed singer pitch traffic as valid for scoring.
 
 ```kotlin
