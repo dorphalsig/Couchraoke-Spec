@@ -197,11 +197,11 @@ Six L1 components directly under the TV app.
 
 ### songStartTvMs Capture (Normative)
 
-`songStartTvMs` is the TV monotonic ms value corresponding to audio position 0 (before any `#START` offset). The coordinator MUST gate scoring on this value. LibVLC timing capture belongs to the UI layer because the UI owns the `LibVlcPlayerHandle` (§2.6.1 Public API — Playback Backend Seam).
+`songStartTvMs` is the TV monotonic ms value corresponding to audio position 0 (before any `#START` offset). The coordinator MUST gate scoring on this value. LibVLC timing capture belongs to the UI/playback layer because it owns the playback controller and its `LibVlcPlayerHandle` instances (§2.6.1 Public API — Playback Backend Seam).
 
 The TV's monotonic clock for all `*TvMs` values throughout this spec is `System.nanoTime() / 1_000_000`. Wall-clock sources (`System.currentTimeMillis()`) MUST NOT be used for any `*TvMs` field.
 
-1. The UI layer MUST register a single event listener on the `LibVlcPlayerHandle` before calling `play()`. The underlying LibVLC `MediaPlayer.Event` callbacks fire on a libvlc native thread; the handle adapter MUST dispatch translated `LibVlcEvent` values onto the UI ViewModel's main scope before any coordinator-visible state is touched.
+1. The UI layer MUST register a single event listener on the audio `LibVlcPlayerHandle` before calling `play()`. The underlying LibVLC `MediaPlayer.Event` callbacks fire on a libvlc native thread; the handle adapter MUST dispatch translated `LibVlcEvent` values onto the UI ViewModel's main scope before any coordinator-visible state is touched.
 2. On the **first** `LibVlcEvent.Playing` after `play()`, the UI layer MUST compute `songStartTvMs = (System.nanoTime() / 1_000_000) − playerHandle.timeMs` and emit `PlaybackEvent.Ready(songStartTvMs)`. The first `Playing` event fires when audio output actually begins, which is the most accurate single-shot anchor LibVLC exposes; do **not** wait for `LibVlcEvent.TimeChanged`, whose default cadence (~250 ms) is too coarse to anchor scoring.
 3. The UI layer MUST capture a fallback at the moment `play()` is called: `fallbackStartTvMs = System.nanoTime() / 1_000_000`.
 4. If `LibVlcEvent.Playing` has not fired within 500 ms of `play()`, the UI layer MUST use `fallbackStartTvMs`, emit `PlaybackEvent.Ready(fallbackStartTvMs)`, and log a warning.
@@ -1137,7 +1137,7 @@ data class BeatRange(
 data class MedleySegment(
     val index: Int,               // 0-based position in the medley run
     val txtUrl: String,
-    val audioUrl: String?,        // pre-mixed backing track (phone mixes stems); null → segment skipped
+    val audioUrl: String,         // pre-mixed backing track (phone mixes stems); non-null for playable segments
     val videoUrl: String?,        // optional video asset for this segment
     val videoGapSec: Float?,      // #VIDEOGAP for this segment's video asset
     val medleyStartSec: Float,    // max(0, timeFromBeat(startBeat) − MEDLEY_FADE_IN_SEC)
@@ -1526,7 +1526,7 @@ None.
 
 ## 2.6 UI Layer
 
-**Responsibility**: All Compose screens. Owns the `LibVlcPlayerHandle` (the single seam to the LibVLC `MediaPlayer`; see §2.6.1 Public API — Playback Backend Seam) for playback. Observes state from other components. Emits user intents and playback events.
+**Responsibility**: App-wide Android TV UI layer, including `MainActivity`, root theme, navigation host, screens, modals, and playback-owned surfaces. Owns the UI/playback-layer controller that translates `PlaybackIntent` into one or more `LibVlcPlayerHandle` instances and emits `PlaybackEvent` back to the coordinator. Observes state from other components. Emits user intents and playback events.
 
 **Lifecycle**: Standard Android Activity/Compose lifecycle.
 
@@ -1545,7 +1545,7 @@ Use [§3.1](#31-data-flow-diagrams) and [§3.2](#32-interaction-contracts) for e
 
 ### Entry Point and Wiring (Normative)
 
-**Entry point**: `MainActivity` is the single Android Activity. `setContent {}` is the only call site for theme and navigation host instantiation.
+**App-wide UI shell**: `MainActivity`, `CouchraokeTheme`, and `AppNavHost` form the app-wide UI layer. `MainActivity` is the single Android Activity. `setContent {}` is the only call site for theme and navigation host instantiation.
 
 ```kotlin
 @AndroidEntryPoint
@@ -1631,16 +1631,19 @@ sealed class PlaybackIntent {
 
 // ─── Playback Backend Seam (normative) ────────────────────────────────
 // The UI layer is the ONLY component that imports `org.videolan.libvlc.*`.
-// All other components (PlaybackCoordinator, ScoringEngine, tests) interact
-// with playback exclusively through the `LibVlcPlayerHandle` interface and
-// the `LibVlcEvent` sealed class defined below.
+// PlaybackCoordinator emits PlaybackIntent and observes PlaybackEvent only;
+// it does not own player callbacks, surfaces, or concrete player handles.
+//
+// Within the UI/playback layer, each LibVlcPlayerHandle wraps exactly one
+// LibVLC MediaPlayer. A playback controller coordinates the active audio
+// handle and, when video is admitted, a separate decorative video handle.
 //
 // This seam exists so that:
 //   1. Production code can be unit-tested without instantiating a real
 //      `org.videolan.libvlc.MediaPlayer` (whose `Event` constructors are
 //      package-private and cannot be invoked from test code).
 //   2. The playback backend can be swapped (e.g., back to Media3, or to a
-//      future LibVLC 4.x) by replacing the adapter implementation alone.
+//      future LibVLC 4.x) by replacing the UI/playback adapter implementation alone.
 
 interface LibVlcPlayerHandle {
     /** Translated, main-thread-dispatched event stream. */
@@ -1649,13 +1652,12 @@ interface LibVlcPlayerHandle {
     /** Current playhead position in ms. Reads `mediaPlayer.time` directly. */
     val timeMs: Long
 
-    fun prepare(audioUrl: String, videoUrl: String?, seekToSec: Float)
+    fun prepare(mediaUrl: String, seekToSec: Float)
     fun play()
     fun pause()
     fun stop()
     fun seekTo(positionMs: Long)
-    fun setAudioDelay(micros: Long)         // for #VIDEOGAP — see Playback Backend Configuration
-    fun setVolume(percent: Int)             // 0..100
+    fun setVolume(percent: Int)             // 0..100; audio handle only
     fun release()
 }
 
@@ -1667,10 +1669,11 @@ sealed class LibVlcEvent {
     data class EncounteredError(val lastLogLine: String?) : LibVlcEvent()
 }
 
-// The adapter implementation (production) wraps `org.videolan.libvlc.MediaPlayer`,
-// translates raw `MediaPlayer.Event` values into `LibVlcEvent`, and dispatches
-// onto the UI ViewModel's main scope. Tests use a fake implementation that
-// emits `LibVlcEvent` values directly with no libvlc dependency.
+// The handle adapter implementation (production) wraps one
+// `org.videolan.libvlc.MediaPlayer`, translates raw `MediaPlayer.Event` values
+// into `LibVlcEvent`, and dispatches onto the UI ViewModel's main scope.
+// Tests use a fake implementation that emits `LibVlcEvent` values directly
+// with no libvlc dependency.
 
 // Chart-derived render contract for SingingScreen.
 // Built before countdown or active singing begins.
@@ -1754,8 +1757,9 @@ data class VerticalPitchMapping(
 
 ### 2.6.4 L2 Visible Shapes
 
+- **App-wide UI shell**: `MainActivity`, `CouchraokeTheme`, `AppNavHost`, route definitions, DI entry points
 - **SongListScreen**: Grid, preview, medley playlist, search
-- **SingingScreen**: Lyrics, pitch lane, score overlay, LibVLC `SurfaceView` (via `LibVlcPlayerHandle`)
+- **SingingScreen**: Lyrics, pitch lane, score overlay, UI/playback controller with `LibVlcPlayerHandle` audio/video handles
 - **ResultsScreen**: Final scores, per-segment breakdown for medley
 - **SettingsScreen**: Connect Phones, Song Library, Audio, Scoring Timing, Gameplay, Video (see SettingsScreen Behavior below)
 - **SelectPlayersModal**: Player assignment, difficulty selection
@@ -2091,7 +2095,7 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 - If `previewStartSec > 0.0`, use it; otherwise fallback: `pos = audioLengthSec / 4` (clamped to 60s if > 120s).
 - Plays from start position until stopped (no fixed 10s limit).
 - Uses Settings > Audio > Preview Volume. Value of 0 disables preview.
-- If `audioUrl` is null or HTTP fails, suppress silently.
+- If HTTP fails, suppress silently.
 
 **Media player lifetime (normative)**:
 - Media players are screen-scoped.
@@ -2326,7 +2330,7 @@ Song Grid: 4 cards / row at 4K, 3 at 1080p. Cover art fills top of card; title s
 
 **Empty state**: no phones connected → blocking message `No phones connected` with action to open Settings > Connect Phones.
 
-**Song start**: asset URLs from manifest. On Start, TV fetches `txtUrl` synchronously, parses, hands `audioUrl`/`videoUrl` to LibVLC. If `audioUrl` is null: error `Cannot load song — audio file is unavailable on the phone.`
+**Song start**: asset URLs from manifest. On Start, TV fetches `txtUrl` synchronously, parses, hands `audioUrl`/`videoUrl` to LibVLC. If `audioUrl` is unreachable: error `Cannot load song — audio file is unavailable on the phone.`
 
 **Medley render-model build (normative)**: for medley play, the coordinator MUST fetch and parse all segment `txtUrl` values required to build the full medley `SingingRenderModel` before countdown begins. This pre-start build MUST compute medley-wide vertical pitch bounds for each player from the union of that player's scorable notes across all medley segments.
 
@@ -2904,7 +2908,7 @@ Quit confirm (default focus Cancel)
 
 **Segment failure handling (normative)**:
 - If the full medley `SingingRenderModel` cannot be built before countdown (e.g., any required segment `txtUrl` fetch or parse fails), the medley MUST fail before start and return to Song List with an error modal.
-- `audioUrl` null when medley reaches a segment: skip that segment, show brief error toast, proceed to next.
+- Invalid manifest entries missing `audioUrl` MUST be rejected before they can enter the medley playlist or produce a `MedleySegment`.
 - Audio URL becomes unreachable during playback (e.g., source phone disconnected): abort medley, follow playback-error exit path (return to Song List, show error modal).
 
 **Segment indicator (normative)**: when `n > 1` segments remain, the in-song artist/title label MUST render as `<i>/<n>: <Artist> — <Title>`. A segment progress indicator MUST be shown in the top-left corner alongside this label. (When only one segment — i.e. a single-song medley — no indicator is required.)
@@ -3058,7 +3062,7 @@ Single results screen with static table: per-segment scores + Medley Total (mean
 | T9.5.7.6 | Per-note ratio scoring within medley window | F16 | `note_score = max_note_score × (hits/N)` per [Scoring Algorithm](#scoring-algorithm-normative) |
 | T9.5.7.7 | Playback order preserved | F16 | A → B → C |
 | T9.5.7.8 | `medleyStartBeat >= medleyEndBeat` → assertion error | inline | Internal defensive error |
-| T9.5.7.9 | `audioUrl` null → segment skipped, next proceeds | inline | Error toast + continue |
+| T9.5.7.9 | Manifest entry missing `audioUrl` | inline | Entry rejected before medley playlist/build |
 | T9.5.7.10 | Scan-time: `#MEDLEYSTARTBEAT >= #MEDLEYENDBEAT` → `canMedley=false` | inline | Song excluded from playlist |
 
 ### 2.6.20 Acceptance Tests (Results — 9.6)
@@ -3202,17 +3206,17 @@ ScoringCoroutine (deadline-driven loop)
 **Pattern**: Intent/Event (unidirectional data flow)
 
 ```
-Coordinator ──(PlaybackIntent)──→ UI ──(executes via LibVlcPlayerHandle)
+Coordinator ──(PlaybackIntent)──→ UI/playback controller ──→ LibVlcPlayerHandle(s)
            ←──(PlaybackEvent)────┘
            ←──(StateFlow<positionMs>)──┘
 ```
 
-- Coordinator emits `PlaybackIntent` (Prepare, Play, Pause, etc.)
-- UI observes and executes on Media3
-- UI is responsible for enforcing the active `stopAtLyricsTimeMs` boundary on Media3 using the current playback plan.
-- When UI detects that playback has reached the active `stopAtLyricsTimeMs`, it MUST stop Media3 and emit `PlaybackEvent.Ended`.
-- UI emits `PlaybackEvent` (`Prepared` with effective playback-plan duration, `Ready` with songStartTvMs, `Error`, `Ended`)
-- UI exposes `currentPositionMs: StateFlow<Long>` for observation; in dual-track mode this is the timing-authority instrumental position
+- Coordinator emits `PlaybackIntent` (Prepare, Play, Pause, etc.).
+- UI/playback layer observes intents and executes them through one audio `LibVlcPlayerHandle` plus an optional decorative video handle.
+- UI is responsible for enforcing the active `stopAtLyricsTimeMs` boundary on the audio handle using the current playback plan.
+- When UI detects that playback has reached the active `stopAtLyricsTimeMs`, it MUST stop the active handle pair and emit `PlaybackEvent.Ended`.
+- UI emits `PlaybackEvent` (`Prepared` with effective playback-plan duration, `Ready` with songStartTvMs, `Error`, `Ended`).
+- UI exposes `currentPositionMs: StateFlow<Long>` for observation; this is always the audio handle position.
 
 ### NetworkController ↔ ScoringEngine
 
@@ -3274,7 +3278,7 @@ This section captures supporting mechanics and implementation shape for behavior
 | State | Description |
 |-------|-------------|
 | `Idle` | No song loaded, session is Open |
-| `Loading` | Chart fetch/parse in progress, Media3 preparing |
+| `Loading` | Chart fetch/parse in progress, playback preparing |
 | `Countdown` | Countdown overlay visible, phones warming up mic |
 | `Playing` | Audio playing, scoring active, pitch frames flowing |
 | `Paused` | User-initiated pause |
@@ -3326,7 +3330,7 @@ This section captures supporting mechanics and implementation shape for behavior
 | Idle | Loading | User starts song from SelectPlayers |
 | Loading | Countdown | Playback plan prepared, `assignSinger` sent, countdown enabled |
 | Loading | Playing | Playback plan prepared, `assignSinger` sent, countdown disabled |
-| Loading | Idle | Media3 error or audio URL unreachable |
+| Loading | Idle | Playback error or audio URL unreachable |
 | Countdown | Playing | Countdown reaches 0 |
 | Countdown | Idle | Required singer disconnects |
 | Playing | Paused | User presses Back |
@@ -3460,7 +3464,7 @@ private suspend fun transitionMedleySegment(
 
 **Audio Prebuffering (Normative)**:
 
-`PlaybackController` MUST support preparing a second **audio+video pair** (`LibVlcPlayerHandle` × 2, or audio-only if no `videoUrl`) in background. At segment boundary, the active pair is released and the prebuffered pair becomes active (with fade-in). If prebuffering is not complete at transition point, coordinator MUST fall back to sequential prepare-and-play with a brief audio gap. All `LibVlcPlayerHandle` instances within a session share a single `LibVLC` engine — only the `MediaPlayer` is duplicated.
+The UI/playback-layer controller MUST support preparing a second **audio+video pair** in background: one `LibVlcPlayerHandle` for the next segment's audio plus a second decorative video handle when `videoUrl` is admitted. At segment boundary, the active pair is released and the prebuffered pair becomes active (with fade-in). If prebuffering is not complete at transition point, coordinator MUST fall back to sequential prepare-and-play with a brief audio gap. All `LibVlcPlayerHandle` instances within a session share a single `LibVLC` engine — only the `MediaPlayer` is duplicated.
 
 ---
 
@@ -3760,7 +3764,7 @@ The note is finalized when TV monotonic clock reaches `noteEndTvMs + NOTE_FINALI
 
 | ID | Issue | Resolution |
 |----|-------|------------|
-| BLOCKER-1 | LibVLC ↔ PlaybackCoordinator interaction | Intent/Event pattern via `LibVlcPlayerHandle`. Coordinator emits `PlaybackIntent`, UI layer executes via audio/video handle pair, emits `PlaybackEvent` back. |
+| BLOCKER-1 | LibVLC ↔ PlaybackCoordinator interaction | Intent/Event pattern. Coordinator emits `PlaybackIntent`; UI/playback layer coordinates one or more `LibVlcPlayerHandle` instances and emits `PlaybackEvent` back. |
 | BLOCKER-3 | playback start and duration handoff | UI reports effective playback-plan duration in `PlaybackEvent.Prepared`, then captures `songStartTvMs` from `LibVlcEvent.Playing` on the audio MP in `PlaybackEvent.Ready`; Coordinator uses the former for `stopAtLyricsTimeMs` and the latter for ScoringEngine start. |
 | GAP-1 | Clock sync timing relative to song start | Gate song start on ≥1 valid clock sync sample. Coordinator checks before `assignSinger`. |
 | GAP-2 | Manifest re-fetch trigger on Results | Coordinator calls `libraryManager.refreshAll()` during Stopped→Results transition. |
@@ -3918,23 +3922,34 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 | WebSocket server | NetworkController | [§2.3](#23-networkcontroller) | F15 |
 | mDNS advertisement | NetworkController | [§2.3](#23-networkcontroller) | F15 |
 | HTTP client | NetworkController | [§2.3](#23-networkcontroller) | F15 |
-| Manifest aggregation | LibraryManager | [§2.5](#25-librarymanager) | F14 |
-| Song grid UI | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | F14 |
+| Manifest aggregation | LibraryManager | [§2.5](#25-librarymanager) | F15 |
+| Song grid UI | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | F15 |
 | Join overlay | UI: JoinOverlay | [§2.6.13](#2613-join-overlay-behavior) | F15 |
 | Interruption overlay shell (loading/error variants) | UI: Shared overlay shell | [§2.6.11](#2611-interruption-overlay-shell) | F22 |
 | Playback UI | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | F22 |
-| `CouchraokeTheme` + `AppNavHost` wiring | UI | [Entry Point and Wiring](#entry-point-and-wiring-normative) | — |
-| LibVLC integration (`LibVlcPlayerHandle` wiring) | UI | [§2.6.1](#261-public-api-exposed-to-system) | F22 |
+| App-wide UI shell (`MainActivity`, `CouchraokeTheme`, `AppNavHost`) | UI | [Entry Point and Wiring](#entry-point-and-wiring-normative) | — |
+| LibVLC playback seam (`LibVlcPlayerHandle` wiring) | UI | [§2.6.1](#261-public-api-exposed-to-system) | F22 |
+| Playback timing, stop, error, and audio-focus handling | UI + PlaybackCoordinator | [§2.1](#21-playbackcoordinator), [§2.6.16](#2616-singingscreen-behavior) | F22 |
+| Minimal song-start clock-sync gate | PlaybackCoordinator | [§2.1](#21-playbackcoordinator) | inline |
 | GamePhase FSM | PlaybackCoordinator | [§4.1](#41-gamephase-fsm) | F22 |
 
 **DOD**:
 - [ ] App discovers phone via mDNS, completes handshake
 - [ ] Song list displays songs from phone manifest
-- [ ] Select song → plays audio, shows sentence-paged lyrics
+- [ ] Select song → plays audio through `LibVlcPlayerHandle`, shows sentence-paged lyrics
+- [ ] UI emits `PlaybackEvent.Prepared(effectivePlaybackDurationMs)` before countdown or playback
+- [ ] UI emits `PlaybackEvent.Ready(songStartTvMs)` from the first audio `LibVlcEvent.Playing`; coordinator calls `ScoringEngine.setSongStart(songStartTvMs)` only after that event
+- [ ] UI enforces `stopAtLyricsTimeMs` through `LibVlcPlayerHandle.stop()` and emits `PlaybackEvent.Ended`
+- [ ] Playback errors return to Song List with the blocking error modal and leave the session Open
+- [ ] UI requests audio focus before playback and abandons it on song end, error exit, or Restart
+- [ ] Before countdown or live playback, coordinator obtains at least one valid clock-sync sample for every assigned singer; cover this with a minimal inline test, while full F21 clock-sync fixture coverage remains Iter 2
 - [ ] Back → returns to song list
 - [ ] F15 session lifecycle passes
+- [ ] Minimal song-start clock-sync gate test passes
 - [ ] F22 GamePhase FSM passes
 - [ ] Runs on emulator
+- [ ] Cumulative TV app flow works end-to-end through the TV UI for Iter 1 scope: launch app, pair one phone, load phone manifest, select one song, play audio with lyrics, handle Back, and return to Song List
+- [ ] No known blocker remains for Iter 1 TV-owned scope
 - [ ] Peer-boundary behavior covered by direct WebSocket/UDP tests plus targeted instrumented checks
 
 **Peer Test Utilities**: Prefer direct test clients and fakes; no general mock-phone harness required.
@@ -3945,14 +3960,14 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 
 | Deliverable | Component | Spec Ref | Fixtures |
 |-------------|-----------|----------|----------|
-| Clock sync protocol | PlaybackCoordinator | [§2.1](#21-playbackcoordinator) | F14v2, F21 |
+| Full clock sync protocol coverage | PlaybackCoordinator | [§2.1](#21-playbackcoordinator) | F14v2, F21 |
 | UDP listener | NetworkController | [§2.3](#23-networkcontroller) | F12v2 |
 | Pitch frame validation | NetworkController | [§2.3](#23-networkcontroller) | — |
-| Jitter buffer | ScoringEngine | [§5.2.3](#523-jitter-buffer-behavior) | F13 |
+| Jitter buffer | ScoringEngine | [§4.4](#44-jitter-buffer) | F13 |
 | Scoring coroutine | ScoringEngine | [§2.2](#22-scoringengine) | F08, F24 |
 | Pitch lane UI | UI: SingingScreen | [§2.6.6](#266-pitch-lane-rendering-architecture), [§2.6.16](#2616-singingscreen-behavior) | — |
 | Live score display | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — |
-| Results screen | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen) | — |
+| Results screen | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen-behavior) | — |
 
 **DOD**:
 - [ ] Clock sync completes before song start
@@ -3962,6 +3977,8 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 - [ ] Song ends → Results screen shows final score
 - [ ] F13, F21, F24 pass
 - [ ] Perfect mock performance → `scoreTotalInt == 10000`
+- [ ] Cumulative TV app flow works end-to-end through the TV UI for Iter 2 scope: complete Iter 1 flow, receive pitch frames, show live pitch/score, end song, and show Results
+- [ ] No known blocker remains for Iter 2 TV-owned scope
 
 **Peer Test Utilities**: Prefer direct UDP sender tests. Construct datagrams inline for small cases; use replay fixtures only when timing-sensitive data is reused across tests.
 
@@ -3976,8 +3993,9 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 | Duet chart routing | UsdxParser, ScoringEngine | [§2.4](#24-usdxparser), [§2.2](#22-scoringengine) | F23, F24 |
 | Disconnect/reconnect | PlaybackCoordinator | [§2.3](#23-networkcontroller) | F23 |
 | Pause overlay | UI: SingingScreen | [§2.6.11](#2611-interruption-overlay-shell) | F22 |
-| Settings screens | UI: SettingsScreen | [§2.6.15](#2615-settingsscreen) | — |
+| Settings screens | UI: SettingsScreen | [§2.6.15](#2615-settingsscreen-behavior) | — |
 | Video backgrounds | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — |
+| Two-MP video playback model | UI (LibVLC) | [§2.1](#21-playbackcoordinator), [§2.6.16](#2616-singingscreen-behavior) | — |
 | Instrumental + vocals mixing | Phone (see phone spec) | Phone pre-mixes before serving; no TV deliverable | — |
 
 **DOD**:
@@ -3986,8 +4004,14 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 - [ ] Swap Parts works
 - [ ] Singer disconnect → pause overlay, reconnect resumes
 - [ ] All settings screens functional
-- [ ] Video background plays
+- [ ] Video background plays using separate LibVLC audio and video `MediaPlayer` instances when `videoUrl` is present
+- [ ] Audio MP remains timing authority; video MP is decorative and does not influence scoring or `songStartTvMs`
+- [ ] `#VIDEOGAP` applies the specified video delay/seek behavior, and video MP is configured with `:no-audio`
+- [ ] Video MP failure falls back to `#BACKGROUND` without surfacing an error modal or affecting audio/scoring/session state
+- [ ] Fullscreen video uses `SurfaceView.setZOrderMediaOverlay(true)` rather than `TextureView`
 - [ ] F04, F23 pass
+- [ ] Cumulative TV app flow works end-to-end through the TV UI for Iter 3 scope: complete Iter 2 flow with two phones, duet assignment/swap, disconnect/reconnect handling, settings, and video/background behavior
+- [ ] No known blocker remains for Iter 3 TV-owned scope
 - [ ] Demo: Two people sing a duet
 
 **Peer Test Utilities**: Use lightweight WebSocket test clients to simulate disconnect/reconnect and multi-phone session behavior. A full mock-phone harness is not required.
@@ -3999,14 +4023,15 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 | Deliverable | Component | Spec Ref | Fixtures |
 |-------------|-----------|----------|----------|
 | Medley playlist UI | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | — |
-| Medley sequencer | PlaybackCoordinator | [§4.2](#42-medley-queue-management) | F16 |
-| Segment transitions | PlaybackCoordinator + UI | [§4.2](#42-medley-queue-management), [§2.6.17](#2617-singingscreen-medley-mode) | F16 |
-| Audio prebuffer/crossfade | UI (LibVLC) | [§4.2](#42-medley-queue-management) | — |
-| Medley scoring windows | ScoringEngine | [§6.6](#66-medley-aggregation) | F11 |
-| Medley results | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen) | — |
+| Medley sequencer | PlaybackCoordinator | [§4.2](#42-medley-segment-transitions) | F16 |
+| Segment transitions | PlaybackCoordinator + UI | [§4.2](#42-medley-segment-transitions), [§2.6.17](#2617-singingscreen--medley-mode) | F16 |
+| Audio prebuffer/crossfade | UI (LibVLC) | [§4.2](#42-medley-segment-transitions) | — |
+| Medley scoring windows | ScoringEngine | [§2.6.17](#2617-singingscreen--medley-mode), [§2.2](#22-scoringengine) | F16 |
+| Medley results | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen-behavior) | — |
 | Preview playback | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | — |
 | Search/filter | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | — |
 | Device tuning | All | [§1.1](#11-testability), [§1.6](#16-minimal-footprint) | — |
+| S905X4 LibVLC playback verification | UI (LibVLC) | [§1.6](#16-minimal-footprint) | — |
 
 **DOD**:
 - [ ] Medley playlist, start, transitions work
@@ -4015,10 +4040,14 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 - [ ] Preview plays on focus
 - [ ] Search filters grid
 - [ ] F16, F18 pass
+- [ ] HD/FHD LibVLC playback verified on the Amlogic S905X4 reference device with `--codec=mediacodec_ndk,all`; if verification fails, Video is forced OFF for the affected device profile and `#BACKGROUND` still-image fallback is used
 - [ ] Performance on target device:
   - Singing screen ≥30fps
   - Song grid ≥60fps
   - Memory ≤512MB
+- [ ] Fully functional TV app flow works end-to-end through the TV UI: launch, pair phones, load library, browse/search/preview, solo sing, scored sing, duet, disconnect/reconnect, settings, video/background fallback, medley, and results
+- [ ] All TV-owned fixture and acceptance tests pass
+- [ ] No known blocker remains in TV-owned scope
 - [ ] Demo: Full medley karaoke session
 
 **Peer Test Utilities**: Use targeted test doubles for peer behavior. Keep medley validation focused on coordinator logic plus small instrumented playback checks.
@@ -4048,7 +4077,7 @@ Do NOT build or maintain a separate simulated phone application unless later evi
 | WebSocket control path | Lightweight WebSocket test client | Exercise `hello`, session lock, protocol mismatch, disconnect, reconnect. |
 | UDP pitch ingress | Direct UDP sender from test code | Send real datagrams to the listener; assert emitted `PitchFrame` values or downstream effects. |
 | HTTP client behavior | Small instrumented smoke test | Keep this narrow; do not justify a general harness with HTTP alone. |
-| Media3 / Android timing | Instrumented test | Cover runtime-specific behavior separately from peer simulation. |
+| LibVLC / Android timing | Instrumented test | Cover runtime-specific behavior separately from peer simulation. |
 
 ## A.3 UDP Test Data Policy
 
