@@ -76,7 +76,12 @@
         "version": "1.0.0",
         "bpmFile": 120.0,
         "audioResolved": "audio.ogg",
-        "customTagsOrdered": []
+        "customTagsOrdered": [
+          {
+            "name": "ENCODING",
+            "value": "ISO-8859-1"
+          }
+        ]
       },
       "derived": {
         "previewStartSec": 0.0
@@ -94,7 +99,12 @@
         "version": "0.3.0",
         "bpmFile": 120.0,
         "audioResolved": "audio.mp3",
-        "customTagsOrdered": []
+        "customTagsOrdered": [
+          {
+            "name": "ENCODING",
+            "value": "ISO-8859-1"
+          }
+        ]
       },
       "derived": {
         "previewStartSec": 0.0
