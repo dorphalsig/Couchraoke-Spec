@@ -19,7 +19,13 @@
   },
   "droppedConnectionIds": [1],
   "sentAssignSinger": {
-    "songInstanceSeq": 2,
-    "endTimeTvMs": 50000
+    "songInstanceSeq": 1,
+    "stopAtLyricsTimeMs": 50000,
+    "connectionIdPresent": false
+  },
+  "sentPlaybackState": {
+    "state": "playing",
+    "revision": 1,
+    "songInstanceSeq": 1
   }
 }

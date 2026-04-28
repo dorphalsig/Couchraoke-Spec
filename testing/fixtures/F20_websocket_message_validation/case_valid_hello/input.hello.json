@@ -4,6 +4,5 @@
   "clientId": "phone-a-uuid",
   "deviceName": "Pixel 7",
   "appVersion": "1.0.0",
-  "capabilities": { "pitchFps": 50 },
   "httpPort": 34781
 }

@@ -1,30 +1,26 @@
-# F15 — Session lifecycle: hello/assignSinger + disconnect/reconnect
+# F15 — Session lifecycle: hello/sessionState + assignSinger + disconnect/reconnect
 
-Updated in spec v4.19: `assignPlayer` removed; `hello` now includes `httpPort`;
-`sessionState` (carrying `connectionId`) replaces `assignPlayer` as the TV's response
-to `hello`; the TV now fetches `GET /manifest.json` after each `sessionState`;
-`assignSinger` now uses `songInstanceSeq` (uint32), `endTimeTvMs`, and `udpPort`;
-`connectionId` is NOT present in `assignSinger`.
+Tests the full TV-side session lifecycle using the current wire protocol (tv_app.md v1.3).
 
-## Files and conventions
+## Current protocol summary
 
-- `transcript.jsonl` / `expected.session.json`: current schema (spec v4.19)
-- `transcript.legacy.jsonl` / `expected.outcome.legacy.json`: kept for backward compatibility
-  with the pre-v4.19 schema (contains `assignPlayer`, old `assignSinger` fields).
-  Legacy files MUST NOT be updated.
+- `hello` (phone→TV) includes: `type`, `protocolVersion`, `clientId`, `deviceName`, `appVersion`, `httpPort`.
+- TV responds with `sessionState` carrying `connectionId` (assigned per connection, incrementing).
+- After `sessionState`, TV fetches `GET /manifest.json` from the phone immediately (during Open/Results only).
+- When a song is selected, TV sends `assignSinger` with: `sessionId`, `songInstanceSeq`, `playerId`, `difficulty`, `startMode`, `stopAtLyricsTimeMs`, `udpPort`, `songTitle`, `songArtist`. `connectionId` is NOT present in `assignSinger`.
+- TV broadcasts `playbackState` on phase transitions: `state` ∈ {`countdown`, `playing`, `paused`, `stopped`}, includes `revision`, `lyricsTimeMs`, `stopAtLyricsTimeMs`, `countdownRemainingMs` (only during countdown), `reason`.
+- Reconnect: TV assigns a new `connectionId`. If phone was an active singer, TV re-sends `assignSinger` with the same `songInstanceSeq` and a recomputed `stopAtLyricsTimeMs`.
+- Manifest fetch is deferred during Countdown/Playing/Paused/DisconnectPaused; catalog marked stale until Results/Open.
+- Error codes: `session_full`, `session_locked`, `protocol_mismatch`, `invalid_token`.
 
-## Subcases
+## Files
 
-- `case_reconnect_reclaim/` — disconnected client reclaims its singer slot via stable
-  `clientId`; receives a new `connectionId` on reconnect; `assignSinger` is re-sent with
-  recomputed `endTimeTvMs` and incremented `songInstanceSeq`; third client is rejected.
-- `case_slot_taken/` — TV kicks the disconnected client (`tv_internal`); a third client
-  joins and takes the free slot; original client is rejected as session full.
+- `transcript.jsonl` / `expected.session.json`: full session flow (2 phones join, song assigned, third rejected, protocol mismatch rejected)
+- `case_reconnect_reclaim/`: phone reconnects mid-song, reclaims singer slot via same `clientId`, receives new `connectionId`
+- `case_slot_taken/`: host kicks disconnected client; a third phone claims the free slot
 
 ## connectionId semantics
 
-Each new WebSocket connection receives a fresh `connectionId` in the `sessionState`
-response. The value is monotonically increasing per session but MUST NOT be assumed
-to be sequential. PitchFrames carrying a stale `connectionId` are silently dropped (§8.3).
+Each new WebSocket connection receives a fresh `connectionId` in `sessionState`. Value increments per session. PitchFrames carrying a stale `connectionId` are silently dropped.
 
-Spec covers: §7, §8.2, §7.4, Appendix B
+Spec covers: tv_app.md §2.3 NetworkController (T8.3, T8.5)

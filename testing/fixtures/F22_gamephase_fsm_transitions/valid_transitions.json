@@ -11,7 +11,8 @@
   { "from": "Paused", "to": "Playing", "trigger": "resume" },
   { "from": "Paused", "to": "Loading", "trigger": "restart" },
   { "from": "Paused", "to": "Idle", "trigger": "quit" },
-  { "from": "DisconnectPaused", "to": "Playing", "trigger": "reconnect_and_resume" },
+  { "from": "DisconnectPaused", "to": "Playing", "trigger": "singer_reconnected_and_resume" },
+  { "from": "DisconnectPaused", "to": "Playing", "trigger": "continue_without_singer" },
   { "from": "DisconnectPaused", "to": "Idle", "trigger": "quit" },
   { "from": "Stopped", "to": "Results", "trigger": "finalization_complete" },
   { "from": "Results", "to": "Idle", "trigger": "back_to_song_list" }

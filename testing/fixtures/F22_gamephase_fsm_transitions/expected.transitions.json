@@ -12,7 +12,8 @@
     "Paused->Playing",
     "Paused->Loading",
     "Paused->Idle",
-    "DisconnectPaused->Playing",
+    "DisconnectPaused->Playing:singer_reconnected_and_resume",
+    "DisconnectPaused->Playing:continue_without_singer",
     "DisconnectPaused->Idle",
     "Stopped->Results",
     "Results->Idle"

@@ -14,4 +14,4 @@ Purpose: verify the TV GamePhase finite-state machine accepts all normative tran
 
 `Idle`, `Loading`, `Countdown`, `Playing`, `Paused`, `DisconnectPaused`, `Stopped`, `Results`
 
-Spec covers: §2.4 (functional behavior), architecture/tv_app_architecture.md §4.1
+Spec covers: tv_app.md §4.1 GamePhase FSM
