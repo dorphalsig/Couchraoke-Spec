@@ -2086,13 +2086,14 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 
 **When preview plays**:
 - Song tile is focused AND focus remains on same song for **500ms** (debounce) AND Preview Volume is non-zero.
+  - Iteration 1 implements preview before Settings > Audio exists, so the Preview Volume gate is deferred and preview audibility follows TV/system media volume only.
 
 **Preview stops immediately when**:
 - Focus moves to a different song tile, leaves grid, or overlay/modal/settings/singing opens.
 
 **What plays**:
 - Uses `audioUrl` from cached manifest, seeks to `previewStartSec`.
-- If `previewStartSec > 0.0`, use it; otherwise fallback: `pos = audioLengthSec / 4` (clamped to 60s if > 120s).
+- If `previewStartSec > 0.0`, use it; otherwise fall back to 0 seconds (Iteration 1). Iteration 2 replaces the 0-second fallback with `min(audioLengthSec / 4, 60s)` when `audioLengthSec > 120s`.
 - Plays from start position until stopped (no fixed 10s limit).
 - Uses Settings > Audio > Preview Volume. Value of 0 disables preview.
 - If HTTP fails, suppress silently.
@@ -2608,6 +2609,16 @@ Video enabled ON/OFF. When disabled or unavailable, background fallback: 1) `#BA
 **Overall layout**: top metadata strip, lane region, full-width bottom lyrics band. The screen is designed for video backgrounds; overlay surfaces remain readable over moving footage via `SurfaceLaneBand` / `SurfaceLyricsBand` at `LaneBandAlpha` / `LyricsBandAlpha`.
 
 **Video surface z-order (normative)**: the video surface MUST be a `SurfaceView` with `setZOrderMediaOverlay(true)`. With this flag set, Compose lane bands, lyrics, score boxes, badges, and the pause/quit interruption overlay all composite **above** the video without routing through Compose's GPU composition pipeline. `TextureView` MUST NOT be used for fullscreen video on the singing screen — the additional GL composition cost on the Mali-G31 reference GPU is incompatible with the §1.6 30fps singing-screen target.
+
+**Singing screen background fallback chain (normative)**: the singing screen MUST render a visible background at all times using the following priority chain:
+
+1. **Video** — `videoUrl` present, passes the static admission gate, and has not been disabled by runtime gameplay-degradation: render full-screen via the `SurfaceView` described above.
+2. **Song static background** — `IndexedSong.backgroundUrl` present and reachable (sourced from the USDX `#BACKGROUND` tag): render as full-screen still image.
+3. **App bundled background** — the bundled drawable at `res/drawable/singing.png` (resource ID `R.drawable.singing`).
+
+A video failure at runtime MUST silently fall back to step 2 or step 3. A step-2 load failure MUST silently proceed to step 3. A plain black base MUST NOT be the final visible background when none of the above is active. The `SingingBackground.Static(imageUrl = null)` case MUST render the bundled asset.
+
+> **Known gap (Iter 3)**: The `SingingBackground` render model currently carries `imageUrl` for step 2 and `fallbackImageUrl` inside `Video` for step 2 fallback, but has no explicit contract field for the step-3 bundled asset. Iteration 3 MUST add a `BuiltInBackground` sentinel or equivalent so the screen implementation can resolve `R.drawable.singing` without hard-coding it in the renderer.
 
 **Layout tokens (global):**
 
@@ -3275,16 +3286,19 @@ This section captures supporting mechanics and implementation shape for behavior
 
 **States** (8 total):
 
-| State | Description |
-|-------|-------------|
-| `Idle` | No song loaded, session is Open |
-| `Loading` | Chart fetch/parse in progress, playback preparing |
-| `Countdown` | Countdown overlay visible, phones warming up mic |
-| `Playing` | Audio playing, scoring active, pitch frames flowing |
-| `Paused` | User-initiated pause |
-| `DisconnectPaused` | Auto-pause because required singer disconnected |
-| `Stopped` | Song/medley ended, finalizing before Results |
-| `Results` | Results screen visible, session returned to Open |
+| State | Description | Scope |
+|-------|-------------|-------|
+| `Open` | No song loaded, session awaiting song selection | Iter 1 |
+| `Preparing` | Chart fetch/parse in progress, playback preparing | Iter 1 |
+| `Countdown` | Countdown overlay visible, phones warming up mic | Iter 1 |
+| `Live` | Audio playing, scoring active, pitch frames flowing | Iter 1 |
+| `Paused` | User-initiated pause | Iter 1 |
+| `Error` | Playback setup or audio error; returns to Open on dismiss | Iter 1 |
+| `Stopped` | Song/medley ended, finalizing before Results | Iter 2 |
+| `Results` | Results screen visible, session returned to Open | Iter 2 |
+| `DisconnectPaused` | Auto-pause because a required singer disconnected | Iter 3 |
+
+> **Implementation note**: `Open`, `Preparing`, `Live`, `Paused`, and `Error` are implemented in Iteration 1. `Stopped` and `Results` are added in Iteration 2. `DisconnectPaused` is added in Iteration 3.
 
 **Transitions**:
 
@@ -3292,74 +3306,80 @@ This section captures supporting mechanics and implementation shape for behavior
                     ┌─────────────────────────────────────────┐
                     │                                         │
                     ▼                                         │
-┌──────┐  start  ┌─────────┐  ready   ┌───────────┐          │
-│ Idle │────────→│ Loading │─────────→│ Countdown │          │
-└──────┘         └─────────┘          └─────┬─────┘          │
-    ▲                │                      │                │
-    │                │ error                │ countdown=0    │
-    │                ▼                      ▼                │
-    │            ┌──────┐             ┌─────────┐            │
-    │            │ Idle │             │ Playing │←───────────┤
-    │            └──────┘             └────┬────┘            │
-    │                                      │                 │
-    │         ┌────────────────────────────┼─────────────┐   │
-    │         │                            │             │   │
-    │         ▼                            ▼             │   │
-    │    ┌────────┐                 ┌──────────────┐     │   │
-    │    │ Paused │                 │DisconnectPaus│     │   │
-    │    └───┬────┘                 └──────┬───────┘     │   │
-    │        │                             │             │   │
-    │        │ quit                        │ quit        │   │
-    │        ▼                             ▼             │   │
-    │    ┌──────┐                      ┌──────┐          │   │
-    └────│ Idle │                      │ Idle │          │   │
-         └──────┘                      └──────┘          │   │
-                                                         │   │
-              song end ──────────────────────────────────┘   │
+┌──────┐  start  ┌──────────┐  ready   ┌───────────┐         │
+│ Open │────────→│ Preparing│─────────→│ Countdown │         │
+└──────┘         └──────────┘          └─────┬─────┘         │
+    ▲                │                       │               │
+    │                │ error                 │ countdown=0   │
+    │                ▼                       ▼               │
+    │            ┌──────┐             ┌──────┐               │
+    │            │ Open │             │ Live │←──────────────┤
+    │            └──────┘             └──┬───┘               │
+    │                                    │                   │
+    │         ┌──────────────────────────┼─────────────┐     │
+    │         │                          │             │     │
+    │         ▼                          ▼             │     │
+    │    ┌────────┐             ┌──────────────────┐   │     │
+    │    │ Paused │             │ DisconnectPaused  │   │     │
+    │    └───┬────┘             └────────┬─────────┘   │     │
+    │        │                           │             │     │
+    │        │ quit                      │ quit        │     │
+    │        ▼                           ▼             │     │
+    │    ┌──────┐                    ┌──────┐          │     │
+    └────│ Open │                    │ Open │          │     │
+         └──────┘                    └──────┘          │     │
+                                                       │     │
+              song end ────────────────────────────────┘     │
                             │                                │
                             ▼                                │
-                       ┌─────────┐finalize┌──────┐           │
-                       │ Stopped │───────→│Results│──────────┘
-                       └─────────┘        └──────┘
+                       ┌─────────┐finalize┌─────────┐        │
+                       │ Stopped │───────→│ Results │────────┘
+                       └─────────┘        └─────────┘
 ```
 
 **Transition Rules** (normative):
 
-| From | To | Trigger |
-|------|----|---------|
-| Idle | Loading | User starts song from SelectPlayers |
-| Loading | Countdown | Playback plan prepared, `assignSinger` sent, countdown enabled |
-| Loading | Playing | Playback plan prepared, `assignSinger` sent, countdown disabled |
-| Loading | Idle | Playback error or audio URL unreachable |
-| Countdown | Playing | Countdown reaches 0 |
-| Countdown | Idle | Required singer disconnects |
-| Playing | Paused | User presses Back |
-| Playing | DisconnectPaused | Required singer WebSocket drops |
-| Playing | Stopped | Playback reaches `stopAtLyricsTimeMs` or final medley segment ends |
-| Paused | Playing | User selects Resume |
-| Paused | Loading | User confirms Restart (new songInstanceSeq) |
-| Paused | Idle | User confirms Quit |
-| DisconnectPaused | Playing | Singer reconnects + Resume, or Continue Without Them (revokes that player's singer assignment for the current song) |
-| DisconnectPaused | Idle | User confirms Quit |
-| Stopped | Results | Scoring finalization complete |
-| Results | Idle | User returns to Song List |
+| From | To | Trigger | Scope |
+|------|----|---------|-------|
+| Open | Preparing | User starts song from SelectPlayers | Iter 1 |
+| Preparing | Countdown | Playback plan prepared, `assignSinger` sent, countdown enabled | Iter 1 |
+| Preparing | Live | Playback plan prepared, `assignSinger` sent, countdown disabled | Iter 1 |
+| Preparing | Open | Playback error or audio URL unreachable | Iter 1 |
+| Countdown | Live | Countdown reaches 0 | Iter 1 |
+| Countdown | Open | Required singer disconnects during countdown | Iter 1 |
+| Live | Paused | User presses Back | Iter 1 |
+| Live | Stopped | Playback reaches `stopAtLyricsTimeMs` or final medley segment ends | Iter 2 |
+| Live | DisconnectPaused | Required singer WebSocket drops | Iter 3 |
+| Paused | Live | User selects Resume | Iter 1 |
+| Paused | Preparing | User confirms Restart (new `songInstanceSeq`) | Iter 1 |
+| Paused | Open | User confirms Quit | Iter 1 |
+| DisconnectPaused | Live | Singer reconnects + Resume, or Continue Without Them | Iter 3 |
+| DisconnectPaused | Open | User confirms Quit | Iter 3 |
+| Stopped | Results | Scoring finalization complete | Iter 2 |
+| Results | Open | User returns to Song List | Iter 2 |
 
 **Implementation**:
 
 ```kotlin
 sealed class GamePhase {
-    object Idle : GamePhase()
-    data class Loading(val song: IndexedSong) : GamePhase()
-    data class Countdown(val remainingMs: Int) : GamePhase()
-    object Playing : GamePhase()
-    object Paused : GamePhase()
-    data class DisconnectPaused(val disconnectedPlayer: PlayerId) : GamePhase()
-    object Stopped : GamePhase()
+    // Iter 1
+    object Open : GamePhase()
+    data class Preparing(val selection: SongStartSelection) : GamePhase()
+    data class Countdown(val plan: PlaybackPlan) : GamePhase()
+    data class Live(val plan: PlaybackPlan, val songStartTvMs: Long) : GamePhase()
+    data class Paused(val plan: PlaybackPlan, val positionMs: Long) : GamePhase()
+    data class Error(val title: String, val bodyLines: List<String>) : GamePhase()
+
+    // Iter 2
+    data class Stopped(val plan: PlaybackPlan) : GamePhase()
     data class Results(val scores: Map<PlayerId, PlayerScore>) : GamePhase()
+
+    // Iter 3
+    data class DisconnectPaused(val plan: PlaybackPlan, val disconnectedPlayer: PlayerId) : GamePhase()
 }
 
 class GamePhaseFSM {
-    private val _phase = MutableStateFlow<GamePhase>(GamePhase.Idle)
+    private val _phase = MutableStateFlow<GamePhase>(GamePhase.Open)
     val phase: StateFlow<GamePhase> = _phase.asStateFlow()
     
     fun transition(to: GamePhase) {
@@ -3923,7 +3943,7 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 | mDNS advertisement | NetworkController | [§2.3](#23-networkcontroller) | F15 |
 | HTTP client | NetworkController | [§2.3](#23-networkcontroller) | F15 |
 | Manifest aggregation | LibraryManager | [§2.5](#25-librarymanager) | F15 |
-| Song grid UI | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | F15 |
+| Song grid UI, search/filter, and preview playback | UI: SongListScreen | [§2.6.10](#2610-song-preview-playback), [§2.6.12](#2612-songlistscreen-behavior) | F15 |
 | Join overlay | UI: JoinOverlay | [§2.6.13](#2613-join-overlay-behavior) | F15 |
 | Interruption overlay shell (loading/error variants) | UI: Shared overlay shell | [§2.6.11](#2611-interruption-overlay-shell) | F22 |
 | Playback UI | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | F22 |
@@ -3936,6 +3956,8 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 **DOD**:
 - [ ] App discovers phone via mDNS, completes handshake
 - [ ] Song list displays songs from phone manifest
+- [ ] Search filters grid
+- [ ] Preview plays on focus
 - [ ] Select song → plays audio through `LibVlcPlayerHandle`, shows sentence-paged lyrics
 - [ ] UI emits `PlaybackEvent.Prepared(effectivePlaybackDurationMs)` before countdown or playback
 - [ ] UI emits `PlaybackEvent.Ready(songStartTvMs)` from the first audio `LibVlcEvent.Playing`; coordinator calls `ScoringEngine.setSongStart(songStartTvMs)` only after that event
@@ -3968,6 +3990,7 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 | Pitch lane UI | UI: SingingScreen | [§2.6.6](#266-pitch-lane-rendering-architecture), [§2.6.16](#2616-singingscreen-behavior) | — |
 | Live score display | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — |
 | Results screen | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen-behavior) | — |
+| Song preview seek-position fallback and Preview Volume | UI: SongListScreen | [§2.6.10](#2610-song-preview-playback), [§2.6.15.3](#26153-settings--audio) | — |
 
 **DOD**:
 - [ ] Clock sync completes before song start
@@ -3977,6 +4000,8 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 - [ ] Song ends → Results screen shows final score
 - [ ] F13, F21, F24 pass
 - [ ] Perfect mock performance → `scoreTotalInt == 10000`
+- [ ] Song preview seek-position fallback: when `previewStartSec` is absent or ≤ 0 and `audioLengthSec > 120s`, preview seeks to `min(audioLengthSec / 4, 60s)` instead of 0
+- [ ] Settings > Audio > Preview Volume: a value of 0 disables preview; any non-zero value controls preview playback volume independently of TV/system media volume
 - [ ] Cumulative TV app flow works end-to-end through the TV UI for Iter 2 scope: complete Iter 1 flow, receive pitch frames, show live pitch/score, end song, and show Results
 - [ ] No known blocker remains for Iter 2 TV-owned scope
 
@@ -3992,19 +4017,21 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 | P1/P2 assignment | PlaybackCoordinator | [§2.6.16](#2616-singingscreen-behavior) | F23 |
 | Duet chart routing | UsdxParser, ScoringEngine | [§2.4](#24-usdxparser), [§2.2](#22-scoringengine) | F23, F24 |
 | Disconnect/reconnect | PlaybackCoordinator | [§2.3](#23-networkcontroller) | F23 |
-| Pause overlay | UI: SingingScreen | [§2.6.11](#2611-interruption-overlay-shell) | F22 |
+| Disconnect auto-pause overlay variant (`Wait for reconnect` / `Continue without them`) | UI: SingingScreen | [§2.6.11](#2611-interruption-overlay-shell), [§2.6.16](#2616-singingscreen-behavior) | F22 |
 | Settings screens | UI: SettingsScreen | [§2.6.15](#2615-settingsscreen-behavior) | — |
-| Video backgrounds | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — |
-| Two-MP video playback model | UI (LibVLC) | [§2.1](#21-playbackcoordinator), [§2.6.16](#2616-singingscreen-behavior) | — |
+| Video backgrounds — real LibVLC two-MP wiring | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — |
+| `#VIDEOGAP` arithmetic and audio-master timing | UI (LibVLC) | [§2.1](#21-playbackcoordinator), [§2.6.16](#2616-singingscreen-behavior) | — |
 | Instrumental + vocals mixing | Phone (see phone spec) | Phone pre-mixes before serving; no TV deliverable | — |
+
+> **Video scope note**: Iteration 1 established the video data model (`videoUrl`, `videoGapSec`), `SingingBackground.Video` render model, contracts, and static-background fallback seam. Iteration 3 wires the real LibVLC `MediaPlayer` instances, `#VIDEOGAP` arithmetic, hardware-decoder verification, and QA on target hardware.
 
 **DOD**:
 - [ ] Two phones connect, both appear in SelectPlayers
 - [ ] Duet song → P1 sings track 1, P2 sings track 2
 - [ ] Swap Parts works
-- [ ] Singer disconnect → pause overlay, reconnect resumes
+- [ ] Singer disconnect → disconnect auto-pause overlay appears; reconnect or Continue Without Them resumes
 - [ ] All settings screens functional
-- [ ] Video background plays using separate LibVLC audio and video `MediaPlayer` instances when `videoUrl` is present
+- [ ] Video background plays using real LibVLC audio and video `MediaPlayer` instances when `videoUrl` is present (building on Iter 1 contracts and data model)
 - [ ] Audio MP remains timing authority; video MP is decorative and does not influence scoring or `songStartTvMs`
 - [ ] `#VIDEOGAP` applies the specified video delay/seek behavior, and video MP is configured with `:no-audio`
 - [ ] Video MP failure falls back to `#BACKGROUND` without surfacing an error modal or affecting audio/scoring/session state
@@ -4028,8 +4055,6 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 | Audio prebuffer/crossfade | UI (LibVLC) | [§4.2](#42-medley-segment-transitions) | — |
 | Medley scoring windows | ScoringEngine | [§2.6.17](#2617-singingscreen--medley-mode), [§2.2](#22-scoringengine) | F16 |
 | Medley results | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen-behavior) | — |
-| Preview playback | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | — |
-| Search/filter | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | — |
 | Device tuning | All | [§1.1](#11-testability), [§1.6](#16-minimal-footprint) | — |
 | S905X4 LibVLC playback verification | UI (LibVLC) | [§1.6](#16-minimal-footprint) | — |
 
@@ -4037,8 +4062,6 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 - [ ] Medley playlist, start, transitions work
 - [ ] Crossfade audible (<100ms gap if prebuffer ready)
 - [ ] Medley results show per-segment + average
-- [ ] Preview plays on focus
-- [ ] Search filters grid
 - [ ] F16, F18 pass
 - [ ] HD/FHD LibVLC playback verified on the Amlogic S905X4 reference device with `--codec=mediacodec_ndk,all`; if verification fails, Video is forced OFF for the affected device profile and `#BACKGROUND` still-image fallback is used
 - [ ] Performance on target device:
