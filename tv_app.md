@@ -1821,82 +1821,84 @@ This rule extends the Mali-G31 constraint in [§1.6](#16-minimal-footprint) from
 | UnfocusedBorderOpacity | 20% |  |
 | FocusInDuration | 150ms | fade-in on focus arrival |
 | FocusOutDuration | 100ms | fade-out on focus departure |
+| TvPreviewWidth | 960dp | Compose preview target width |
+| TvPreviewHeight | 540dp | Compose preview target height |
+| JoinQrMaxViewportHeightFraction | 0.55 | QR viewport constraint |
 | AppMarginHorizontal | 48dp |  |
 | AppMarginVertical | 36dp |  |
 | HeaderHeight | 76dp |  |
+| SongListCompactMarginHorizontal | 24dp | compact Song List margin |
+| SongListCompactMarginVertical | 20dp | compact Song List margin |
+| SongListCompactHeaderHeight | 56dp | compact Song List header |
 | StandardButtonHeight | 72dp |  |
 | StandardRowHeight | 76dp |  |
 | DenseRowHeight | 56dp |  |
-| PrimaryModalWidth | 960dp |  |
+| PrimaryModalWidth | 960dp | constrained to viewport at runtime |
 | PrimaryModalPadding | 32dp |  |
-| QRCodeSize | 400dp | pinned (supersedes earlier 320–420dp range) |
+| QRCodeSize / JoinQRCodeSize | 400dp | constrained to viewport at runtime |
+| JoinQrPanelPadding | 20dp |  |
+| JoinCodeTopGap | 24dp |  |
+| InterruptionModalWidth | 960dp | constrained to viewport at runtime |
+| InterruptionModalTitleBottomGap | 16dp |  |
+| InterruptionModalBodyBottomGap | 24dp |  |
+| InterruptionActionRowHeight | 72dp |  |
+| SelectPlayersActionButtonWidth | 176dp |  |
 
 #### 2.6.5.5 Typography
 
 Two faces only:
-- **Display face**: decorative squared face. Used for hero numerals and hero titles only. Not used for body or UI chrome.
+- **Display face**: decorative squared face. Used for hero numerals, hero titles, accent titles, and focused-song preview titles. Not used for body or UI chrome.
 - **Operational sans**: high-legibility sans-serif used for all other text (readability at TV viewing distance is the primary constraint).
 
-**Display face tokens**
-
-| Token | Value |
-|---|---:|
-| DisplayHeroNumber | 160sp |
-| DisplayHeroTitle | 56sp |
-| DisplayAccentTitle | 44sp |
-
-**Operational sans tokens**
-
-| Token | Value |
-|---|---:|
-| ScreenTitle | 40sp |
-| SectionTitle | 32sp |
-| PanelTitle | 28sp |
-| SongCardTitle | 24sp |
-| SongCardArtistFocused | 18sp |
-| PreviewTitle | 32sp |
-| PreviewArtist | 24sp |
-| TagChipLabel | 16sp |
-| BodyPrimary | 24sp |
-| BodySecondary | 20sp |
-| ButtonLabel | 22sp |
-| FieldLabel | 20sp |
-| Caption | 18sp |
-| LyricsCurrent | 40sp |
-| LyricsNext | 32sp |
-| LiveScore | 56sp |
-| SentenceRating | 28sp |
-| TopMetadataMinimal | 20sp |
-| SingerBadge | 22sp |
-| Timer | 24sp |
-| ResultBreakdownLabel | 22sp |
-| ResultBreakdownValue | 28sp |
-| ResultTotalValue | 64sp |
-| MedleyRowText | 22sp |
-| MedleyTotalValue | 48sp |
+| Token | Face | Value |
+|---|---|---:|
+| DisplayHeroNumber | display | 160sp |
+| DisplayHeroTitle | display | 56sp |
+| DisplayAccentTitle | display | 44sp |
+| ScreenTitle | operational sans | 40sp |
+| SectionTitle | operational sans | 32sp |
+| PanelTitle | operational sans | 28sp |
+| SongCardTitle | operational sans | 24sp |
+| SongCardCompactTitleTextSize | operational sans | 18sp |
+| SongCardArtistFocused | operational sans | 18sp |
+| PreviewTitle | display | 22sp |
+| PreviewArtist | operational sans | 15sp |
+| TagChipLabel | operational sans | 16sp |
+| BodyPrimary | operational sans | 24sp |
+| BodySecondary | operational sans | 20sp |
+| ButtonLabel | operational sans | 22sp |
+| FieldLabel | operational sans | 20sp |
+| Caption | operational sans | 18sp |
+| LyricsCurrent | operational sans | 40sp |
+| LyricsNext | operational sans | 32sp |
+| LiveScore | operational sans | 56sp |
+| SentenceRating | operational sans | 28sp |
+| TopMetadataMinimal | operational sans | 20sp |
+| SingerBadge | operational sans | 22sp |
+| Timer | operational sans | 24sp |
 
 #### 2.6.5.6 Color and surface system
 
-Semantic color roles (concrete hex values are deferred to theme assets; roles are normative):
+Semantic color roles are implemented as fixed theme values:
 
-| Role | Use |
-|---|---|
-| AppBackground | darkest cool graphite base |
-| SurfacePrimary | standard dark surface |
-| SurfaceElevated | elevated modal and overlay surface |
-| SurfaceLaneBand | dark translucent graphite lane plate |
-| SurfaceLyricsBand | darkest overlay plate on singing screen |
-| BorderSubtle | unfocused structure border |
-| BorderFocus | focused border |
-| TextPrimary | highest-priority text |
-| TextSecondary | secondary metadata |
-| TextDisabled | disabled state |
-| Player1Accent | cyan |
-| Player2Accent | magenta |
-| RewardAccent | gold |
-| Success | success state |
-| Warning | warning state |
-| Error | error state |
+| Role | Value | Use |
+|---|---:|---|
+| AppBackground | `#050A0F` | darkest cool graphite base |
+| SurfacePrimary | `#111821` | standard dark surface |
+| SurfaceElevated | `#182230` | elevated modal and overlay surface |
+| SurfaceLaneBandBase | `#111821` | lane plate base before alpha |
+| SurfaceLyricsBandBase | `#050A0F` | lyrics plate base before alpha |
+| BorderSubtle | `#8A98A8` | unfocused structure border |
+| BorderFocus | `#33D7FF` | focused border |
+| TextPrimary | `#F4F7FB` | highest-priority text |
+| TextSecondary | `#B8C4D2` | secondary metadata |
+| TextDisabled | `#6F7B89` | disabled state |
+| Player1Accent | `#33D7FF` | P1 identity accents only |
+| Player2Accent | `#FF4FD8` | future P2 identity accents only |
+| RewardAccent | `#FFC857` | future reward/result treatment only |
+| Success | `#57D68D` | success state |
+| Warning | `#FFB84D` | warning state |
+| Error | `#FF5C5C` | error state |
 
 Usage rules (normative):
 - Player identity uses `Player1Accent` (cyan) for P1 and `Player2Accent` (magenta) for P2.
@@ -1943,14 +1945,14 @@ Typography tokens are grouped into three scale tiers; screen subsections below i
 
 | Screen / state | Budget | Allowed pattern |
 |---|---|---|
-| Song List, settled | V2 | local polish only |
+| Song List, settled | V2 | local preview crossfade and restrained chip or border fade only |
 | Song List, active navigation | V1 | focus and state motion only |
 | Join / QR overlay | V1 | modal entrance, then static |
 | Select Players | V1 | focus and short row transitions |
-| Settings | V2 | local control motion only |
+| Settings | V2 | reserved for future Settings work |
 | Loading / pre-song setup | V0 | static poster or simple progress only |
 | Countdown | V2 | one hero number animation |
-| Singing | V0 | functional motion only (see [SingingScreen Behavior](#2616-singingscreen-behavior) motion budget) |
+| Singing | V0 | functional lyric-highlight and static note-lane motion only |
 | Pause / Disconnect / Error overlay | V1 | modal entrance and focus only |
 | Medley segment transition | V0 | text swap only |
 | Single-song Results | V2 | one entry payoff, then static |
@@ -2085,8 +2087,8 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 ### 2.6.10 Song Preview Playback
 
 **When preview plays**:
-- Song tile is focused AND focus remains on same song for **500ms** (debounce) AND Preview Volume is non-zero.
-  - Iteration 1 implements preview before Settings > Audio exists, so the Preview Volume gate is deferred and preview audibility follows TV/system media volume only.
+- Song tile is focused AND focus remains on same song for **500ms** (debounce).
+- Iteration 1 implements preview before Settings > Audio exists, so preview audibility follows TV/system media volume only. There is no app-level preview preamp or Settings volume gate in the current implementation.
 
 **Preview stops immediately when**:
 - Focus moves to a different song tile, leaves grid, or overlay/modal/settings/singing opens.
@@ -2095,7 +2097,6 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 - Uses `audioUrl` from cached manifest, seeks to `previewStartSec`.
 - If `previewStartSec > 0.0`, use it; otherwise fall back to 0 seconds (Iteration 1). Iteration 2 replaces the 0-second fallback with `min(audioLengthSec / 4, 60s)` when `audioLengthSec > 120s`.
 - Plays from start position until stopped (no fixed 10s limit).
-- Uses Settings > Audio > Preview Volume. Value of 0 disables preview.
 - If HTTP fails, suppress silently.
 
 **Media player lifetime (normative)**:
@@ -2136,7 +2137,7 @@ Pause, Disconnect auto-pause, Restart/Quit confirm dialogs, the Countdown-discon
 
 **Purpose**: always the landing screen. Displays songs sorted by Artist → Album → Title. Maintains a transient Medley playlist (initialized empty each time shown, cleared on leaving for non-modal screen).
 
-**Layout**: two-column. Left rail: preview pane (16:9, display-only, non-focusable), Medley playlist, Play Medley. Right body: Search field, Random actions row (Random Song / Random Duet / Random Medley), song grid. Screen uses `AppMarginHorizontal` / `AppMarginVertical` margins.
+**Layout**: two-column. Left rail: preview pane (16:9, display-only, non-focusable), focused-song metadata, Medley playlist, Play Medley. Right body: Search field, Random actions row (Random Song / Random Duet / Random Medley), song grid. Standard layout uses `AppMarginHorizontal` / `AppMarginVertical`; compact layout uses `SongListCompactMarginHorizontal` / `SongListCompactMarginVertical`.
 
 **Layout proportions and tokens:**
 
@@ -2145,23 +2146,45 @@ Pause, Disconnect auto-pause, Restart/Quit confirm dialogs, the Countdown-discon
 | SongListLeftRailFraction | 0.34 |
 | SongListGridFraction | 0.66 |
 | SongListRailGridGap | 32dp |
+| SongListCompactRailGridGap | 20dp |
+| SongListHeaderControlGap | 16dp |
+| SongListCompactHeaderControlGap | 12dp |
+| SongListHeaderButtonWidth | 160dp |
+| SongListCompactHeaderButtonWidth | 128dp |
+| SongListSearchHeight | 64dp |
+| SongListCompactSearchHeight | 52dp |
 | SongListHeaderToBodyGap | 24dp |
+| SongListCompactHeaderToBodyGap | 12dp |
 | SongListRandomRowHeight | 72dp |
+| SongListCompactRandomRowHeight | 52dp |
 | SongListRandomRowGap | 24dp |
+| SongListCompactRandomRowGap | 12dp |
 | SongListGridColumns1080 | 3 |
 | SongListGridColumns4K | 4 |
+| SongListCompactMaxWidth | 1200dp |
+| SongListCompactGridColumnsNarrow | 3 |
+| SongListCompactGridColumnsWide | 4 |
+| SongListCompactWideColumnMinWidth | 160dp |
 | SongListGridColumnGap | 24dp |
 | SongListGridRowGap | 24dp |
+| SongListCompactGridColumnGap | 16dp |
+| SongListCompactGridRowGap | 16dp |
 | SongListPreviewAspect | 16:9 |
+| SongListCompactPreviewAspect | 16:9 |
 | SongListPreviewToMetaGap | 16dp |
+| SongListCompactPreviewToMetaGap | 6dp |
 | SongListMetaToPlaylistGap | 24dp |
+| SongListCompactMetaToPlaylistGap | 8dp |
 | SongListPlaylistRowHeight | 52dp |
+| SongListCompactPlaylistRowHeight | 36dp |
 | SongListPlaylistVisibleRows | 5 |
+| SongListCompactPlaylistVisibleRows | 3 |
 | SongListPlayMedleyTopGap | 16dp |
+| SongListCompactPlayMedleyTopGap | 8dp |
 
 **Header composition:**
-- Contents: Search field, Join button, Settings button. Header uses `HeaderHeight` (76dp), operational sans only.
-- Emphasis: Search is the visually strongest control. Join and Settings are equal secondary controls.
+- Contents: Search field, Join button, Settings gear button. Standard header uses `HeaderHeight` (76dp); compact header uses `SongListCompactHeaderHeight` (56dp).
+- Emphasis: Search is the visually strongest control. Join and Settings are equal secondary controls. Settings remains visible but inert until Settings is wired.
 
 **Tier:** preview metadata uses balanced tier (`PreviewTitle`, `PreviewArtist`). Grid cards use compact-balanced tier (see card rules below).
 
@@ -2169,26 +2192,26 @@ Pause, Disconnect auto-pause, Restart/Quit confirm dialogs, the Countdown-discon
 - No phones connected: `No phones connected.` / `Connect a phone to see songs. Open the karaoke app on your phone and scan the QR code.`
 - Phones connected but no valid songs: `No songs found.` / `Open the karaoke app on your phone and make sure the songs folder is set.`
 
-**Search**: case-insensitive substring match across {artist, album, title}. Debounce 150ms. OK on Search field opens Android TV system text input dialog.
+**Search**: case-insensitive substring match across {artist, album, title}. Debounce 150ms. OK on Search field invokes a presentation/platform-facing Android TV text input launcher or uses native IME focus behavior; the ViewModel remains framework-free.
 
-**Primary actions**: OK on song tile → Select Players. Long-press OK → Add to Medley (if `canMedley=false`, show blocking modal with exact text: `This song can't be used in a medley. Look for songs with an M tag in the lower right corner`).
+**Primary actions**: OK on song tile → Select Players. Long-press OK / Add to Medley remains out of Iteration 1 and is deferred with medley execution wiring.
 
 **Random actions row:**
-- Contents: Random Song, Random Duet, Random Medley. All three use equal visual weight (equal sizing, equal emphasis). Row uses `SongListRandomRowHeight`.
-- Sing Random Song: random valid song from filtered set → Select Players.
-- Sing Random Duet: random valid duet from filtered set → Select Players.
-- Sing Random Medley: 5 random valid medley songs (all if < 5; needs ≥ 2 to be active) → Select Players.
-- Disabled when no eligible songs exist.
+- Contents: Random Song, Random Duet, Random Medley. All three use equal visual weight (equal sizing, equal emphasis). Standard row uses `SongListRandomRowHeight`; compact row uses `SongListCompactRandomRowHeight`.
+- Random Song MAY choose a random valid song from the filtered set → Select Players.
+- Random Duet and Random Medley are visible but disabled/no-op until their later iterations wire execution.
+- Disabled controls are visible but non-focusable.
 - **Random Medley lives in this row, not in the left rail.**
 
 **Left rail:**
-- Preview pane uses `SongListPreviewAspect` (16:9), is display-only and non-focusable.
+- Preview pane uses 16:9 in both standard and compact layouts, is display-only and non-focusable.
 - Focused-song preview metadata always shows full title (`PreviewTitle`) and artist (`PreviewArtist`) — no truncation of the preview metadata block.
-- Medley playlist occupies the lower half of the rail with `SongListPlaylistVisibleRows` (5) visible rows at `SongListPlaylistRowHeight` (52dp). Rows: `<Artist>  <Title>` in operational sans.
-- `Play Medley` sits directly below the playlist at `SongListPlayMedleyTopGap`.
-- OK on a playlist row → Reorder mode (Up/Down moves, OK confirms, Back cancels). Long-press OK on row → delete immediately.
+- Metadata, Medley playlist, and Play Medley sit directly under the preview using explicit gap tokens. Do not use weighted spacers to push Medley content to the bottom edge.
+- Standard medley shows `SongListPlaylistVisibleRows` (5) visible rows at `SongListPlaylistRowHeight` (52dp). Compact medley shows `SongListCompactPlaylistVisibleRows` (3) rows at `SongListCompactPlaylistRowHeight` (36dp). Rows: `<Artist>  <Title>` in operational sans.
+- `Play Medley` sits directly below the playlist at the matching Play Medley top-gap token and remains visible-disabled/non-focusable until Iteration 4.
+- Medley row reorder/delete behavior is deferred with medley execution wiring.
 
-**Song grid:** `SongListGridColumns1080` (3) at 1080p, `SongListGridColumns4K` (4) at 4K. Column count fixed per resolution. Gaps use `SongListGridColumnGap` / `SongListGridRowGap`.
+**Song grid:** Standard layouts use `SongListGridColumns1080` (3) at 1080p and `SongListGridColumns4K` (4) at 4K. Compact TV viewports are `maxWidth < SongListCompactMaxWidth`; use 4 columns only when each card column is at least `SongListCompactWideColumnMinWidth` (160dp), otherwise use 3 columns. Gaps use the matching standard or compact grid gap tokens.
 
 **Song cards (normative):** image-led composition with fixed metadata behavior.
 
@@ -2197,8 +2220,14 @@ Pause, Disconnect auto-pause, Restart/Quit confirm dialogs, the Countdown-discon
 | SongCardHeight | 252dp |
 | SongCardPadding | 12dp |
 | SongCardImageHeight | 148dp |
+| SongCardImageToTitleGap | 12dp |
+| SongCardCompactHeight | 128dp |
+| SongCardCompactPadding | 8dp |
+| SongCardCompactImageHeight | 56dp |
+| SongCardCompactImageToTitleGap | 4dp |
 | SongCardImageCornerRadius | 8dp |
 | SongCardTitleMaxLines | 2 |
+| SongCardCompactTitleMaxLines | 1 |
 | SongCardFocusedArtistSlotHeight | 20dp |
 | SongCardTitleToArtistGap | 4dp |
 | SongCardTagCornerInset | 8dp |
@@ -2206,7 +2235,8 @@ Pause, Disconnect auto-pause, Restart/Quit confirm dialogs, the Countdown-discon
 | SongCardMaxVisibleTags | 3 |
 
 Card content rules:
-- **Default (unfocused) state** shows: cover image, title (`SongCardTitle`, up to 2 lines), up to 3 tag chips.
+- **Default (unfocused) state** shows: cover image, title, up to 3 tag chips.
+- Standard cards use `SongCardTitle` up to 2 lines. Compact cards use `SongCardCompactTitleTextSize` and `SongCardCompactTitleMaxLines` (1 line).
 - **Focused state** additionally shows: one artist line in the reserved artist slot (`SongCardArtistFocused`).
 - The artist slot is always reserved (`SongCardFocusedArtistSlotHeight`); revealing the artist on focus MUST NOT reflow the card.
 - **Weak-artwork fallback:** if a card's cover is missing, placeholder, or unusable, keep title primary, keep tag chips visible, and show the artist in the default state for that card.
@@ -2239,13 +2269,21 @@ Tag placement and priority:
 - No animated background behind the grid.
 - No card scale on focus (card stays at fixed `SongCardHeight`; focus is border + plate only).
 
+**Compact Song List constraint priority:**
+
+1. Safe margins and header controls are always preserved.
+2. Card internal structure, including image height, title region, and artist slot, is never violated.
+3. Left rail metadata and medley content must not clip.
+4. Column count follows the compact card-width rule: use 4 columns only when each card column is at least 160dp wide; otherwise use 3.
+5. Visible row count is a consequence, not a requirement.
+
 **Join button**: opens the Join and QR overlay — see [Join Overlay Behavior](#2613-join-overlay-behavior) for visual and interaction rules.
 
 **QR payload (normative)**: The QR code MUST encode the full WebSocket endpoint URL including the `token` query parameter (e.g., `ws://192.168.1.10:8080/?token=ABCDEFGH`). It MUST NOT encode an NSD/mDNS service-discovery identifier. Phones that scan the QR code connect directly to the encoded URL without any additional discovery step.
 
 #### Song List Wireframe
 
-Song Grid: 4 cards / row at 4K, 3 at 1080p. Cover art fills top of card; title sits below; tag chips overlay the cover in the lower-right corner; artist only appears under the title on the focused card.
+Song Grid: 4 cards / row at 4K, 3 at 1080p. Compact TV viewports use 3 or 4 columns according to the 160dp minimum card-width rule. Cover art fills top of card; title sits below; tag chips overlay the cover in the lower-right corner; artist only appears under the title on the focused card.
 
 ```wireframe
 +------------------------------------------------------------------------------------------------------+
@@ -2278,19 +2316,21 @@ Song Grid: 4 cards / row at 4K, 3 at 1080p. Cover art fills top of card; title s
 
 ### 2.6.13 Join Overlay Behavior
 
-**Purpose**: show the QR code and short join code so a phone can connect to the session. Opened from the Song List header's Join button. Also reachable from *Settings > Connect Phones* but that sub-screen is a superset; this overlay is the lightweight join surface.
+**Purpose**: show the QR code and short join code so a phone can connect to the session. Opened from the Song List header's Join button. In Iteration 1, the Select Players no-phone state also opens this same overlay; Settings is not reachable.
 
-**Presentation**: modal over Song List. Uses `SurfaceLevel2` shell at `PrimaryModalWidth` (960dp) with `PrimaryModalPadding` (32dp). Balanced tier typography, operational sans only.
+**Presentation**: modal over Song List. Uses `SurfaceLevel2` shell at `PrimaryModalWidth` (960dp) with `PrimaryModalPadding` (32dp). Balanced tier typography, operational sans only. The modal width and QR size are constrained to the runtime viewport.
 
 | Token | Value |
 |---|---:|
-| JoinPanelWidth | 960dp |
-| JoinQRCodeSize | 400dp |
-| JoinCodeTopGap | 16dp |
-| JoinConnectedRowHeight | 56dp |
+| PrimaryModalWidth | 960dp |
+| PrimaryModalPadding | 32dp |
+| JoinQRCodeSize / QRCodeSize | 400dp |
+| JoinQrPanelPadding | 20dp |
+| JoinCodeTopGap | 24dp |
+| JoinQrMaxViewportHeightFraction | 0.55 |
 
 **Visual rules (normative)**:
-- QR is the dominant object on the overlay. It uses `JoinQRCodeSize` (400dp), 4-module quiet zone, high-contrast dark-on-light, centered.
+- QR is the dominant object on the overlay. It uses `JoinQRCodeSize` (400dp) when the viewport allows, preserves at least a 4-module quiet zone, uses high-contrast dark-on-light rendering, and remains centered.
 - The short join code sits directly below the QR at `JoinCodeTopGap` using `PanelTitle` or `DisplayAccentTitle` weight.
 - The QR MUST remain static. No animation or overlay element may intrude into the QR or its quiet zone.
 - Entrance animation is a single short fade or scale-fade of the modal shell only (V1 budget).
@@ -2535,8 +2575,8 @@ Shows song contribution status per connected phone: device name and song count. 
 ```
 
 #### 2.6.15.3 Settings > Audio
-- **Preview Volume**: slider 0–100. Controls Song List preview only. 0 = silence and disables preview. **Slider DPAD interaction**: Left/Right adjusts ±1 per press; long-press Left/Right adjusts ±10 per repeat. OK opens numeric keypad dialog.
-- **Vocals Volume**: slider 0–100 (default 50). Reserved for a future release; the phone will expose a mix-parameter endpoint. For MVP this control MUST be rendered as a **disabled slider** with a `Coming soon` sub-label beneath it. It MUST NOT affect playback.
+- **Preview Volume**: reserved for future Settings work. Iteration 1 has no Settings screen and no app-level preview preamp; Song List preview audibility follows TV/system media volume only.
+- **Vocals Volume**: slider 0–100 (default 50). Reserved for a future release; the phone will expose a mix-parameter endpoint. For MVP this control MUST be rendered as a **disabled slider** with a `Coming soon` sub-label beneath it when Settings is implemented. It MUST NOT affect current playback.
 - **Mic sensitivity**: configured on each phone in phone Settings. The TV MUST NOT own or override this setting in MVP.
 
 ##### Audio Wireframe
@@ -2545,8 +2585,8 @@ Shows song contribution status per connected phone: device name and song count. 
 +--------------------------------------+
 | SETTINGS > AUDIO                      |
 +--------------------------------------+
-| Preview Volume:  [=====|-----]  60    |
-| Vocals Volume:   [==|------]    50    |
+| Preview Volume:  Coming soon          |
+| Vocals Volume:   Coming soon          |
 +--------------------------------------+
 | Hints: Left/Right=Adjust  OK=Enter value  Back=Return |
 +--------------------------------------+
@@ -3990,7 +4030,7 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 | Pitch lane UI | UI: SingingScreen | [§2.6.6](#266-pitch-lane-rendering-architecture), [§2.6.16](#2616-singingscreen-behavior) | — |
 | Live score display | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — |
 | Results screen | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen-behavior) | — |
-| Song preview seek-position fallback and Preview Volume | UI: SongListScreen | [§2.6.10](#2610-song-preview-playback), [§2.6.15.3](#26153-settings--audio) | — |
+| Song preview seek-position fallback and future Preview Volume | UI: SongListScreen / Settings | [§2.6.10](#2610-song-preview-playback), [§2.6.15.3](#26153-settings--audio) | — |
 
 **DOD**:
 - [ ] Clock sync completes before song start
@@ -4001,7 +4041,7 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 - [ ] F13, F21, F24 pass
 - [ ] Perfect mock performance → `scoreTotalInt == 10000`
 - [ ] Song preview seek-position fallback: when `previewStartSec` is absent or ≤ 0 and `audioLengthSec > 120s`, preview seeks to `min(audioLengthSec / 4, 60s)` instead of 0
-- [ ] Settings > Audio > Preview Volume: a value of 0 disables preview; any non-zero value controls preview playback volume independently of TV/system media volume
+- [ ] Settings > Audio > Preview Volume: future Settings work may add a preview-volume gate; Iteration 1 preview remains TV/system-volume only
 - [ ] Cumulative TV app flow works end-to-end through the TV UI for Iter 2 scope: complete Iter 1 flow, receive pitch frames, show live pitch/score, end song, and show Results
 - [ ] No known blocker remains for Iter 2 TV-owned scope
 
