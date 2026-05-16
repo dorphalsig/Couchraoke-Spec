@@ -1,8 +1,10 @@
 # Couchraoke TV App — Specification
 
-**Version**: 1.3
-**Date**: 2026-04-25
+**Version**: 1.5
+**Date**: 2026-05-16
 **Scope**: Android TV Host App (phone companion OOS)
+**Changelog since 1.4**: Test and fixture audit. T5.2.3.1–3 fixture column added (inline). F13 rewrite required — note added to T5.2.3.4–7 and ScoringEngine Knowledge Gaps. T5.3.2 `currentBeatD` corrected 22→23. T6.1.2–4 frame-set attribution corrected to inline. T6.1.5 expected value corrected (10000 not 0). T6.4.2 subcase path corrected. T6.5.2/3 moved to inline (F11 does not cover forgiveness/empty-line cases). T6.5.5 moved to F16/T9.5.7.5 (not an F11 case). T6.6.2 moved to inline (F11 perfect case does not trigger ceil branch). T8.3.7 moved to inline (F15 has no >10-phone scenario). T3.1.1–5 fixture column added (F23). T3.3 table restructured with Fixture column; T3.3.1 references F04/valid_duet_interleaved; T3.3.2–5 inline. T9.5.7.1 filename corrected (expected.medleySegments.json). T9.5.7.3–6 moved to inline (F16 has no scoring data). T9.6.1 moved to F11/medley_aggregation. UsdxParser Knowledge Gaps: F03 parsedSong stale schema documented.
+**Changelog since 1.3**: §1.6 Performance Targets: removed song-grid FPS row. §2.6.3 SLAs: replaced FPS/memory table with degradation-policy reference. §2.6.5.4: added `ButtonCornerRadius` token. §2.6.5.9: added button corner-radius rule. §2.6.10: added preview-pane video specification. §2.6.12: added medley playlist overflow-scroll rule. §2.6.16: added `AndroidView` hosting note; added runtime gameplay-degradation monitor. §4.3: added scoring-coroutine responsibility for degradation monitor. §7.6 DOD: replaced FPS/memory bullets with degradation-gate verification item.
 **Changelog since 1.2**: Playback backend migrated from Media3/ExoPlayer to LibVLC. §1.1 Testability, §1.6 Minimal Footprint, §2.1 PlaybackCoordinator (songStartTvMs Capture, Playback error handling, new Audio Focus subsection), §2.6 UI Layer (new Playback Backend Seam), §2.6.16 SingingScreen (new SurfaceView z-order rule), §3.1/§3.2 flow diagrams, and §4.2 Medley Audio Prebuffering all updated. AV-sync and dual-track mixing resolved: §2.1 Audio/Video Asset Coupling added (two-MP model, audio master, #VIDEOGAP arithmetic). Phone pre-mixes #INSTRUMENTAL/#VOCALS; TV always receives a single audioUrl. instrumentalUrl/vocalsUrl removed from all wire schemas.
 **Changelog since 1.1**: §2.6 Design Tokens and Visual System added; screen subsections updated with token references, revised song-card composition, interruption-overlay shell, winner-emphasis rule, and singing-screen motion budget. Source: `2026-04-21-tv-app-design.md` (merged and retired).
 ---
@@ -136,7 +138,6 @@ Higher-spec devices (4GB RAM) must work without degradation; lower-spec (1GB RAM
 | Screen | Target |
 |--------|--------|
 | Singing screen | ≥30fps sustained with 1–2 active pitch lanes |
-| Song list grid | ≥60fps scroll at 1080p, 3-column grid with covers |
 | Library index | ≥1000 songs in memory without UI jank |
 
 ### Implementation Requirements
@@ -402,6 +403,7 @@ data class PitchEvent(
 3. Keep pending note finalizations in chronological order by `noteEndTvMs + NOTE_FINALIZATION_DELAY_MS`.
 4. Finalize every note whose deadline is due when TV monotonic clock reaches or exceeds that deadline.
 5. Emit updated score state only when finalized-note processing changes score-visible state.
+6. Track pitch frame arrival count in a `VIDEO_DEGRADATION_WINDOW_MS` (2000ms) sliding window during active note windows. If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` (5) frames arrive while at least one note window is open for any active singer, emit `GameplayHealthEvent.VideoDisabled`; the UI layer releases the video MP and falls back to the background chain per §2.6.16. Video is not re-admitted for the remainder of the song or medley run.
 
 This decouples scoring accuracy from UI frame rate — render load, frame drops, or display Hz differences MUST NOT affect scoring. Score state MUST be exposed via `StateFlow<PlayerScore>` and observed by the Compose UI.
 
@@ -519,21 +521,23 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 
 | ID | What | Expected | Fixture |
 |----|------|---------|---------|
-| T5.2.3.1 | Note not finalized before `noteEndTvMs + 450` | No scoring result before finalization time |
-| T5.2.3.2 | At finalization, all qualifying frames collected | `samplesInNote` contains every frame with `noteStartTvMs <= tvTimeMs < noteEndTvMs` and `latenessMs <= 450` |
-| T5.2.3.3 | Frames outside note window excluded | Frames with `tvTimeMs < noteStartTvMs` or `>= noteEndTvMs` not in `samplesInNote` |
-| T5.2.3.4 | Frame too late: `latenessMs > 450` | Frame excluded | F13 |
-| T5.2.3.5 | Decreasing `seq` → drop | Seq=3 dropped after seq=5 accepted | F13 |
-| T5.2.3.6 | `tvTimeMs` regression > 200ms → drop | Frame dropped | F13 |
-| T5.2.3.7 | `tvTimeMs` regression ≤ 200ms → accept | Frame retained and eligible | F13 |
+| T5.2.3.1 | Note not finalized before `noteEndTvMs + 450` | No scoring result before finalization time | inline |
+| T5.2.3.2 | At finalization, all qualifying frames collected | `samplesInNote` contains every frame with `noteStartTvMs <= tvTimeMs < noteEndTvMs` and `latenessMs <= 450` | inline |
+| T5.2.3.3 | Frames outside note window excluded | Frames with `tvTimeMs < noteStartTvMs` or `>= noteEndTvMs` not in `samplesInNote` | inline |
+| T5.2.3.4 | Frame too late: `latenessMs > 450` | Frame excluded | F13 ⚠ |
+| T5.2.3.5 | Decreasing `seq` → drop | Seq=3 dropped after seq=5 accepted | F13 ⚠ |
+| T5.2.3.6 | `tvTimeMs` regression > 200ms → drop | Frame dropped | F13 ⚠ |
+| T5.2.3.7 | `tvTimeMs` regression ≤ 200ms → accept | Frame retained and eligible | F13 ⚠ |
 | T5.2.3.8 | No qualifying frames for a note | `samplesInNote` empty; `N=0` → `note_score=0` | inline |
+
+> ⚠ **F13 requires rewrite**: F13 models single-frame selection with a 120ms staleness threshold — neither concept exists in the current spec. The current jitter buffer model is a range query (`getFramesInWindow`) collecting all frames in `[noteStartTvMs, noteEndTvMs)` with `latenessMs <= 450ms`. F13 cases 6.1–6.3 test orphaned selection logic. Cases 6.4–6.7 test the correct validation rules (450ms, seq-drop, regression) but the fixture output format (`expectedToneValid` from a selected frame) is wrong for the range-query model. F13 must be rewritten before T5.2.3.4–7 can pass.
 
 ### Acceptance Tests (Beat-Time — 5.3)
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
 | T5.3.1 | Highlight cursor: `lyricsTimeSec=5.0`, `GAP=2000`, `BPM_file=120` | F06/`expected.beat_cursors.json` | `currentBeat=24` |
-| T5.3.2 | Scoring cursor: same + `micDelayMs=100` | F06 | `currentBeatD=22` |
+| T5.3.2 | Scoring cursor: same + `micDelayMs=100` | F06 | `currentBeatD=23` |
 | T5.3.3 | Round-trip: `BeatInternalToTimeSec(TimeSecToMidBeatInternal(t)) ≈ t` | inline | Match to 1e-9s |
 | T5.3.4 | Note window: `startBeat=11`, `duration=2` | inline | Active at b=11,12; NOT at b=13 |
 | T5.3.5 | Medley: notes outside `[medleyStartBeat, medleyEndBeat)` treated as Freestyle | inline | ScoreFactor=0 at scoring time |
@@ -545,10 +549,10 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
 | T6.1.1 | Perfect performance → `scoreTotalInt=10000` | F08/`expected.score.json` | All notes: `hits=N`, `note_score=max_note_score` |
-| T6.1.2 | N=0 (no frames) → `note_score=0` | F08 | `note_score=0` |
-| T6.1.3 | Partial hits: `note_score = max_note_score × (hits/N)` | F08 | Per-note values match fixture |
-| T6.1.4 | Normal/Rap → `Player.Score`; Golden/RapGolden → `Player.ScoreGolden` | F08 | Accumulation fields match |
-| T6.1.5 | Freestyle: `ScoreFactor=0` → `note_score=0` even with `toneValid=true` | F03/`scoring/freestyle_only` | `scoreTotalInt=0` |
+| T6.1.2 | N=0 (no frames) → `note_score=0` | F08 chart + inline frames | `note_score=0` |
+| T6.1.3 | Partial hits: `note_score = max_note_score × (hits/N)` | F08 chart + inline frames | Per-note values match formula |
+| T6.1.4 | Normal/Rap → `Player.Score`; Golden/RapGolden → `Player.ScoreGolden` | F08 chart + inline frames | Accumulation fields match |
+| T6.1.5 | Freestyle: `ScoreFactor=0` → `note_score=0` even with `toneValid=true` | F03/`scoring/freestyle_only` | `scoreTotalInt=10000`; freestyle beats contribute 0, normal beats score normally ⚠ |
 | T6.1.6 | Sentence finalization triggers line bonus | F11 | Line bonus applied at sentence boundary |
 
 **[§6.2](#scoring-algorithm-normative) Note Types**
@@ -564,7 +568,7 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
 | T6.4.1 | Easy (±2): midiNote=47, target=0 → diff=1 after norm | F09/`easy_hit_diff1` | Hit |
-| T6.4.2 | Medium (±1): midiNote=47, target=0 → diff=1 | F09/`medium_hit_diff1` | Hit |
+| T6.4.2 | Medium (±1): midiNote=47, target=12 → diff=1 via lower octave | F09/`medium_hit_diff1_lower_octave` | Hit |
 | T6.4.3 | Medium (±1): midiNote=38, target=0 → diff=2 | F09/`medium_miss_diff2` | Miss |
 | T6.4.4 | Hard (±0): midiNote=47, target=0 → diff=1 | F09/`hard_miss_diff1` | Miss |
 | T6.4.5 | Octave norm: `Tone - Target > 6` → subtract 12 | inline | Tone shifted down |
@@ -576,17 +580,17 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
 | T6.5.1 | Perfect performance: `ScoreLineInt=1000`, `ScoreTotalInt=10000` | F11/`expected.score.json` | Matches fixture |
-| T6.5.2 | `MaxLineScore <= 2` → `LinePerfection=1` (forgiveness) | F11 | Line treated as perfect |
-| T6.5.3 | Empty line (`LineScoreValue=0`) → no line bonus | F11 | Empty line skipped |
+| T6.5.2 | `MaxLineScore <= 2` → `LinePerfection=1` (forgiveness) | inline | Line treated as perfect |
+| T6.5.3 | Empty line (`LineScoreValue=0`) → no line bonus | inline | Empty line skipped |
 | T6.5.4 | `LineBonusPerLine` uses float division (not integer) | F11 | Precision matches fixture |
-| T6.5.5 | Medley: `TrackScoreValue` only sums notes in `[medleyStartBeat, medleyEndBeat)` | F11 | Window-filtered sum |
+| T6.5.5 | Medley: `TrackScoreValue` only sums notes in `[medleyStartBeat, medleyEndBeat)` | F16 / T9.5.7.5 | Only in-window notes summed |
 
 **[Rounding and Display](#rounding-and-display-normative) Rounding and Display**
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
 | T6.6.1 | `ScoreInt = round(Score/10) * 10` | F11/`expected.score.json` | Matches fixture |
-| T6.6.2 | Golden opposite-rounding: `ScoreInt < Score` → `ScoreGoldenInt = ceil` | F11 / Appendix E.5 | Opposite direction applied |
+| T6.6.2 | Golden opposite-rounding: `ScoreInt < Score` → `ScoreGoldenInt = ceil` | inline (Appendix E.5) | Opposite direction applied |
 | T6.6.3 | Golden opposite-rounding: `ScoreInt >= Score` → `ScoreGoldenInt = floor` | inline | Floor applied |
 | T6.6.4 | `ScoreLineInt = floor(round(ScoreLine)/10)*10` (intentional asymmetry) | F11 | Asymmetric formula used |
 | T6.6.5 | `ScoreTotalInt` never exceeds 10000 | F11 | Verified |
@@ -597,7 +601,9 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 
 ### Knowledge Gaps
 
-None.
+- **F13 must be rewritten**: models single-frame selection + 120ms staleness threshold; current spec requires range-query + 450ms lateness. Cases 6.1–6.3 are orphaned. See T5.2.3.4–7 note.
+- **F08 README is stale**: references `(oldBeatD, currentBeatD]` beat-stepping which no longer exists; current implementation is deadline-driven (§4.3). Fixture data remains valid; only the README description needs updating.
+- **F03 `scoring/freestyle_only` misnamed**: the subcase is a mixed normal+freestyle chart producing `scoreTotalInt=10000`, not 0. Rename to `mixed_normal_freestyle` and add a genuine all-`F` subcase to verify `scoreTotalInt=0`.
 
 ---
 
@@ -930,7 +936,7 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 | T8.3.4 | Wrong `protocolVersion` | F15 | `error(code="protocol_mismatch")` |
 | T8.3.5 | Wrong token | F15 | `error(code="invalid_token")` |
 | T8.3.6 | Join during Locked state | F15 | `error(code="session_locked")` |
-| T8.3.7 | Roster full (> 10) | F15 | `error(code="session_full")` |
+| T8.3.7 | Roster full (> 10) | inline | `error(code="session_full")` |
 | T8.3.8 | Manifest fetch → library updated | F15 | Songs attributed to `clientId` visible |
 | T8.3.9 | Phone disconnects → songs removed | F15 | All songs for `clientId` removed immediately |
 | T8.3.10 | Manifest re-fetch replaces all prior songs for phone | F15 | Not appended; full replacement |
@@ -1305,7 +1311,7 @@ The canonical definitions of `ParsedSong`, `SongHeader`, `SongTiming`, `Track`, 
 
 ### Knowledge Gaps
 
-None — grammar fully specified.
+- **F03 `expected.parsedSong.json` uses stale field names**: `toneUsdx` (→ `toneSemitone`), `trackIndex` (→ `playerId`), `relativeMode` (removed), `timing.bpmChanges` (→ `SongTiming { bpmFile: Float }`), `customTags: {}` (→ `List<CustomHeaderTag>`). This file must be updated to match the current `ParsedSong` data class before parser tests can pass against it.
 
 ---
 
@@ -1482,13 +1488,13 @@ Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet
 
 **T3.1 — TV-Side Library**
 
-| ID | What | Expected |
-|----|------|---------|
-| T3.1.1 | Two phones each add 3 songs → library = 6 | Count correct |
-| T3.1.2 | `songId = phoneClientId + "::" + relativeTxtPath` | Format matches |
-| T3.1.3 | Sort order: Artist → Album → Title | Sorted correctly |
-| T3.1.4 | Phone disconnects → songs removed immediately | Immediate removal |
-| T3.1.5 | Manifest fetch replaces, not appends, for that `clientId` | Old entries gone |
+| ID | What | Fixture | Expected |
+|----|------|---------|---------|
+| T3.1.1 | Two phones each add 3 songs → library = 6 | F23 | Count correct |
+| T3.1.2 | `songId = phoneClientId + "::" + relativeTxtPath` | F23 | Format matches |
+| T3.1.3 | Sort order: Artist → Album → Title | F23 | Sorted correctly |
+| T3.1.4 | Phone disconnects → songs removed immediately | F23 | Immediate removal |
+| T3.1.5 | Manifest fetch replaces, not appends, for that `clientId` | F23 | Old entries gone |
 
 **T3.2 — Validation**
 
@@ -1506,13 +1512,13 @@ Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet
 
 **T3.3 — Index Fields**
 
-| ID | What | Expected |
-|----|------|---------|
-| T3.3.1 | `isDuet` detected from P1/P2 in body | `isDuet=true` |
-| T3.3.2 | `hasRap` detected from R/G notes | `hasRap=true` |
-| T3.3.3 | `canMedley=false` for duet songs | `canMedley=false` |
-| T3.3.4 | `canMedley=true` via medley tags | `canMedley=true`, `medleySource="tag"` |
-| T3.3.5 | `canMedley=false` when no medley tags | `canMedley=false`, `medleySource=null` |
+| ID | What | Fixture | Expected |
+|----|------|---------|---------|
+| T3.3.1 | `isDuet` detected from P1/P2 in body | F04/`a/valid_duet_interleaved` | `isDuet=true` |
+| T3.3.2 | `hasRap` detected from R/G notes | inline | `hasRap=true` |
+| T3.3.3 | `canMedley=false` for duet songs | inline | `canMedley=false` |
+| T3.3.4 | `canMedley=true` via medley tags | inline | `canMedley=true`, `medleySource="tag"` |
+| T3.3.5 | `canMedley=false` when no medley tags | inline | `canMedley=false`, `medleySource=null` |
 
 ### Acceptance Criteria
 
@@ -1749,11 +1755,7 @@ data class VerticalPitchMapping(
 
 ### 2.6.3 SLAs
 
-| Metric | Target | Test |
-|--------|--------|------|
-| Singing screen FPS | ≥30 sustained | GPU profiler on target device |
-| Song grid scroll FPS | ≥60 at 1080p | Manual + profiler |
-| Memory (UI heap) | <100MB | Heap dump during singing |
+Performance is governed by the runtime degradation policy in [§2.6.16](#2616-singingscreen-behavior) rather than absolute FPS or heap targets. The app degrades gracefully: video is disabled before scoring or audio are affected, and gameplay correctness is preserved at all times. See §2.6.16 for the normative `VIDEO_DEGRADATION_FRAME_THRESHOLD` and `VIDEO_DEGRADATION_WINDOW_MS` constants.
 
 ### 2.6.4 L2 Visible Shapes
 
@@ -1831,6 +1833,7 @@ This rule extends the Mali-G31 constraint in [§1.6](#16-minimal-footprint) from
 | SongListCompactMarginVertical | 20dp | compact Song List margin |
 | SongListCompactHeaderHeight | 56dp | compact Song List header |
 | StandardButtonHeight | 72dp |  |
+| ButtonCornerRadius | 8dp | all button components; full pill shape not permitted |
 | StandardRowHeight | 76dp |  |
 | DenseRowHeight | 56dp |  |
 | PrimaryModalWidth | 960dp | constrained to viewport at runtime |
@@ -1969,6 +1972,8 @@ Typography tokens are grouped into three scale tiers; screen subsections below i
 | Quiet | utility action |
 | Destructive | quit, delete, end-session, or similar |
 
+Buttons MUST use `ButtonCornerRadius` (8dp, `RadiusSmall`). Full pill shape (corner radius = height/2) is not permitted.
+
 **Tag chips** (Song List cards):
 
 | Chip | Meaning |
@@ -2099,6 +2104,11 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 - Plays from start position until stopped (no fixed 10s limit).
 - If HTTP fails, suppress silently.
 
+**Preview pane visual content**:
+- The preview pane renders: `#VIDEO` (muted, `:no-audio`, same 500ms focus dwell, stops immediately on focus departure) → `#COVER` → `#BACKGROUND` → app default placeholder.
+- Video fills the 16:9 pane. Decode failure falls back silently to `#COVER`.
+- The preview audio player and preview video player are independent; video failure MUST NOT affect audio preview.
+
 **Media player lifetime (normative)**:
 - Media players are screen-scoped.
 - A preview player belongs only to SongListScreen and MUST be torn down when SongListScreen exits.
@@ -2207,7 +2217,7 @@ Pause, Disconnect auto-pause, Restart/Quit confirm dialogs, the Countdown-discon
 - Preview pane uses 16:9 in both standard and compact layouts, is display-only and non-focusable.
 - Focused-song preview metadata always shows full title (`PreviewTitle`) and artist (`PreviewArtist`) — no truncation of the preview metadata block.
 - Metadata, Medley playlist, and Play Medley sit directly under the preview using explicit gap tokens. Do not use weighted spacers to push Medley content to the bottom edge.
-- Standard medley shows `SongListPlaylistVisibleRows` (5) visible rows at `SongListPlaylistRowHeight` (52dp). Compact medley shows `SongListCompactPlaylistVisibleRows` (3) rows at `SongListCompactPlaylistRowHeight` (36dp). Rows: `<Artist>  <Title>` in operational sans.
+- Standard medley shows `SongListPlaylistVisibleRows` (5) visible rows at `SongListPlaylistRowHeight` (52dp). Compact medley shows `SongListCompactPlaylistVisibleRows` (3) rows at `SongListCompactPlaylistRowHeight` (36dp). Rows: `<Artist>  <Title>` in operational sans. When the playlist contains more than the visible-row count, the list scrolls vertically as D-pad Up/Down moves focus through it; no scroll indicator is required.
 - `Play Medley` sits directly below the playlist at the matching Play Medley top-gap token and remains visible-disabled/non-focusable until Iteration 4.
 - Medley row reorder/delete behavior is deferred with medley execution wiring.
 
@@ -2648,7 +2658,7 @@ Video enabled ON/OFF. When disabled or unavailable, background fallback: 1) `#BA
 
 **Overall layout**: top metadata strip, lane region, full-width bottom lyrics band. The screen is designed for video backgrounds; overlay surfaces remain readable over moving footage via `SurfaceLaneBand` / `SurfaceLyricsBand` at `LaneBandAlpha` / `LyricsBandAlpha`.
 
-**Video surface z-order (normative)**: the video surface MUST be a `SurfaceView` with `setZOrderMediaOverlay(true)`. With this flag set, Compose lane bands, lyrics, score boxes, badges, and the pause/quit interruption overlay all composite **above** the video without routing through Compose's GPU composition pipeline. `TextureView` MUST NOT be used for fullscreen video on the singing screen — the additional GL composition cost on the Mali-G31 reference GPU is incompatible with the §1.6 30fps singing-screen target.
+**Video surface z-order (normative)**: the video surface MUST be a `SurfaceView` with `setZOrderMediaOverlay(true)`. With this flag set, Compose lane bands, lyrics, score boxes, badges, and the pause/quit interruption overlay all composite **above** the video without routing through Compose's GPU composition pipeline. `TextureView` MUST NOT be used for fullscreen video on the singing screen — the additional GL composition cost on the Mali-G31 reference GPU is incompatible with the §1.6 30fps singing-screen target. The video `SurfaceView` MUST be hosted via `AndroidView` in the Compose tree for placement; Compose MUST NOT drive or control its frame output.
 
 **Singing screen background fallback chain (normative)**: the singing screen MUST render a visible background at all times using the following priority chain:
 
@@ -2659,6 +2669,12 @@ Video enabled ON/OFF. When disabled or unavailable, background fallback: 1) `#BA
 A video failure at runtime MUST silently fall back to step 2 or step 3. A step-2 load failure MUST silently proceed to step 3. A plain black base MUST NOT be the final visible background when none of the above is active. The `SingingBackground.Static(imageUrl = null)` case MUST render the bundled asset.
 
 > **Known gap (Iter 3)**: The `SingingBackground` render model currently carries `imageUrl` for step 2 and `fallbackImageUrl` inside `Video` for step 2 fallback, but has no explicit contract field for the step-3 bundled asset. Iteration 3 MUST add a `BuiltInBackground` sentinel or equivalent so the screen implementation can resolve `R.drawable.singing` without hard-coding it in the renderer.
+
+**Runtime gameplay-degradation monitor (normative)**: the scoring coroutine MUST track pitch frame arrival count in a sliding window during active note windows (see §4.3). Constants:
+- `VIDEO_DEGRADATION_FRAME_THRESHOLD = 5`
+- `VIDEO_DEGRADATION_WINDOW_MS = 2000`
+
+If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` pitch frames arrive in any `VIDEO_DEGRADATION_WINDOW_MS` window while at least one note window is open for any active singer, the coroutine MUST emit `GameplayHealthEvent.VideoDisabled`. On receiving this event, the UI layer MUST release the video MP and fall back to the background chain (step 2 or 3 above). Audio and scoring continue unaffected. Video is not re-admitted for the remainder of the current song or medley run.
 
 **Layout tokens (global):**
 
@@ -3105,12 +3121,12 @@ Single results screen with static table: per-segment scores + Medley Total (mean
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
-| T9.5.7.1 | `medleyStartSec` and `medleyEndSec` computation | F16/`expected.segments.json` | All 3 songs match fixture |
+| T9.5.7.1 | `medleyStartSec` and `medleyEndSec` computation | F16/`expected.medleySegments.json` | All 3 songs match fixture |
 | T9.5.7.2 | Clamped: `timeFromBeat(startBeat) <= 8` → `medleyStartSec=0.0` | inline | Clamped to 0 |
-| T9.5.7.3 | Notes in `[start, end)` → normal ScoreFactor | F16 | Applied normally |
-| T9.5.7.4 | Notes outside medley window → ScoreFactor=0 | F16 | Freestyle treatment |
-| T9.5.7.5 | `TrackScoreValue` window-filtered | F16 | Only in-window notes summed |
-| T9.5.7.6 | Per-note ratio scoring within medley window | F16 | `note_score = max_note_score × (hits/N)` per [Scoring Algorithm](#scoring-algorithm-normative) |
+| T9.5.7.3 | Notes in `[start, end)` → normal ScoreFactor | inline | Applied normally |
+| T9.5.7.4 | Notes outside medley window → ScoreFactor=0 | inline | Freestyle treatment |
+| T9.5.7.5 | `TrackScoreValue` window-filtered | inline | Only in-window notes summed |
+| T9.5.7.6 | Per-note ratio scoring within medley window | inline | `note_score = max_note_score × (hits/N)` per [Scoring Algorithm](#scoring-algorithm-normative) |
 | T9.5.7.7 | Playback order preserved | F16 | A → B → C |
 | T9.5.7.8 | `medleyStartBeat >= medleyEndBeat` → assertion error | inline | Internal defensive error |
 | T9.5.7.9 | Manifest entry missing `audioUrl` | inline | Entry rejected before medley playlist/build |
@@ -3120,7 +3136,7 @@ Single results screen with static table: per-segment scores + Medley Total (mean
 
 | ID | What | Expected | Fixture |
 |----|------|---------|---------|
-| T9.6.1 | Medley Total = `round(sum(scoreTotalInt) / nSegments)` per player | Aggregated score matches formula | F16 |
+| T9.6.1 | Medley Total = `round(sum(scoreTotalInt) / nSegments)` per player | Aggregated score matches formula | F11/`medley_aggregation` |
 | T9.6.2 | Medley Total may be non-multiple-of-10 (USDX parity) | Non-tens result accepted (e.g. [10000,9960,0] → 6653) | inline |
 | T9.6.3 | Per-segment row displays `scoreTotalInt` for each player | All segments listed with P1/P2 scores | inline |
 | T9.6.4 | Back key returns to Song List | Navigation correct | inline |
@@ -4104,10 +4120,7 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 - [ ] Medley results show per-segment + average
 - [ ] F16, F18 pass
 - [ ] HD/FHD LibVLC playback verified on the Amlogic S905X4 reference device with `--codec=mediacodec_ndk,all`; if verification fails, Video is forced OFF for the affected device profile and `#BACKGROUND` still-image fallback is used
-- [ ] Performance on target device:
-  - Singing screen ≥30fps
-  - Song grid ≥60fps
-  - Memory ≤512MB
+- [ ] Performance on target device: video degrades gracefully per the §2.6.16 degradation monitor; scoring and audio are unaffected when video is disabled
 - [ ] Fully functional TV app flow works end-to-end through the TV UI: launch, pair phones, load library, browse/search/preview, solo sing, scored sing, duet, disconnect/reconnect, settings, video/background fallback, medley, and results
 - [ ] All TV-owned fixture and acceptance tests pass
 - [ ] No known blocker remains in TV-owned scope
