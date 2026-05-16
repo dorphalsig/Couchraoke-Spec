@@ -3960,15 +3960,25 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 
 # 7. Project Plan
 
+## How to read this section (iteration spec extraction)
+
+Each iteration table has a **Scope** column with three values:
+- **In scope** — implement in full per the referenced spec section.
+- **Stub** — add a no-op placeholder; the stub description is in the **Stubs** block below each table.
+- **Deferred** — do not implement; do not add a placeholder unless listed as Stub.
+
+When generating an iteration spec, include full spec content only for In-scope rows. Replace Stub rows with the described placeholder. Omit Deferred items entirely.
+
 ## 7.1 Iteration Overview
 
 | Iter | Theme | Key Deliverable | DOD Gate |
 |------|-------|-----------------|----------|
 | 0 | Foundation | Parser + Scoring math | Fixtures pass |
-| 1 | Solo sing | Browse + Play | Sing 1 song on emulator |
-| 2 | Scored singing | Pitch pipeline + Results | Perfect = 10000 |
-| 3 | Multiplayer | 2 players + Duet | Duet karaoke night |
-| 4 | Medley + Hardening | Full MVP | Device performance targets met |
+| 1 | Song list | Phone connects, songs browsable | Song grid populated from phone |
+| 2 | Playback | Audio + lyric sync, unscored | Song plays, lyrics scroll |
+| 3 | Scoring | 1P + 2P + Duet scored | Sing → score; duet works |
+| 4 | Medley | Medley end-to-end | Play Medley chains songs |
+| 5 | Polish | Video, settings, disconnect | Shippable on target hardware |
 
 ## 7.2 Iter 0 — Foundation (No Phone Needed)
 
@@ -3989,144 +3999,174 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 
 **Mock Phone**: Not needed.
 
-## 7.3 Iter 1 — Solo Sing (1 Phone, 1 Player)
+## 7.3 Iter 1 — Song List + Phone Join
 
-**Goal**: End-to-end: browse library → select song → play audio with lyrics.
+**Goal**: Phone connects → songs appear in grid → user can browse. Start is a no-op stub.
 
-| Deliverable | Component | Spec Ref | Fixtures |
-|-------------|-----------|----------|----------|
-| WebSocket server | NetworkController | [§2.3](#23-networkcontroller) | F15 |
-| mDNS advertisement | NetworkController | [§2.3](#23-networkcontroller) | F15 |
-| HTTP client | NetworkController | [§2.3](#23-networkcontroller) | F15 |
-| Manifest aggregation | LibraryManager | [§2.5](#25-librarymanager) | F15 |
-| Song grid UI, search/filter, and preview playback | UI: SongListScreen | [§2.6.10](#2610-song-preview-playback), [§2.6.12](#2612-songlistscreen-behavior) | F15 |
-| Join overlay | UI: JoinOverlay | [§2.6.13](#2613-join-overlay-behavior) | F15 |
-| Interruption overlay shell (loading/error variants) | UI: Shared overlay shell | [§2.6.11](#2611-interruption-overlay-shell) | F22 |
-| Playback UI | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | F22 |
-| App-wide UI shell (`MainActivity`, `CouchraokeTheme`, `AppNavHost`) | UI | [Entry Point and Wiring](#entry-point-and-wiring-normative) | — |
-| LibVLC playback seam (`LibVlcPlayerHandle` wiring) | UI | [§2.6.1](#261-public-api-exposed-to-system) | F22 |
-| Playback timing, stop, error, and audio-focus handling | UI + PlaybackCoordinator | [§2.1](#21-playbackcoordinator), [§2.6.16](#2616-singingscreen-behavior) | F22 |
-| Minimal song-start clock-sync gate | PlaybackCoordinator | [§2.1](#21-playbackcoordinator) | inline |
-| GamePhase FSM | PlaybackCoordinator | [§4.1](#41-gamephase-fsm) | F22 |
+| Deliverable | Component | Spec Ref | Fixtures | Scope |
+|-------------|-----------|----------|----------|-------|
+| WebSocket server | NetworkController | [§2.3](#23-networkcontroller) | F15 | In scope |
+| mDNS advertisement | NetworkController | [§2.3](#23-networkcontroller) | F15 | In scope |
+| HTTP client | NetworkController | [§2.3](#23-networkcontroller) | F15 | In scope |
+| Manifest aggregation | LibraryManager | [§2.5](#25-librarymanager) | F15, F23 | In scope |
+| Song grid UI, search/filter, and preview playback | UI: SongListScreen | [§2.6.10](#2610-song-preview-playback), [§2.6.12](#2612-songlistscreen-behavior) | F15 | In scope |
+| Join overlay | UI: JoinOverlay | [§2.6.13](#2613-join-overlay-behavior) | F15 | In scope |
+| App-wide UI shell (`MainActivity`, `CouchraokeTheme`, `AppNavHost`) | UI | [Entry Point and Wiring](#entry-point-and-wiring-normative) | — | In scope |
+| GamePhase FSM (`Open`, `Preparing`, `Error` only) | PlaybackCoordinator | [§4.1](#41-gamephase-fsm) | F22 | In scope |
+| SelectPlayersModal | UI: SelectPlayersModal | [§2.6.14](#2614-selectplayersmodal-behavior) | — | Stub |
+
+**Stubs**:
+- `SelectPlayersModal`: Start button logs intent and dismisses modal — no playback initiated.
+- `SongListScreen` left rail medley playlist: render empty playlist, `Play Medley` non-focusable.
 
 **DOD**:
 - [ ] App discovers phone via mDNS, completes handshake
 - [ ] Song list displays songs from phone manifest
 - [ ] Search filters grid
 - [ ] Preview plays on focus
+- [ ] Select song → SelectPlayersModal opens; Start dismisses modal, returns to Song List
+- [ ] F15 session lifecycle passes
+- [ ] F22 GamePhase FSM passes (`Open`, `Preparing`, `Error` transitions only)
+- [ ] Runs on emulator
+- [ ] Cumulative TV app flow: launch → pair phone → browse songs → open SelectPlayers → stub Start → return to Song List
+- [ ] No known blocker remains for Iter 1 TV-owned scope
+
+**Peer Test Utilities**: Prefer direct test clients and fakes; no general mock-phone harness required.
+
+## 7.4 Iter 2 — Audio + Lyric Sync
+
+**Goal**: Select song → audio plays → lyrics scroll in sync. No pitch pipeline, no scoring.
+
+| Deliverable | Component | Spec Ref | Fixtures | Scope |
+|-------------|-----------|----------|----------|-------|
+| LibVLC playback seam (`LibVlcPlayerHandle` wiring) | UI | [§2.6.1](#261-public-api-exposed-to-system) | F22 | In scope |
+| SingingScreen — lyrics, countdown, pause overlay | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | F22 | In scope |
+| Interruption overlay shell (loading/error variants) | UI: Shared overlay shell | [§2.6.11](#2611-interruption-overlay-shell) | F22 | In scope |
+| Playback timing, stop, error, and audio-focus handling | UI + PlaybackCoordinator | [§2.1](#21-playbackcoordinator), [§2.6.16](#2616-singingscreen-behavior) | F22 | In scope |
+| Minimal song-start clock-sync gate | PlaybackCoordinator | [§2.1](#21-playbackcoordinator) | inline | In scope |
+| GamePhase FSM remaining states (`Countdown`, `Live`, `Paused`, `Stopped`) | PlaybackCoordinator | [§4.1](#41-gamephase-fsm) | F22 | In scope |
+| Song preview seek-position fallback | UI: SongListScreen | [§2.6.10](#2610-song-preview-playback) | — | In scope |
+| SingingScreen — pitch lane | UI: SingingScreen | [§2.6.6](#266-pitch-lane-rendering-architecture) | — | Stub |
+| SingingScreen — live score display | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — | Stub |
+| Results screen | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen-behavior) | — | Stub |
+
+**Stubs**:
+- `SingingScreen` pitch lane: render lane area with correct dimensions and tokens; no note bars, no cursor.
+- `SingingScreen` live score display: show `00000` static, no live updates.
+- `ResultsScreen`: show `00000` for all score fields; Back to Song List is the only action. Full `§2.6.18.1` layout deferred to Iter 3.
+
+**DOD**:
 - [ ] Select song → plays audio through `LibVlcPlayerHandle`, shows sentence-paged lyrics
 - [ ] UI emits `PlaybackEvent.Prepared(effectivePlaybackDurationMs)` before countdown or playback
 - [ ] UI emits `PlaybackEvent.Ready(songStartTvMs)` from the first audio `LibVlcEvent.Playing`; coordinator calls `ScoringEngine.setSongStart(songStartTvMs)` only after that event
 - [ ] UI enforces `stopAtLyricsTimeMs` through `LibVlcPlayerHandle.stop()` and emits `PlaybackEvent.Ended`
+- [ ] Pause/resume/restart/quit work; Back → Song List
 - [ ] Playback errors return to Song List with the blocking error modal and leave the session Open
 - [ ] UI requests audio focus before playback and abandons it on song end, error exit, or Restart
-- [ ] Before countdown or live playback, coordinator obtains at least one valid clock-sync sample for every assigned singer; cover this with a minimal inline test, while full F21 clock-sync fixture coverage remains Iter 2
-- [ ] Back → returns to song list
-- [ ] F15 session lifecycle passes
+- [ ] Before countdown or live playback, coordinator obtains at least one valid clock-sync sample for every assigned singer
 - [ ] Minimal song-start clock-sync gate test passes
-- [ ] F22 GamePhase FSM passes
-- [ ] Runs on emulator
-- [ ] Cumulative TV app flow works end-to-end through the TV UI for Iter 1 scope: launch app, pair one phone, load phone manifest, select one song, play audio with lyrics, handle Back, and return to Song List
-- [ ] No known blocker remains for Iter 1 TV-owned scope
-- [ ] Peer-boundary behavior covered by direct WebSocket/UDP tests plus targeted instrumented checks
+- [ ] Song preview seek-position fallback: when `previewStartSec` is absent or ≤ 0 and `audioLengthSec > 120s`, preview seeks to `min(audioLengthSec / 4, 60s)` instead of 0
+- [ ] F22 GamePhase FSM passes (all states)
+- [ ] Cumulative TV app flow: complete Iter 1 flow → select song → lyrics scroll → stub results → Song List
+- [ ] No known blocker remains for Iter 2 TV-owned scope
 
-**Peer Test Utilities**: Prefer direct test clients and fakes; no general mock-phone harness required.
+**Peer Test Utilities**: Prefer direct test clients and fakes.
 
-## 7.4 Iter 2 — Scored Singing + Pitch Pipeline
+## 7.5 Iter 3 — Scoring (1P + 2P + Duet)
 
-**Goal**: Complete scoring loop — pitch frames flow, scores accumulate, results display.
+**Goal**: Pitch frames scored in real time; 1 or 2 players; duet track routing works.
 
-| Deliverable | Component | Spec Ref | Fixtures |
-|-------------|-----------|----------|----------|
-| Full clock sync protocol coverage | PlaybackCoordinator | [§2.1](#21-playbackcoordinator) | F14v2, F21 |
-| UDP listener | NetworkController | [§2.3](#23-networkcontroller) | F12v2 |
-| Pitch frame validation | NetworkController | [§2.3](#23-networkcontroller) | — |
-| Jitter buffer | ScoringEngine | [§4.4](#44-jitter-buffer) | F13 |
-| Scoring coroutine | ScoringEngine | [§2.2](#22-scoringengine) | F08, F24 |
-| Pitch lane UI | UI: SingingScreen | [§2.6.6](#266-pitch-lane-rendering-architecture), [§2.6.16](#2616-singingscreen-behavior) | — |
-| Live score display | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — |
-| Results screen | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen-behavior) | — |
-| Song preview seek-position fallback and future Preview Volume | UI: SongListScreen / Settings | [§2.6.10](#2610-song-preview-playback), [§2.6.15.3](#26153-settings--audio) | — |
+| Deliverable | Component | Spec Ref | Fixtures | Scope |
+|-------------|-----------|----------|----------|-------|
+| Full clock sync protocol coverage | PlaybackCoordinator | [§2.1](#21-playbackcoordinator) | F14v2, F21 | In scope |
+| UDP listener + pitch frame validation | NetworkController | [§2.3](#23-networkcontroller) | F12v2 | In scope |
+| Jitter buffer | ScoringEngine | [§4.4](#44-jitter-buffer) | F13 | In scope |
+| Scoring coroutine | ScoringEngine | [§2.2](#22-scoringengine) | F08, F24 | In scope |
+| Pitch lane UI | UI: SingingScreen | [§2.6.6](#266-pitch-lane-rendering-architecture), [§2.6.16](#2616-singingscreen-behavior) | — | In scope |
+| Live score display | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — | In scope |
+| Results screen — single-song (§2.6.18.1) | UI: ResultsScreen | [§2.6.18.1](#26181-post-song-results) | — | In scope |
+| 2-phone handling | NetworkController | [§2.3](#23-networkcontroller) | F23 | In scope |
+| P1/P2 assignment | PlaybackCoordinator | [§2.6.14](#2614-selectplayersmodal-behavior) | F23 | In scope |
+| Duet chart routing | UsdxParser, ScoringEngine | [§2.4](#24-usdxparser), [§2.2](#22-scoringengine) | F04, F23, F24 | In scope |
+| Disconnect/reconnect + auto-pause overlay | PlaybackCoordinator, UI | [§2.3](#23-networkcontroller), [§2.6.11](#2611-interruption-overlay-shell), [§2.6.16](#2616-singingscreen-behavior) | F15 | In scope |
+| Results screen — medley variant (§2.6.18.2) | UI: ResultsScreen | [§2.6.18.2](#26182-post-medley-results) | — | Deferred |
+
+**Stubs**: None. Medley playlist left rail remains as established in Iter 1 (visible, `Play Medley` non-focusable).
 
 **DOD**:
 - [ ] Clock sync completes before song start
 - [ ] Pitch frames flow from phone → jitter buffer → scoring
 - [ ] Pitch lane shows live cursor
 - [ ] Score updates in real-time
-- [ ] Song ends → Results screen shows final score
-- [ ] F13, F21, F24 pass
+- [ ] Song ends → Results screen (§2.6.18.1) shows final score
 - [ ] Perfect mock performance → `scoreTotalInt == 10000`
-- [ ] Song preview seek-position fallback: when `previewStartSec` is absent or ≤ 0 and `audioLengthSec > 120s`, preview seeks to `min(audioLengthSec / 4, 60s)` instead of 0
-- [ ] Settings > Audio > Preview Volume: future Settings work may add a preview-volume gate; Iteration 1 preview remains TV/system-volume only
-- [ ] Cumulative TV app flow works end-to-end through the TV UI for Iter 2 scope: complete Iter 1 flow, receive pitch frames, show live pitch/score, end song, and show Results
-- [ ] No known blocker remains for Iter 2 TV-owned scope
-
-**Peer Test Utilities**: Prefer direct UDP sender tests. Construct datagrams inline for small cases; use replay fixtures only when timing-sensitive data is reused across tests.
-
-## 7.5 Iter 3 — Multiplayer + Duet + Polish
-
-**Goal**: 2-player support, duet songs, production-quality UX.
-
-| Deliverable | Component | Spec Ref | Fixtures |
-|-------------|-----------|----------|----------|
-| 2-phone handling | NetworkController | [§2.3](#23-networkcontroller) | F23 |
-| P1/P2 assignment | PlaybackCoordinator | [§2.6.16](#2616-singingscreen-behavior) | F23 |
-| Duet chart routing | UsdxParser, ScoringEngine | [§2.4](#24-usdxparser), [§2.2](#22-scoringengine) | F23, F24 |
-| Disconnect/reconnect | PlaybackCoordinator | [§2.3](#23-networkcontroller) | F23 |
-| Disconnect auto-pause overlay variant (`Wait for reconnect` / `Continue without them`) | UI: SingingScreen | [§2.6.11](#2611-interruption-overlay-shell), [§2.6.16](#2616-singingscreen-behavior) | F22 |
-| Settings screens | UI: SettingsScreen | [§2.6.15](#2615-settingsscreen-behavior) | — |
-| Video backgrounds — real LibVLC two-MP wiring | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — |
-| `#VIDEOGAP` arithmetic and audio-master timing | UI (LibVLC) | [§2.1](#21-playbackcoordinator), [§2.6.16](#2616-singingscreen-behavior) | — |
-| Instrumental + vocals mixing | Phone (see phone spec) | Phone pre-mixes before serving; no TV deliverable | — |
-
-> **Video scope note**: Iteration 1 established the video data model (`videoUrl`, `videoGapSec`), `SingingBackground.Video` render model, contracts, and static-background fallback seam. Iteration 3 wires the real LibVLC `MediaPlayer` instances, `#VIDEOGAP` arithmetic, hardware-decoder verification, and QA on target hardware.
-
-**DOD**:
+- [ ] F13, F21, F24 pass
 - [ ] Two phones connect, both appear in SelectPlayers
 - [ ] Duet song → P1 sings track 1, P2 sings track 2
 - [ ] Swap Parts works
 - [ ] Singer disconnect → disconnect auto-pause overlay appears; reconnect or Continue Without Them resumes
-- [ ] All settings screens functional
-- [ ] Video background plays using real LibVLC audio and video `MediaPlayer` instances when `videoUrl` is present (building on Iter 1 contracts and data model)
-- [ ] Audio MP remains timing authority; video MP is decorative and does not influence scoring or `songStartTvMs`
-- [ ] `#VIDEOGAP` applies the specified video delay/seek behavior, and video MP is configured with `:no-audio`
-- [ ] Video MP failure falls back to `#BACKGROUND` without surfacing an error modal or affecting audio/scoring/session state
-- [ ] Fullscreen video uses `SurfaceView.setZOrderMediaOverlay(true)` rather than `TextureView`
 - [ ] F04, F23 pass
-- [ ] Cumulative TV app flow works end-to-end through the TV UI for Iter 3 scope: complete Iter 2 flow with two phones, duet assignment/swap, disconnect/reconnect handling, settings, and video/background behavior
+- [ ] Cumulative TV app flow: complete Iter 2 flow with two phones, duet assignment/swap, disconnect/reconnect, scored results
 - [ ] No known blocker remains for Iter 3 TV-owned scope
 - [ ] Demo: Two people sing a duet
 
 **Peer Test Utilities**: Use lightweight WebSocket test clients to simulate disconnect/reconnect and multi-phone session behavior. A full mock-phone harness is not required.
 
-## 7.6 Iter 4 — Medley + Hardening
+## 7.6 Iter 4 — Medley
 
-**Goal**: Medley mode complete, performance optimized, MVP shippable.
+**Goal**: Medley playlist builds, Play Medley runs end-to-end, medley results display.
 
-| Deliverable | Component | Spec Ref | Fixtures |
-|-------------|-----------|----------|----------|
-| Medley playlist UI | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | — |
-| Medley sequencer | PlaybackCoordinator | [§4.2](#42-medley-segment-transitions) | F16 |
-| Segment transitions | PlaybackCoordinator + UI | [§4.2](#42-medley-segment-transitions), [§2.6.17](#2617-singingscreen--medley-mode) | F16 |
-| Audio prebuffer/crossfade | UI (LibVLC) | [§4.2](#42-medley-segment-transitions) | — |
-| Medley scoring windows | ScoringEngine | [§2.6.17](#2617-singingscreen--medley-mode), [§2.2](#22-scoringengine) | F16 |
-| Medley results | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen-behavior) | — |
-| Device tuning | All | [§1.1](#11-testability), [§1.6](#16-minimal-footprint) | — |
-| S905X4 LibVLC playback verification | UI (LibVLC) | [§1.6](#16-minimal-footprint) | — |
+| Deliverable | Component | Spec Ref | Fixtures | Scope |
+|-------------|-----------|----------|----------|-------|
+| Medley playlist UI (left rail: add/remove/reorder, Play Medley enabled) | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | — | In scope |
+| Medley sequencer | PlaybackCoordinator | [§4.2](#42-medley-segment-transitions) | F16 | In scope |
+| Segment transitions | PlaybackCoordinator + UI | [§4.2](#42-medley-segment-transitions), [§2.6.17](#2617-singingscreen--medley-mode) | F16 | In scope |
+| Audio prebuffer/crossfade | UI (LibVLC) | [§4.2](#42-medley-segment-transitions) | — | In scope |
+| Medley scoring windows | ScoringEngine | [§2.6.17](#2617-singingscreen--medley-mode), [§2.2](#22-scoringengine) | F16 | In scope |
+| SingingScreen medley header + segment indicator | UI: SingingScreen | [§2.6.17](#2617-singingscreen--medley-mode) | — | In scope |
+| Medley results (§2.6.18.2) | UI: ResultsScreen | [§2.6.18.2](#26182-post-medley-results) | — | In scope |
+
+**Stubs**: None.
 
 **DOD**:
 - [ ] Medley playlist, start, transitions work
 - [ ] Crossfade audible (<100ms gap if prebuffer ready)
 - [ ] Medley results show per-segment + average
 - [ ] F16, F18 pass
+- [ ] Cumulative TV app flow: complete Iter 3 flow → build medley playlist → Play Medley → per-song transitions → medley results
+- [ ] No known blocker remains for Iter 4 TV-owned scope
+- [ ] Demo: Full medley karaoke session
+
+**Peer Test Utilities**: Use targeted test doubles for peer behavior. Keep medley validation focused on coordinator logic plus small instrumented playback checks.
+
+## 7.7 Iter 5 — Polish
+
+**Goal**: Video backgrounds, settings screens, disconnect hardening, performance targets met on reference hardware.
+
+| Deliverable | Component | Spec Ref | Fixtures | Scope |
+|-------------|-----------|----------|----------|-------|
+| Settings screens (Connect Phones, Song Library, Audio, Scoring Timing, Gameplay, Video) | UI: SettingsScreen | [§2.6.15](#2615-settingsscreen-behavior) | — | In scope |
+| Video backgrounds — real LibVLC two-MP wiring | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — | In scope |
+| `#VIDEOGAP` arithmetic and audio-master timing | UI (LibVLC) | [§2.1](#21-playbackcoordinator), [§2.6.16](#2616-singingscreen-behavior) | — | In scope |
+| Settings > Audio > Preview Volume gate | UI: SongListScreen / Settings | [§2.6.15.3](#26153-settings--audio) | — | In scope |
+| Device tuning + S905X4 LibVLC verification | All | [§1.6](#16-minimal-footprint) | — | In scope |
+
+**Stubs**: None.
+
+**DOD**:
+- [ ] All settings screens functional
+- [ ] Video background plays using real LibVLC audio and video `MediaPlayer` instances when `videoUrl` is present (building on Iter 2 contracts and data model)
+- [ ] Audio MP remains timing authority; video MP is decorative and does not influence scoring or `songStartTvMs`
+- [ ] `#VIDEOGAP` applies the specified video delay/seek behavior, and video MP is configured with `:no-audio`
+- [ ] Video MP failure falls back to `#BACKGROUND` without surfacing an error modal or affecting audio/scoring/session state
+- [ ] Fullscreen video uses `SurfaceView.setZOrderMediaOverlay(true)` rather than `TextureView`
 - [ ] HD/FHD LibVLC playback verified on the Amlogic S905X4 reference device with `--codec=mediacodec_ndk,all`; if verification fails, Video is forced OFF for the affected device profile and `#BACKGROUND` still-image fallback is used
 - [ ] Performance on target device: video degrades gracefully per the §2.6.16 degradation monitor; scoring and audio are unaffected when video is disabled
 - [ ] Fully functional TV app flow works end-to-end through the TV UI: launch, pair phones, load library, browse/search/preview, solo sing, scored sing, duet, disconnect/reconnect, settings, video/background fallback, medley, and results
 - [ ] All TV-owned fixture and acceptance tests pass
 - [ ] No known blocker remains in TV-owned scope
-- [ ] Demo: Full medley karaoke session
 
-**Peer Test Utilities**: Use targeted test doubles for peer behavior. Keep medley validation focused on coordinator logic plus small instrumented playback checks.
+**Peer Test Utilities**: Use lightweight WebSocket test clients; no general mock-phone harness required.
 
 ---
 
