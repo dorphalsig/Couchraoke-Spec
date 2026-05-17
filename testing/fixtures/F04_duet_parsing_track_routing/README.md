@@ -1,13 +1,10 @@
-# F04 — Duet parsing: P1/P2 track routing
+# F04 — Duet parsing track routing
 
-Covers Appendix F / F04.
+Validates duet marker handling and P1/P2 note routing.
 
-## Contents
+## Cases
 
-- `songs_root/a/valid_duet_interleaved/`:
-  - Valid duet song with interleaved `P1`/`P2` markers.
-  - Includes `expected.parsedSong.json` to assert track routing.
-- `songs_root/b/invalid_duet_marker_p3/`:
-  - Invalid duet marker (`P3`) must invalidate the song.
+- `valid_duet_interleaved/` contains an interleaved duet chart and `expected.parsedSong.json` to assert track routing.
+- `invalid_duet_marker_p3/` asserts that unsupported player markers are rejected.
 
-The fixture also provides `expected.discovery.json` to assert per-song validity and stable invalidation diagnostics.
+Spec covers: tv_app.md §2.4 UsdxParser.

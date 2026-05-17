@@ -1,0 +1,11 @@
+#VERSION:1.1.0
+#TITLE:Mix Pair Same Rate Channels
+#ARTIST:Fixture
+#INSTRUMENTAL:instrumental.wav
+#VOCALS:vocals.wav
+#BPM:120
+#GAP:0
+
+: 0 2 0 la
+- 2
+E

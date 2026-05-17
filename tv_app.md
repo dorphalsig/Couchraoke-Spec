@@ -1,8 +1,8 @@
 # Couchraoke TV App — Specification
 
 **Version**: 1.9
-**Date**: 2026-05-17
-**Changelog since 1.8**: USDX pitch base corrected to C4/MIDI 60; effective audio-source validity aligned with accepted `#INSTRUMENTAL`+`#VOCALS` mix pairs; TV-facing audio wording clarified to a single effective `audioUrl`.
+**Date**: 2026-05-18
+**Changelog since 1.8**: USDX pitch base corrected to C4/MIDI 60; effective audio-source validity aligned with accepted `#INSTRUMENTAL`+`#VOCALS` mix pairs; TV-facing audio wording clarified to a single effective `audioUrl`; fixture catalog/README alignment refreshed; Settings > About license attribution added.
 **Changelog since 1.7: §4.6 BeatCalculator: purged `bpmInternal`, renamed `timeSecToMidBeatInternal`→`timeSecToBeat`, `beatInternalToTimeSec`→`beatToTimeSec`, corrected `/60.0`→`/15.0` per Appendix C. Appendix B.2.2: added `connectedDevices[]` to `sessionState` schema (max 10 devices). §2.6.17/§4.2: deleted txtUrl-fail skip clause; prefetch-all-or-fail normative. ScoringEngine: added `healthEvents: SharedFlow<GameplayHealthEvent>`. Dependencies pinned: navigation-compose 2.9.5, hilt-android 2.57.1, hilt-navigation-compose 1.2.0. Fixtures: F06 cursor 22→23, F15 clientIds renamed (c-a→client-aa, c-b→client-bb, c-c→client-cc), F15 case_slot_taken rewritten (11th-device cap=10 scenario), F16 expected.medleySegments.json created, F18 transcript.json→transcript.jsonl.
 **Scope**: Android TV Host App (phone companion OOS)
 **Changelog since 1.5**: Consistency audit fixes. §2.1 / §2.3: GamePhase names aligned with §4.1 sealed class (`Idle`→`Open`, `Loading`→`Preparing`, `Playing`→`Live`). §B.2.9: SongEntry JSON Schema repaired (trailing comma removed; `additionalProperties: false` added). §3.1 Song Start Flow: `sendAssignSinger` correctly precedes `broadcastPlaybackState`. §2.3 T8.5.5: moved to inline; description corrected to match 10-device cap. §1.6: OS range opened to Android TV 11+ (was 11–14). §2.6.5.6: `BorderFocus` changed to `#FFFFFF` @ 60% alpha; §2.6.9 focus-indicator rule updated accordingly. §2.6.12: DPAD navigation table corrected — Random actions row added; playlist Up rule fixed; Play Medley Down fixed. §2.4: stale "internal = ×4" comments on `#BPM` removed (file beats used directly per §4.6). §2.2 / §3.2: `ScoringEngine.suspend()` renamed `pause()`. Appendix C: subsections renamed E.x→C.x. §2.6.16 / §2.6.17: medley `n=1` minimal-strip rule unified. §2.3 T8.3.11: conditional `countdownMs` documented. §2.4: `#DUETSINGERP1` / `#DUETSINGERP2` accepted as aliases of `#P1` / `#P2`. §2.5 / §2.6.10: `previewStartSec` cross-referenced. §2.6.5.4 / §2.6.12: SongList-specific compact tokens relocated to §2.6.12. Footer date stamp removed. F13 rewritten for range-query model: old single-frame-selection + 120ms staleness cases dropped; four sub-cases (case_lateness_drop, case_seq_drop, case_regression_large_drop, case_regression_small_accept) replace them; T5.2.3.4–7 warning removed; §2.2 Knowledge Gaps updated.
@@ -608,7 +608,7 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 
 ### Knowledge Gaps
 
-- **F08 README is stale**: references `(oldBeatD, currentBeatD]` beat-stepping which no longer exists; current implementation is deadline-driven (§4.3). Fixture data remains valid; only the README description needs updating.
+None.
 
 ---
 
@@ -767,7 +767,7 @@ val code = "${adjectives.random()}-${nouns.random()}".uppercase()  // e.g. "SWIF
 
 > ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
-`pitchFrame` is an **20-byte fixed-size binary UDP datagram**:
+`pitchFrame` is a **20-byte fixed-size binary UDP datagram**:
 
 ```
 Offset  Size  Type    Field
@@ -838,7 +838,7 @@ TV MUST reject clients whose `hello.protocolVersion != 1` with `error(code="prot
 - TV assigns new `connectionId`. If the reconnecting phone remains an active Singer for the current song, the TV re-sends `assignSinger` with **recomputed `stopAtLyricsTimeMs` reflecting the remaining playback plan**; otherwise it MUST NOT send `assignSinger` for that song. The TV then immediately sends current `playbackState`.
 - If the phone was assigned as a Singer when it disconnected, it MUST resume that singer role on reconnect unless the TV has removed the device via Kick or the host chose **Continue without them** for the current song. In the **Continue without them** case, the phone may reconnect to the session, but it MUST NOT resume singer role or contribute further score until the next song.
 - On reconnect during **Open** or **Results**, the TV MUST fetch `/manifest.json` from the reconnecting phone to refresh the song index immediately.
-- On reconnect during **Countdown**, **Playing**, **Paused**, or **DisconnectPaused**, the TV MUST mark that phone's catalog stale and defer `/manifest.json` fetch until the session next reaches **Results** or **Open**. Library refresh MUST NOT occur during gameplay.
+- On reconnect during **Countdown**, **Live**, **Paused**, or **DisconnectPaused**, the TV MUST mark that phone's catalog stale and defer `/manifest.json` fetch until the session next reaches **Results** or **Open**. Library refresh MUST NOT occur during gameplay.
 - **Socket cleanup**: when a new socket replaces an old one for the same `clientId`, cleanup of the closing socket MUST only remove connection/session state if that closing socket is still the active socket for that client.
 - If roster full and reconnect does not match existing `clientId`: reject with `code="session_full"`.
 
@@ -1312,6 +1312,13 @@ Invalid songs remain local scan results on the phone and are NOT published in `/
 | `ERROR_CORRUPT_SONG_UNSUPPORTED_RELATIVE` | Sentence line with legacy beat-delta parameter |
 | `ERROR_CORRUPT_SONG_INVALID_VERSION` | VERSION fails to parse or VERSION >= 2.0.0 |
 | `ERROR_CORRUPT_SONG_INVALID_DUET_MARKER` | `P` token with value other than P1/P2 |
+
+**Minimum warning codes**:
+| Code | Meaning |
+|------|---------|
+| `WARN_VOCALS_WITHOUT_INSTRUMENTAL` | `#VOCALS` is present without a valid `#INSTRUMENTAL`; vocals are ignored and base audio is used |
+| `WARN_MIX_PAIR_INELIGIBLE_SAMPLE_RATE` | Instrumental/vocals pair has differing decoded sample rates; base audio is used |
+| `WARN_MIX_PAIR_INELIGIBLE_CHANNELS` | Instrumental/vocals pair has differing channel counts; base audio is used |
 
 ### Parsed Song Model (Normative)
 
@@ -2483,7 +2490,7 @@ No phones connected
 
 ### 2.6.15 SettingsScreen Behavior
 
-Root Settings is a list routing to sub-screens: Connect Phones, Song Library, Audio, Scoring Timing, Gameplay, Video.
+Root Settings is a list routing to sub-screens: Connect Phones, Song Library, Audio, Scoring Timing, Gameplay, Video, About.
 
 **Layout tokens:**
 
@@ -2527,6 +2534,7 @@ Root Settings is a list routing to sub-screens: Connect Phones, Song Library, Au
 |    Scoring Timing                     |
 |    Gameplay                           |
 |    Video                              |
+|    About                              |
 +--------------------------------------+
 | Hints: OK=Open   Back=Return          |
 +--------------------------------------+
@@ -2687,6 +2695,26 @@ Video enabled ON/OFF. When disabled or unavailable, background fallback: 1) `#BA
 | Video enabled:          ON           |
 +--------------------------------------+
 | Hints: OK=Toggle  Back=Return        |
++--------------------------------------+
+```
+
+#### 2.6.15.7 Settings > About
+
+Shows app version and third-party license attribution. The screen MUST include LibVLC attribution and LGPL 2.1 compliance text/link appropriate for the shipped build.
+
+##### About Wireframe
+
+```wireframe
++--------------------------------------+
+| SETTINGS > ABOUT                      |
++--------------------------------------+
+| Couchraoke TV                         |
+| Version: <app version>                |
+|                                      |
+| Third-party licenses                  |
+| - LibVLC / VLC for Android            |
++--------------------------------------+
+| Hints: Back=Return                    |
 +--------------------------------------+
 ```
 
@@ -3901,29 +3929,37 @@ The note is finalized when TV monotonic clock reaches `noteEndTvMs + NOTE_FINALI
 | F04 | Duet parsing track routing | UsdxParser |
 | F05 | Legacy relative mode semantics | UsdxParser |
 | F06 | Beat-time conversion | ScoringEngine |
-| F08 | Scoring beat stepping | ScoringEngine |
+| F08 | Scoring deadline/window evaluation | ScoringEngine |
 | F09 | Pitch tolerance, octave normalization | ScoringEngine |
 | F10 | Rap scoring toneValid gate | ScoringEngine |
 | F11 | Line bonus and rounding | ScoringEngine |
 | F12v2 | Binary pitch codec | NetworkController |
 | F13 | Jitter buffer insert validation and range query | ScoringEngine |
+| F14v2 | Clock sync phone-side | — (phone OOS) |
 | F15 | Session lifecycle disconnect/reconnect | NetworkController, PlaybackCoordinator |
 | F16 | Medley sequencer | PlaybackCoordinator |
 | F17 | YIN DSP pipeline accuracy | — (phone OOS) |
 | F18 | HTTP asset client smoke test | NetworkController |
 | F19 | iCloud eviction (iOS) | — (phone OOS) |
+| F20 | WebSocket message validation | NetworkController |
+| F21 | Clock sync TV-side | PlaybackCoordinator |
+| F22 | GamePhase FSM transitions | PlaybackCoordinator |
+| F23 | Library multi-phone aggregation | LibraryManager |
+| F24 | Scoring integration | ScoringEngine |
 
-> **Note**: F07 was retired (merged into F08 redesign for range-query model). F17 and F19 are phone-only fixtures.
+> **Note**: F07 was retired (merged into F08 redesign for range-query model). F14v2, F17, and F19 are phone-only fixtures. All required fixture directories are checked in under `testing/fixtures`.
 
-## 6.2 New Fixtures Required
+## 6.2 Fixture Definitions
 
-| ID | Purpose | Components | Priority |
-|----|---------|------------|----------|
-| F20 | WebSocket message validation | NetworkController | Should have |
-| F21 | Clock sync TV-side | PlaybackCoordinator | Must have |
-| F22 | GamePhase FSM transitions | PlaybackCoordinator | Must have |
-| F23 | Library multi-phone aggregation | LibraryManager | Should have |
-| F24 | Scoring integration (frames → score) | ScoringEngine | Must have |
+The entries below document the TV-side fixtures added after the original fixture set. They are no longer pending work.
+
+| ID | Purpose | Components | Status |
+|----|---------|------------|--------|
+| F20 | WebSocket message validation | NetworkController | Checked in |
+| F21 | Clock sync TV-side | PlaybackCoordinator | Checked in |
+| F22 | GamePhase FSM transitions | PlaybackCoordinator | Checked in |
+| F23 | Library multi-phone aggregation | LibraryManager | Checked in |
+| F24 | Scoring integration | ScoringEngine | Checked in |
 
 ### F20: WebSocket Message Validation
 
@@ -4689,8 +4725,8 @@ Given: `Player.Score = 4090.909...`, `Player.ScoreGolden = 100.909...`
 ## C.6 Minimal Fixture Layout for C.4
 
 ```
-fixtures/E4_score_linebonus_perfect/
-├── song.txt                  # 2-line chart from E.4
+fixtures/C4_score_linebonus_perfect/
+├── song.txt                  # 2-line chart from C.4
 └── expected.score.json       # Contains: MaxSongPoints, MaxLineBonusPool,
                               # TrackScoreValue, per-note max_note_score/hits/N/note_score,
                               # Score, ScoreGolden, ScoreLine, ScoreInt, ScoreGoldenInt,

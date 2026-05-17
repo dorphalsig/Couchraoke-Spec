@@ -16,7 +16,7 @@
   },
   {
     "from": "Preparing",
-    "to": "Open",
+    "to": "Error",
     "trigger": "prepare_error"
   },
   {
@@ -28,6 +28,21 @@
     "from": "Countdown",
     "to": "Open",
     "trigger": "required_singer_disconnect"
+  },
+  {
+    "from": "Countdown",
+    "to": "Error",
+    "trigger": "countdown_error"
+  },
+  {
+    "from": "Live",
+    "to": "Error",
+    "trigger": "playback_error"
+  },
+  {
+    "from": "Error",
+    "to": "Open",
+    "trigger": "user_dismiss_error"
   },
   {
     "from": "Live",
@@ -83,25 +98,5 @@
     "from": "Results",
     "to": "Open",
     "trigger": "back_to_song_list"
-  },
-  {
-    "from": "Preparing",
-    "to": "Error",
-    "trigger": "prepare_error"
-  },
-  {
-    "from": "Countdown",
-    "to": "Error",
-    "trigger": "countdown_error"
-  },
-  {
-    "from": "Live",
-    "to": "Error",
-    "trigger": "playback_error"
-  },
-  {
-    "from": "Error",
-    "to": "Open",
-    "trigger": "user_back"
   }
 ]

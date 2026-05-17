@@ -1,22 +1,17 @@
-# F08 — Scoring beat window evaluation (deadline-driven model)
+# F08 — Scoring deadline/window evaluation
 
-**Purpose**: verify ScoringEngine correctly evaluates note active windows in deadline-driven model (§4.3).
+**Purpose**: verify ScoringEngine finalizes a simple note using the current deadline-driven, range-query scoring model.
 
-**Scenario**:
-- Single Normal note from beat 0 with duration 2 (active for beats in `[0, 2)`)
-- Pitch frames arrive with monotonically increasing `deadlineBeatsD` values (0, 1, 2)
-- Verify note is scored only when its deadline window overlaps the pitch frame's reported beat range
+## Scenario
 
-**Model** (§4.3):
-- Each pitch frame reports `deadlineBeatsD` = beat position of the current playback deadline
-- A note is in-window if its active beat range `[startBeat, endBeat)` overlaps with the deadline's observation window
-- Notes are scored once per frame; duplicate scoring is prevented by frame staleness checks (§2.2 T5.2.3)
+- Single Normal note from beat 0 with duration 2; active window is `[0, 2)`.
+- Pitch frames are timestamped in TV monotonic time and selected by the jitter buffer with `noteStartTvMs <= tvTimeMs < noteEndTvMs`.
+- The note is finalized once the scoring coroutine reaches `noteEndTvMs + 450ms`; all qualifying frames are evaluated once.
 
-**Test coverage** (§2.2 T6.1.1):
-- `case_perfect`: note active, pitch valid → full score
-- Frame sequence: deadline at 0.5, 1.5, 2.5 beats — verify note transitions from in-window → out-of-window
+## Files
 
-**Files**:
-- `song.txt` — single Normal note (beat 0, duration 2)
-- `pitchFrames.jsonl` — three frames with increasing deadlineBeatsD
-- `expected.score.json` — scoreTotalInt (perfect score on this single note)
+- `song.txt` — one Normal note followed by sentence break.
+- `pitchFrames.jsonl` — two qualifying voiced frames for P1.
+- `expected.score.json` — deterministic score breakdown for a perfect hit on the single note.
+
+Spec covers: tv_app.md §2.2 ScoringEngine, §4.3 Scoring Coroutine, §4.4 Jitter Buffer.

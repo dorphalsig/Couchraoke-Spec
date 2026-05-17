@@ -23,7 +23,7 @@ The deterministic fields that a test should assert are listed in:
 Notes:
 - `txtUri` values are relative to the fixture directory for portability.
 - Dynamic fields like `songId`, `modifiedTimeMs`, or absolute SAF URIs are intentionally not asserted.
-- Some cases include extra deterministic fields (`resolvedAudioRel`, `hasVideo`) to assert audio-resolution and missing-optional-asset behavior.
+- Some cases include extra deterministic fields (`resolvedAudioRel`, `hasVideo`, `mixMode`, `expectedWarnCodes`) to assert asset-resolution, missing-optional-asset, and mixing decisions.
 
 ## Cases included
 
@@ -37,12 +37,18 @@ Notes:
 - `c/legacy_mp3_preferred` — legacy with both `#AUDIO` and `#MP3`; expects `#MP3` chosen (`resolvedAudioRel=audio.mp3`)
 - `c/v1_missing_optional_video` — VERSION>=1.0.0 with missing `#VIDEO` target; expects valid and treated as absent (`hasVideo=false`)
 
+- `d/vocals_without_instrumental` — `#VOCALS` without `#INSTRUMENTAL`; expects valid fallback to base audio and warning diagnostic
+- `d/mix_pair_same_rate_channels` — accepted `#INSTRUMENTAL`+`#VOCALS` pair; expects one generated effective audio source, no base audio required
+- `d/mix_pair_mismatched_sample_rate` — ineligible mix pair; expects valid fallback to base audio and warning diagnostic
+- `d/mix_pair_mismatched_channels` — ineligible mix pair; expects valid fallback to base audio and warning diagnostic
+
 ## Schema note
 
 `expected.discovery.json` projects the canonical `ParsedSong` schema. Fields like `isValid`, `invalidReasonCode`, `invalidLineNumber` are derived from the `diags: List<DiagnosticEntry>` array:
 
-- `isValid = diags.isEmpty()`
-- `invalidReasonCode = diags.first().code` (if any)
-- `invalidLineNumber = diags.first().lineNumber` (if applicable)
+- `isValid = diags.none { it.severity == "invalid" }`
+- `invalidReasonCode = first invalid diagnostic code` (if any)
+- `invalidLineNumber = first invalid diagnostic lineNumber` (if applicable)
+- `expectedWarnCodes = all warning diagnostic codes` (when asserted)
 
-The fixture asserts only these projected fields, not the full diagnostic array. See §2.4 DiagnosticEntry schema.
+The fixture asserts only these projected fields, not the full diagnostic array. See `tv_app.md` §2.4 DiagnosticEntry schema.

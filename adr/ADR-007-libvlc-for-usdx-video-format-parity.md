@@ -143,15 +143,17 @@ The important design constraint is containment:
 - We must add LibVLC attribution in the app UI and keep distribution compliant with LGPL 2.1 expectations.
 - If implementation reveals a real gap in medley prebuffering with LibVLC, we should revisit only that playback subsection rather than re-opening the whole playback architecture.
 
-## Action Items
+## Spec Integration Status
 
-1. [ ] Replace the Media3 playback dependency with the approved LibVLC Android dependency and remove Media3-specific playback assumptions from implementation planning.
-2. [ ] Update `tv_app.md` §2.1 so `songStartTvMs` remains monotonic, is captured from a LibVLC playback-time event, and still uses the existing 500 ms fallback rule.
-3. [ ] Update `tv_app.md` §2.6 UI ownership language so it owns playback/backend lifecycle rather than specifically owning Media3.
-4. [ ] Update `tv_app.md` §3.2 so the coordinator↔UI contract stays `PlaybackIntent`/`PlaybackEvent`, but execution is no longer described as “on Media3”.
-5. [ ] Update `tv_app.md` §4.2 medley prebuffering so it specifies the required capability (prepare next segment ahead of handoff, with sequential fallback if not ready) instead of requiring a second ExoPlayer instance by name.
-6. [ ] Add normative UI-layer rules for main-thread handoff, manual video attach/detach/release timing, and audio-focus request/release around playback.
-7. [ ] Add a video-admission rule to the playback spec: allow video only when the device/video combination is safe enough for gameplay; otherwise use background-only fallback.
-8. [ ] Add a runtime gameplay-health rule: if video rendering degrades pitch-frame processing beyond the chosen threshold, disable video and continue audio, lyrics, and scoring.
-9. [ ] Replace Media3-specific playback test doubles with LibVLC-oriented or backend-neutral fakes and add coverage for delayed timing events, lifecycle teardown, medley transitions, and fallback behavior.
-10. [ ] Add LibVLC LGPL 2.1 attribution to Settings > About and confirm the release checklist covers compliance.
+These ADR-driven specification changes are integrated in `tv_app.md` v1.9:
+
+1. [x] LibVLC is the approved playback dependency (`org.videolan.android:libvlc-all:3.6.0`), and Media3/ExoPlayer is no longer part of the normative playback boundary.
+2. [x] `songStartTvMs` remains monotonic, is captured from a LibVLC playback event, and keeps the 500 ms fallback rule.
+3. [x] The UI owns playback/backend lifecycle through a backend seam instead of Media3-specific ownership.
+4. [x] The coordinator↔UI contract remains `PlaybackIntent`/`PlaybackEvent`.
+5. [x] Medley prebuffering specifies capability and sequential fallback rather than an ExoPlayer instance.
+6. [x] UI-layer rules cover main-thread handoff, video attach/detach/release timing, and audio-focus request/release.
+7. [x] Video admission is conditional; unsafe device/video combinations fall back to background-only rendering.
+8. [x] Runtime gameplay-health monitoring can disable video while keeping audio, lyrics, and scoring active.
+9. [x] Test planning requires backend-neutral or LibVLC-oriented playback coverage.
+10. [x] Settings > About includes LibVLC LGPL 2.1 attribution/compliance requirements.

@@ -1,7 +1,7 @@
 # Couchraoke Phone Companion App
 
 **Version**: 1.3
-**Date**: 2026-05-17
+**Date**: 2026-05-18
 **Scope**: Android Phone Companion (iOS follows same architecture)  
 ---
 
@@ -15,6 +15,7 @@
   - [2.4 NetworkClient](#24-networkclient)
   - [2.5 ClockSync](#25-clocksync)
   - [2.6 SessionCoordinator](#26-sessioncoordinator)
+  - [2.7 UI Layer](#27-ui-layer)
 - [3. Component APIs](#3-component-apis)
 - [4. SLAs](#4-slas)
 - [5. Resolved Blockers](#5-resolved-blockers)
@@ -372,6 +373,11 @@ Phone scanning adds platform asset-resolution metadata outside `ParsedSong`. The
 - `ERROR_CORRUPT_SONG_UNSUPPORTED_RELATIVE`
 - `ERROR_CORRUPT_SONG_INVALID_VERSION`
 - `ERROR_CORRUPT_SONG_INVALID_DUET_MARKER`
+
+Warning codes:
+- `WARN_VOCALS_WITHOUT_INSTRUMENTAL`
+- `WARN_MIX_PAIR_INELIGIBLE_SAMPLE_RATE`
+- `WARN_MIX_PAIR_INELIGIBLE_CHANNELS`
 
 ### Tests (Normative)
 

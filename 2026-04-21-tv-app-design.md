@@ -1,5 +1,7 @@
 # TV App UI Design Spec
 
+**Archive status**: this source design draft has been merged into `tv_app.md` §2.6.5 and is retained only for historical traceability. The normative UI specification is `tv_app.md`.
+
 ## 1. Scope
 
 This document defines the visual system, sizing tokens, screen composition, and screen-level VFX budget for the TV app.

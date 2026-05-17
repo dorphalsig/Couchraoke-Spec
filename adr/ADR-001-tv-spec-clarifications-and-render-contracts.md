@@ -51,11 +51,11 @@ We updated the spec to make the smallest complete set of clarifications needed t
 
 ### 4. Library refresh never happens during gameplay
 - Reconnect-time manifest refresh is allowed immediately only in Open/Results.
-- During Countdown/Playing/Paused/DisconnectPaused/Stopped, the phone catalog is marked stale and refresh is deferred until Results/Open.
+- During Countdown/Live/Paused/DisconnectPaused/Stopped, the phone catalog is marked stale and refresh is deferred until Results/Open.
 
-### 5. Dual-track playback and medley timing authority are explicit
-- Single-track playback uses `audioUrl` as timing authority.
-- Dual-track playback uses `instrumentalUrl` as timing authority; `vocalsUrl` follows it and never becomes an independent timing source.
+### 5. Effective audio playback and medley timing authority are explicit
+- Every TV-facing song uses one effective `audioUrl` as timing authority.
+- If `#INSTRUMENTAL`/`#VOCALS` mixing is active, the phone produces the single effective resource; the TV never receives or coordinates `instrumentalUrl`/`vocalsUrl`.
 - During medley, exactly one segment is authoritative at a time; the active segment's `songStartTvMs` remains in force until the next segment emits `PlaybackEvent.Ready`.
 
 ### 6. Singing UI receives a chart-derived render contract

@@ -1,5 +1,5 @@
 {
-  "description": "Appendix E.1 static BPM beat cursors (highlight vs scoring).",
+  "description": "Appendix C.1 static BPM beat cursors (highlight vs scoring).",
   "inputs": {
     "BPM_file": 120.0,
     "GAPms": 2000.0,
