@@ -36,13 +36,13 @@
 - [7. Project Plan](#7-project-plan)
 - [Appendix A: Peer-Boundary Test Utilities](#appendix-a-peer-boundary-test-utilities)
 - [Appendix B: Protocol JSON Schemas](#appendix-b-protocol-json-schemas)
-- [Appendix E: Worked Examples](#appendix-e-worked-examples)
+- [Appendix C: Worked Examples](#appendix-c-worked-examples)
 
 ## Navigation by Concern
 
 Use the owning component section as the primary home for each concern. Supporting sections provide mechanics, interaction context, schemas, and worked examples.
 
-- **Scoring semantics**: [§2.2 ScoringEngine](#22-scoringengine). Supporting mechanics: [§4.3 Scoring Coroutine](#43-scoring-coroutine), [§4.4 Jitter Buffer](#44-jitter-buffer), [§4.6 Beat-Time Conversion](#46-beat-time-conversion), [Appendix E](#appendix-e-worked-examples).
+- **Scoring semantics**: [§2.2 ScoringEngine](#22-scoringengine). Supporting mechanics: [§4.3 Scoring Coroutine](#43-scoring-coroutine), [§4.4 Jitter Buffer](#44-jitter-buffer), [§4.6 Beat-Time Conversion](#46-beat-time-conversion), [Appendix C](#appendix-c-worked-examples).
 - **Network protocol and session semantics**: [§2.3 NetworkController](#23-networkcontroller). Supporting sections: [§3.2 Interaction Contracts](#32-interaction-contracts), [§4.5 Clock Sync Logic](#45-clock-sync-logic), [Appendix B](#appendix-b-protocol-json-schemas).
 - **UI behavior and screen specs**: [§2.6 UI Layer](#26-ui-layer). Supporting flow context: [§3.1 Data Flow Diagrams](#31-data-flow-diagrams) and [§3.2 Interaction Contracts](#32-interaction-contracts).
 - **Parsing and library/catalog behavior**: [§2.4 UsdxParser](#24-usdxparser) and [§2.5 LibraryManager](#25-librarymanager).
@@ -207,7 +207,7 @@ The TV's monotonic clock for all `*TvMs` values throughout this spec is `System.
 3. The UI layer MUST capture a fallback at the moment `play()` is called: `fallbackStartTvMs = System.nanoTime() / 1_000_000`.
 4. If `LibVlcEvent.Playing` has not fired within 500 ms of `play()`, the UI layer MUST use `fallbackStartTvMs`, emit `PlaybackEvent.Ready(fallbackStartTvMs)`, and log a warning.
 5. Before countdown or live playback begins, the UI layer MUST already have emitted `PlaybackEvent.Prepared(effectivePlaybackDurationMs)` to the coordinator.
-6. The coordinator computes `stopAtLyricsTimeMs` from chart data plus the prepared playback-plan duration, sends `assignSinger`, then starts countdown or playback.
+6. The coordinator computes `stopAtLyricsTimeMs` from chart data plus the prepared playback-plan duration, sends `assignSinger`, then starts countdown or playback. When countdown completes (or immediately if no countdown), the coordinator MUST emit `PlaybackIntent.Play(stopAtLyricsTimeMs)` — the UI enforces this boundary and cannot start playback without a confirmed stop point.
 7. When playback begins, the UI layer emits `PlaybackEvent.Ready(songStartTvMs)` to the coordinator.
 8. The coordinator MUST wait for `PlaybackEvent.Ready(songStartTvMs)` before calling `ScoringEngine.setSongStart(songStartTvMs)`.
 9. The ScoringEngine MUST NOT finalize any notes until `songStartTvMs` has been set.
@@ -306,7 +306,7 @@ interface PlaybackCoordinator {
 
 ### L2 Visible Shapes
 
-- **GamePhaseFSM**: 8 states, validates transitions (see [§4.1](#41-gamephase-fsm))
+- **GamePhaseFSM**: 9 states, validates transitions (see [§4.1](#41-gamephase-fsm))
 - **MedleySequencer**: Segment index, prebuffer trigger, transition coroutine
 - **ClockSyncLogic**: Offset computation, best-of-N selection, RTT filtering
 
@@ -337,7 +337,7 @@ Use this section as the primary home for scoring semantics:
 - sentence completion and line bonus: **Line Bonus**
 - score display rules: **Rounding and Display**
 
-Supporting mechanics live in [§3.2](#32-interaction-contracts), [§4.3](#43-scoring-coroutine), [§4.4](#44-jitter-buffer), and [§4.6](#46-beat-time-conversion). Worked numeric examples live in [Appendix E](#appendix-e-worked-examples).
+Supporting mechanics live in [§3.2](#32-interaction-contracts), [§4.3](#43-scoring-coroutine), [§4.4](#44-jitter-buffer), and [§4.6](#46-beat-time-conversion). Worked numeric examples live in [Appendix C](#appendix-c-worked-examples).
 
 ### Public API
 
@@ -403,7 +403,7 @@ data class PitchEvent(
 3. Keep pending note finalizations in chronological order by `noteEndTvMs + NOTE_FINALIZATION_DELAY_MS`.
 4. Finalize every note whose deadline is due when TV monotonic clock reaches or exceeds that deadline.
 5. Emit updated score state only when finalized-note processing changes score-visible state.
-6. Track pitch frame arrival count in a `VIDEO_DEGRADATION_WINDOW_MS` (2000ms) sliding window during active note windows. If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` (5) frames arrive while at least one note window is open for any active singer, emit `GameplayHealthEvent.VideoDisabled`; the UI layer releases the video MP and falls back to the background chain per §2.6.16. Video is not re-admitted for the remainder of the song or medley run.
+6. Track pitch frame arrival count in a `VIDEO_DEGRADATION_WINDOW_MS` (2000ms) sliding window during active note windows. If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` (5) frames arrive while at least one note window is open for any active singer, emit `GameplayHealthEvent.LowPitchFrameRate`; the UI layer interprets this as a CPU-starvation signal, releases the video MP, and falls back to the background chain per §2.6.16. Video is not re-admitted for the remainder of the song or medley run.
 
 This decouples scoring accuracy from UI frame rate — render load, frame drops, or display Hz differences MUST NOT affect scoring. Score state MUST be exposed via `StateFlow<PlayerScore>` and observed by the Compose UI.
 
@@ -555,7 +555,7 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | T6.1.5 | Freestyle: `ScoreFactor=0` → `note_score=0` even with `toneValid=true` | F03/`scoring/freestyle_only` | `scoreTotalInt=10000`; freestyle beats contribute 0, normal beats score normally ⚠ |
 | T6.1.6 | Sentence finalization triggers line bonus | F11 | Line bonus applied at sentence boundary |
 
-**[§6.2](#scoring-algorithm-normative) Note Types**
+**Note Types**
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -590,7 +590,7 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
 | T6.6.1 | `ScoreInt = round(Score/10) * 10` | F11/`expected.score.json` | Matches fixture |
-| T6.6.2 | Golden opposite-rounding: `ScoreInt < Score` → `ScoreGoldenInt = ceil` | inline (Appendix E.5) | Opposite direction applied |
+| T6.6.2 | Golden opposite-rounding: `ScoreInt < Score` → `ScoreGoldenInt = ceil` | inline (Appendix C.5) | Opposite direction applied |
 | T6.6.3 | Golden opposite-rounding: `ScoreInt >= Score` → `ScoreGoldenInt = floor` | inline | Floor applied |
 | T6.6.4 | `ScoreLineInt = floor(round(ScoreLine)/10)*10` (intentional asymmetry) | F11 | Asymmetric formula used |
 | T6.6.5 | `ScoreTotalInt` never exceeds 10000 | F11 | Verified |
@@ -708,7 +708,7 @@ The TV sends `assignSinger` to instruct the phone as follows:
 
 ### `playbackState` Emission Rules (Normative)
 
-**Emission responsibility**: The `PlaybackCoordinator` MUST construct every `PlaybackStateMessage` on each playback-bearing game-phase transition and push it to `NetworkController.broadcastPlaybackState()`. The `NetworkController` MUST NOT autonomously construct `playbackState` messages.
+**Emission responsibility**: The `PlaybackCoordinator` MUST construct every `PlaybackStateMessage` and push it to `NetworkController.broadcastPlaybackState()`. Emission is triggered by: (a) each playback-bearing game-phase transition, or (b) the medley-source pre-run notification (§2.6.17) sent to non-singer phones before a medley starts. The `NetworkController` MUST NOT autonomously construct `playbackState` messages.
 
 **Phases that do NOT emit** `playbackState`: `Idle`, `Loading`, `Results`.
 
@@ -823,7 +823,7 @@ TV MUST reject clients whose `hello.protocolVersion != 1` with `error(code="prot
 - TV assigns new `connectionId`. If the reconnecting phone remains an active Singer for the current song, the TV re-sends `assignSinger` with **recomputed `stopAtLyricsTimeMs` reflecting the remaining playback plan**; otherwise it MUST NOT send `assignSinger` for that song. The TV then immediately sends current `playbackState`.
 - If the phone was assigned as a Singer when it disconnected, it MUST resume that singer role on reconnect unless the TV has removed the device via Kick or the host chose **Continue without them** for the current song. In the **Continue without them** case, the phone may reconnect to the session, but it MUST NOT resume singer role or contribute further score until the next song.
 - On reconnect during **Open** or **Results**, the TV MUST fetch `/manifest.json` from the reconnecting phone to refresh the song index immediately.
-- On reconnect during **Countdown**, **Playing**, **Paused**, **DisconnectPaused**, or **Stopped**, the TV MUST mark that phone's catalog stale and defer `/manifest.json` fetch until the session next reaches **Results** or **Open**. Library refresh MUST NOT occur during gameplay.
+- On reconnect during **Countdown**, **Playing**, **Paused**, or **DisconnectPaused**, the TV MUST mark that phone's catalog stale and defer `/manifest.json` fetch until the session next reaches **Results** or **Open**. Library refresh MUST NOT occur during gameplay.
 - **Socket cleanup**: when a new socket replaces an old one for the same `clientId`, cleanup of the closing socket MUST only remove connection/session state if that closing socket is still the active socket for that client.
 - If roster full and reconnect does not match existing `clientId`: reject with `code="session_full"`.
 
@@ -926,7 +926,7 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 
 ### Acceptance Tests (Protocol — 8.3 / 8.5 / 8.6)
 
-**[§8.3](#23-networkcontroller) Control Messages**
+**Control Messages**
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -944,7 +944,7 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 | T8.3.12 | `playbackState` carries playback authority fields | F15 | `sessionId`, `songInstanceSeq`, `revision`, `state`, `lyricsTimeMs`, `stopAtLyricsTimeMs`, conditional `countdownRemainingMs`, enum-constrained `reason`, optional `tsTvMs` |
 | T8.3.13 | `connectionId` NOT in `assignSinger` | F15 | Field absent; delivered only via `sessionState` |
 
-**[§8.5](#23-networkcontroller) Sender Identification**
+**Sender Identification**
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -954,7 +954,7 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 | T8.5.4 | PitchFrames with old `connectionId=1` → dropped | F15/`case_reconnect_reclaim` | Silently dropped |
 | T8.5.5 | Third phone rejected | F15 | `error(code="session_full")` |
 
-**[§8.6](#pitch-frame-processing) Frame Ingestion and Validation**
+**Frame Ingestion and Validation**
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -1024,7 +1024,7 @@ data class SongHeader(
     val artist: String,
     val bpmFile: Float,              // Raw #BPM (file units; internal = ×4)
     val gapMs: Float,                // #GAP in milliseconds (fractional ms allowed); default 0
-    val audio: String,               // Resolved audio filename (#AUDIO if version≥1.0.0 and present, else #MP3)
+    val audio: String?,              // Resolved audio filename (#AUDIO if version≥1.0.0 and present, else #MP3). Null for #INSTRUMENTAL-only songs (phone mixes to a single served file; TV consumes via audioUrl).
     val songPath: String,            // Canonical path/URI to song root directory
 
     // Optional playback-timing offsets (sourced from header tags)
@@ -1204,8 +1204,8 @@ enum class Difficulty { Easy, Medium, Hard }
 | `#ARTIST` | yes | string | Song artist |
 | `#BPM` | yes | float | Beats per minute (file BPM; internal = ×4) |
 | `#GAP` | no | float | Delay from audio start to first beat (ms); default `0` if absent |
-| `#MP3` / `#AUDIO` | yes (one) | string | Relative path to audio file |
-| `#VIDEO` | no | string | Relative path to video file |
+| `#MP3` / `#AUDIO` | yes, unless `#INSTRUMENTAL` present | string | Relative path to audio file. If `#INSTRUMENTAL` is present, `#MP3`/`#AUDIO` is optional; the phone mixes `#INSTRUMENTAL`+`#VOCALS` into the served `audioUrl`. |
+| `#VIDEO` | no | string | Relative path to video file. The composite key=value format used by some tools (e.g., `#VIDEO:v=<ytid>,co=<cover>,bg=<bg>`) is **not supported**; the parser treats `#VIDEO` as a plain file path. |
 | `#VIDEOGAP` | no | float | Video offset in seconds |
 | `#COVER` | no | string | Relative path to cover image |
 | `#BACKGROUND` | no | string | Relative path to background image |
@@ -1228,13 +1228,18 @@ enum class Difficulty { Easy, Medium, Hard }
 
 All other tags (including `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#CALCMEDLEY`, and any unknown tags) MUST be preserved as `CustomHeaderTag` entries in encounter order.
 
+**Format dialect note (normative)**: This spec follows the pre-v2 UltraStar Deluxe dialect used by the vast majority of existing songs:
+- `#START` is in **seconds** (float). UltraStar file format v2 changed this to milliseconds (integer); v2-authored files using ms for `#START` are out of scope for MVP.
+- `#VIDEOGAP` is in **seconds** (float). Same v2 divergence as `#START`.
+- Medley bounds use `#MEDLEYSTARTBEAT` / `#MEDLEYENDBEAT` in **file beats**. UltraStar v2 uses `#MEDLEYSTART` / `#MEDLEYEND` in milliseconds; the `-BEAT` tag variants are the real-world standard and are what this spec supports.
+
 ### Error Handling (Normative)
 
 **Header tags**:
 - Header lines read while first character is `#`; any other line ends header parsing.
 - Tag names are case-insensitive; matching on `Uppercase(Trim(TagName))`.
 - Duplicate known tags: last successfully parsed value wins.
-- Malformed required tag (TITLE/ARTIST/AUDIO-or-MP3/BPM): mark song **invalid**. Malformed optional tag: **warn**, treat as absent.
+- Malformed required tag (TITLE/ARTIST/BPM): mark song **invalid**. Audio source (AUDIO-or-MP3 or INSTRUMENTAL): at least one MUST be present and valid; if none resolves, mark song **invalid** (`ERROR_CORRUPT_SONG_MISSING_REQUIRED_HEADER`). Malformed optional tag: **warn**, treat as absent.
 - Unknown tags, empty-value tags (`#NAME:`), and no-separator tags (no `:`): **warn** and preserve in `customTags`.
 
 - Songs with `#BPM` missing or ≤ 0 MUST be rejected.
@@ -1400,8 +1405,8 @@ A song is **valid** if:
 - The `#TITLE`, `#ARTIST`, and `#BPM` headers are present and parseable.
 - `#BPM` is > 0.
 - A required audio file is resolved (version-conditional):
-  - **`#VERSION >= 1.0.0`**: `#AUDIO` takes precedence over `#MP3`; at least one MUST be present. If both present, `#AUDIO` is used.
-  - **Legacy (`#VERSION` absent or `< 1.0.0`)**: `#MP3` MUST be present; `#AUDIO` (if present) MUST be ignored for audio resolution.
+  - **`#VERSION >= 1.0.0`**: `#AUDIO` takes precedence over `#MP3`; at least one MUST be present. If both present, `#AUDIO` is used. Exception: if `#INSTRUMENTAL` is present and resolves on disk, neither `#AUDIO` nor `#MP3` is required — the phone mixes `#INSTRUMENTAL`+`#VOCALS` into the served `audioUrl`.
+  - **Legacy (`#VERSION` absent or `< 1.0.0`)**: `#MP3` MUST be present; `#AUDIO` (if present) MUST be ignored for audio resolution. `#INSTRUMENTAL` on legacy files follows the same exception as above.
 - The resolved audio file MUST exist on disk; missing file → invalid.
 - At least one valid note line exists in the body (after empty-sentence cleanup).
 
@@ -1588,7 +1593,7 @@ sealed class Screen(val route: String) {
 
 **ViewModels**: per-screen, scoped to the `NavBackStackEntry`, obtained via `hiltViewModel()`. Each ViewModel receives only the components its screen needs — e.g. `SingingViewModel` receives `PlaybackCoordinator` and `ScoringEngine`; `SongListViewModel` receives `LibraryManager` and `NetworkController`. There is no top-level `AppViewModel`; the domain components are the app-level state owners.
 
-**Library versions** (normative; also pin in constitution):
+**Library versions** (normative; also pin in `gradle/libs.versions.toml` per Constitution Principle III):
 
 | Artifact | Version |
 |---|---|
@@ -1621,7 +1626,7 @@ sealed class PlaybackIntent {
         val videoGapSec: Float?,      // #VIDEOGAP in seconds; null treated as 0
         val seekToSec: Float
     ) : PlaybackIntent()
-    object Play : PlaybackIntent()
+    data class Play(val stopAtLyricsTimeMs: Long) : PlaybackIntent()   // UI enforces this boundary via LibVlcPlayerHandle.stop()
     object Pause : PlaybackIntent()
     object Stop : PlaybackIntent()
     data class Seek(val positionMs: Long) : PlaybackIntent()
@@ -2674,7 +2679,7 @@ A video failure at runtime MUST silently fall back to step 2 or step 3. A step-2
 - `VIDEO_DEGRADATION_FRAME_THRESHOLD = 5`
 - `VIDEO_DEGRADATION_WINDOW_MS = 2000`
 
-If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` pitch frames arrive in any `VIDEO_DEGRADATION_WINDOW_MS` window while at least one note window is open for any active singer, the coroutine MUST emit `GameplayHealthEvent.VideoDisabled`. On receiving this event, the UI layer MUST release the video MP and fall back to the background chain (step 2 or 3 above). Audio and scoring continue unaffected. Video is not re-admitted for the remainder of the current song or medley run.
+If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` pitch frames arrive in any `VIDEO_DEGRADATION_WINDOW_MS` window while at least one note window is open for any active singer, the coroutine MUST emit `GameplayHealthEvent.LowPitchFrameRate`. On receiving this event, the UI layer MUST release the video MP and fall back to the background chain (step 2 or 3 above). Audio and scoring continue unaffected. Video is not re-admitted for the remainder of the current song or medley run.
 
 **Layout tokens (global):**
 
@@ -2868,7 +2873,7 @@ The error MUST NOT crash the app, corrupt session state, or leave the session Lo
 1. Before `LibVlcPlayerHandle.play()`, request `AUDIOFOCUS_GAIN` on `STREAM_MUSIC` via `AudioManager.requestAudioFocus(AudioFocusRequest)`. If the request is not granted, the UI layer MUST emit `PlaybackEvent.Error` and follow the Playback error handling path above.
 2. Register an `OnAudioFocusChangeListener` for the lifetime of playback:
    - `AUDIOFOCUS_LOSS_TRANSIENT` or `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` → emit `PlaybackIntent.Pause`. The coordinator pauses scoring per the existing pause/resume rules (`pauseStartedTvMs` / `totalPausedDurationMs`, steps 10–12 of §2.1 songStartTvMs Capture).
-   - `AUDIOFOCUS_GAIN` after a transient loss → emit `PlaybackIntent.Play` (resume).
+   - `AUDIOFOCUS_GAIN` after a transient loss → coordinator resumes, emitting `PlaybackIntent.Play(stopAtLyricsTimeMs)` with the value from the active phase plan (unchanged on resume).
    - `AUDIOFOCUS_LOSS` (permanent) → follow the Playback error handling path above.
 3. The listener fires on a binder thread; the UI layer MUST dispatch onto the ViewModel's main scope before emitting any intent.
 4. On song end, error exit, or Restart, the UI layer MUST call `AudioManager.abandonAudioFocusRequest`.
@@ -3212,7 +3217,7 @@ NetworkCtrl.broadcastPlaybackState()
 NetworkCtrl.sendAssignSinger()
     │
     ▼
-UI.Play() ──→ LibVLC starts ──→ PlaybackEvent.Ready(songStartTvMs)
+UI.Play(stopAtLyricsTimeMs) ──→ LibVLC starts ──→ PlaybackEvent.Ready(songStartTvMs)
                                         │
                                         ▼
                               ScoringEngine.setSongStart()
@@ -3278,9 +3283,9 @@ Coordinator ──(PlaybackIntent)──→ UI/playback controller ──→ Lib
            ←──(StateFlow<positionMs>)──┘
 ```
 
-- Coordinator emits `PlaybackIntent` (Prepare, Play, Pause, etc.).
+- Coordinator emits `PlaybackIntent` (Prepare, Play(stopAtLyricsTimeMs), Pause, etc.). `Play` carries `stopAtLyricsTimeMs` so the UI holds the authoritative stop boundary from the moment playback begins.
 - UI/playback layer observes intents and executes them through one audio `LibVlcPlayerHandle` plus an optional decorative video handle.
-- UI is responsible for enforcing the active `stopAtLyricsTimeMs` boundary on the audio handle using the current playback plan.
+- UI enforces `stopAtLyricsTimeMs` received in `PlaybackIntent.Play` as the active stop boundary on the audio handle.
 - When UI detects that playback has reached the active `stopAtLyricsTimeMs`, it MUST stop the active handle pair and emit `PlaybackEvent.Ended`.
 - UI emits `PlaybackEvent` (`Prepared` with effective playback-plan duration, `Ready` with songStartTvMs, `Error`, `Ended`).
 - UI exposes `currentPositionMs: StateFlow<Long>` for observation; this is always the audio handle position.
@@ -3340,7 +3345,7 @@ This section captures supporting mechanics and implementation shape for behavior
 
 ## 4.1 GamePhase FSM
 
-**States** (8 total):
+**States** (9 total):
 
 | State | Description | Scope |
 |-------|-------------|-------|
@@ -3364,33 +3369,33 @@ This section captures supporting mechanics and implementation shape for behavior
                     ▼                                         │
 ┌──────┐  start  ┌──────────┐  ready   ┌───────────┐         │
 │ Open │────────→│ Preparing│─────────→│ Countdown │         │
-└──────┘         └──────────┘          └─────┬─────┘         │
-    ▲                │                       │               │
-    │                │ error                 │ countdown=0   │
-    │                ▼                       ▼               │
-    │            ┌──────┐             ┌──────┐               │
-    │            │ Open │             │ Live │←──────────────┤
-    │            └──────┘             └──┬───┘               │
-    │                                    │                   │
-    │         ┌──────────────────────────┼─────────────┐     │
-    │         │                          │             │     │
-    │         ▼                          ▼             │     │
-    │    ┌────────┐             ┌──────────────────┐   │     │
-    │    │ Paused │             │ DisconnectPaused  │   │     │
-    │    └───┬────┘             └────────┬─────────┘   │     │
-    │        │                           │             │     │
-    │        │ quit                      │ quit        │     │
-    │        ▼                           ▼             │     │
-    │    ┌──────┐                    ┌──────┐          │     │
-    └────│ Open │                    │ Open │          │     │
-         └──────┘                    └──────┘          │     │
-                                                       │     │
-              song end ────────────────────────────────┘     │
-                            │                                │
-                            ▼                                │
-                       ┌─────────┐finalize┌─────────┐        │
-                       │ Stopped │───────→│ Results │────────┘
-                       └─────────┘        └─────────┘
+└──────┘    ▲    └────┬─────┘          └─────┬─────┘         │
+    ▲        │        │                      │               │
+    │     dismiss     │ error                │ countdown=0   │
+    │        │        ▼                      ▼               │
+    │        │    ┌───────┐           ┌──────┐               │
+    │        └────│ Error │           │ Live │←──────────────┤
+    │         ┌──→└───────┘←──────────┴──┬───┘               │
+    │         │ error (Live/Countdown)    │                   │
+    │         │   ┌───────────────────────┼─────────────┐     │
+    │         │   │                       │             │     │
+    │         │   ▼                       ▼             │     │
+    │         │ ┌────────┐      ┌──────────────────┐    │     │
+    │         │ │ Paused │      │ DisconnectPaused  │    │     │
+    │         │ └───┬────┘      └────────┬─────────┘    │     │
+    │         │     │                    │              │     │
+    │         │     │ quit               │ quit         │     │
+    │         │     ▼                    ▼              │     │
+    │         │  ┌──────┐           ┌──────┐            │     │
+    └─────────┼──│ Open │           │ Open │            │     │
+              │  └──────┘           └──────┘            │     │
+              │                                         │     │
+              │    song end ────────────────────────────┘     │
+              │                  │                            │
+              │                  ▼                            │
+              │           ┌─────────┐finalize┌─────────┐      │
+              │           │ Stopped │───────→│ Results │──────┘
+              │           └─────────┘        └─────────┘
 ```
 
 **Transition Rules** (normative):
@@ -3403,6 +3408,10 @@ This section captures supporting mechanics and implementation shape for behavior
 | Preparing | Open | Playback error or audio URL unreachable | Iter 1 |
 | Countdown | Live | Countdown reaches 0 | Iter 1 |
 | Countdown | Open | Required singer disconnects during countdown | Iter 1 |
+| Preparing | Error | Playback setup error or audio URL unreachable | Iter 1 |
+| Countdown | Error | Audio or critical resource error during countdown | Iter 1 |
+| Live | Error | `LibVlcEvent.EncounteredError` on audio MP | Iter 1 |
+| Error | Open | User dismisses error modal | Iter 1 |
 | Live | Paused | User presses Back | Iter 1 |
 | Live | Stopped | Playback reaches `stopAtLyricsTimeMs` or final medley segment ends | Iter 2 |
 | Live | DisconnectPaused | Required singer WebSocket drops | Iter 3 |
@@ -3678,7 +3687,7 @@ NTP-lite protocol, best-of-N selection.
 
 **Sync Schedule (Normative)**:
 - Run **5 exchanges** (100ms apart) on connection to establish initial offset.
-- Before any `assignSigner` with `startMode="countdown"` or `startMode="live"`, the TV MUST have at least one valid clock-sync sample for each assigned singer. Countdown MUST NOT begin until this requirement has been satisfied.
+- Before any `assignSinger` with `startMode="countdown"` or `startMode="live"`, the TV MUST have at least one valid clock-sync sample for each assigned singer. Countdown MUST NOT begin until this requirement has been satisfied.
 - **If zero valid samples after 5 exchanges**: Retry once (5 more exchanges at 100ms intervals). If still zero valid samples, abort song start and show error modal: "Network too unstable for accurate sync. Check WiFi connection and try again." Do NOT proceed with zero offset — pitch frames would be systematically misaligned.
 - **Suspend** during active singing after countdown completes or live playback begins. LAN clock drift over ~3 min song is negligible (<1ms).
 - **On Resume from Paused state**: Run single quick-sync exchange before resuming playback. Use new offset only if new sample has better RTT than current best; otherwise retain existing offset. This prevents drift from extended pauses (e.g., user pauses for 10+ minutes, phone clock may jump due to OS sleep/wake or NTP adjustment).
@@ -3741,8 +3750,6 @@ USDX beat numbers in `.txt` files are the authoritative beat grid (quarter-beat 
 - Internal beats: identical to file beats (no scaling): `internalBeat = fileBeat`.
 - Parsing rule: use beat values as-is (no `*4`).
 
-**Internal BPM**:
-- `BPM_internal = BPM_file * 4`
 
 ```kotlin
 object BeatCalculator {
@@ -3775,7 +3782,7 @@ This shifts all scoring windows later by the configured number of milliseconds t
 
 **Implementation**: `BeatCalculator` MUST accept `micDelayMs` as a parameter (default 0). Passing the wrong delay for a consumer is a conformance error: lyrics beat uses `micDelayMs=0`; lane beat and note scoring windows use the configured `micDelayMs`.
 
-Two beat computations from the same `BPM_internal` and `GAPms`:
+Two beat computations from the same `BPM_file` and `GAPms`:
 
 | Consumer | Formula | micDelayMs |
 |----------|---------|------------|
@@ -3841,7 +3848,7 @@ The note is finalized when TV monotonic clock reaches `noteEndTvMs + NOTE_FINALI
 | ID | Issue | Resolution |
 |----|-------|------------|
 | BLOCKER-1 | LibVLC ↔ PlaybackCoordinator interaction | Intent/Event pattern. Coordinator emits `PlaybackIntent`; UI/playback layer coordinates one or more `LibVlcPlayerHandle` instances and emits `PlaybackEvent` back. |
-| BLOCKER-3 | playback start and duration handoff | UI reports effective playback-plan duration in `PlaybackEvent.Prepared`, then captures `songStartTvMs` from `LibVlcEvent.Playing` on the audio MP in `PlaybackEvent.Ready`; Coordinator uses the former for `stopAtLyricsTimeMs` and the latter for ScoringEngine start. |
+| BLOCKER-3 | playback start and duration handoff | UI reports effective playback-plan duration in `PlaybackEvent.Prepared`. Coordinator computes `stopAtLyricsTimeMs` and emits `PlaybackIntent.Play(stopAtLyricsTimeMs)` — UI cannot start playback without this value and enforces the stop boundary via `LibVlcPlayerHandle.stop()`. `songStartTvMs` is captured from `LibVlcEvent.Playing` in `PlaybackEvent.Ready`; coordinator uses it for ScoringEngine start. |
 | GAP-1 | Clock sync timing relative to song start | Gate song start on ≥1 valid clock sync sample. Coordinator checks before `assignSinger`. |
 | GAP-2 | Manifest re-fetch trigger on Results | Coordinator calls `libraryManager.refreshAll()` during Stopped→Results transition. |
 | GAP-3 | Pitch frame routing | NetworkController exposes `pitchFrames: SharedFlow<PitchFrame>`. ScoringEngine subscribes. |
@@ -4059,7 +4066,7 @@ When generating an iteration spec, include full spec content only for In-scope r
 - [ ] Select song → plays audio through `LibVlcPlayerHandle`, shows sentence-paged lyrics
 - [ ] UI emits `PlaybackEvent.Prepared(effectivePlaybackDurationMs)` before countdown or playback
 - [ ] UI emits `PlaybackEvent.Ready(songStartTvMs)` from the first audio `LibVlcEvent.Playing`; coordinator calls `ScoringEngine.setSongStart(songStartTvMs)` only after that event
-- [ ] UI enforces `stopAtLyricsTimeMs` through `LibVlcPlayerHandle.stop()` and emits `PlaybackEvent.Ended`
+- [ ] Coordinator emits `PlaybackIntent.Play(stopAtLyricsTimeMs)`; UI enforces the boundary through `LibVlcPlayerHandle.stop()` and emits `PlaybackEvent.Ended`
 - [ ] Pause/resume/restart/quit work; Back → Song List
 - [ ] Playback errors return to Song List with the blocking error modal and leave the session Open
 - [ ] UI requests audio focus before playback and abandons it on song end, error exit, or Restart
@@ -4512,28 +4519,27 @@ Struct: <IqIBBH (little-endian)
     "videoUrl": {"type": ["string", "null"], "format": "uri"},
     "coverUrl": {"type": ["string", "null"], "format": "uri"},
     "backgroundUrl": {"type": ["string", "null"], "format": "uri"},
-    "hasInstrumental": {"type": "boolean"}
   }
 }
 ```
 
 ---
 
-# Appendix E: Worked Examples
+# Appendix C: Worked Examples
 
 Numeric reference examples to remove ambiguity in timing/beat conversion ([§4.6](#46-beat-time-conversion)), note-window boundaries ([§4.3](#43-scoring-coroutine), [§2.2](#22-scoringengine)), scoring normalization ([§2.2](#22-scoringengine)), and line bonus/rounding ([§2.2](#22-scoringengine)). These examples are the reference for fixtures F06, F08, F24.
 
 ## E.1 Static BPM — Highlight Cursor and Note Scoring Windows
 
 Given:
-- `BPM_file = 120.0`, `BPM_internal = 120.0 × 4 = 480.0`
-- `beatsPerSec = 480.0 / 60.0 = 8.0`
+- `BPM_file = 120.0`
+- `beatsPerSec = BPM_file / 15 = 8.0`
 - `GAPms = 2000`, `micDelayMs = 100`, `songStartTvMs = 50000`
 - `lyricsTimeSec = 5.0`
 
 **Highlight cursor** (lyrics beat, `micDelayMs = 0`):
 - `highlightTimeSec = 5.0 − 2.0 = 3.0`
-- `MidBeat_internal = 3.0 × 8.0 = 24.0` → `CurrentBeat = floor(24.0) = 24`
+- `MidBeat = 3.0 × 8.0 = 24.0` → `CurrentBeat = floor(24.0) = 24`
 
 **Note scoring window** (note `startBeatFile=20`, `durationBeats=4`):
 - `noteStartTvMs = 50000 + (20 × 15000 / 120) + 2000 + 100 = 54600`
@@ -4543,7 +4549,7 @@ Given:
 
 ## E.2 Beat-to-Time and Time-to-Beat Round-Trip
 
-Given `BPM_file=120`, `BPM_internal=480`, `GAPms=2000`:
+Given `BPM_file=120`, `GAPms=2000` (beatsPerSec = 120/15 = 8):
 
 Beat 24 → `lyricsTimeSec`:
 - `chartSec = 24 × (60 / 480) = 3.0`
