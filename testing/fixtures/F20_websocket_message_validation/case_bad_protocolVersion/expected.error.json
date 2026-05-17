@@ -1,7 +1,9 @@
 {
   "accepted": false,
-  "type": "error",
-  "protocolVersion": 1,
-  "code": "protocol_mismatch",
-  "message": "Unsupported protocolVersion: 2"
+  "payload": {
+    "type": "error",
+    "protocolVersion": 1,
+    "code": "protocol_mismatch",
+    "message": "Unsupported protocolVersion: 2"
+  }
 }

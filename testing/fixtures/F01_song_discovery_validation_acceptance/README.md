@@ -36,3 +36,13 @@ Notes:
 - `c/legacy_missing_mp3_invalid` — legacy (no VERSION) with `#AUDIO` but missing `#MP3`; expects invalid missing required header
 - `c/legacy_mp3_preferred` — legacy with both `#AUDIO` and `#MP3`; expects `#MP3` chosen (`resolvedAudioRel=audio.mp3`)
 - `c/v1_missing_optional_video` — VERSION>=1.0.0 with missing `#VIDEO` target; expects valid and treated as absent (`hasVideo=false`)
+
+## Schema note
+
+`expected.discovery.json` projects the canonical `ParsedSong` schema. Fields like `isValid`, `invalidReasonCode`, `invalidLineNumber` are derived from the `diags: List<DiagnosticEntry>` array:
+
+- `isValid = diags.isEmpty()`
+- `invalidReasonCode = diags.first().code` (if any)
+- `invalidLineNumber = diags.first().lineNumber` (if applicable)
+
+The fixture asserts only these projected fields, not the full diagnostic array. See §2.4 DiagnosticEntry schema.
