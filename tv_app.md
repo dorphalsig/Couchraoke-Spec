@@ -1,8 +1,9 @@
 # Couchraoke TV App — Specification
 
-**Version**: 1.5
-**Date**: 2026-05-16
+**Version**: 1.6
+**Date**: 2026-05-17
 **Scope**: Android TV Host App (phone companion OOS)
+**Changelog since 1.5**: Consistency audit fixes. §2.1 / §2.3: GamePhase names aligned with §4.1 sealed class (`Idle`→`Open`, `Loading`→`Preparing`, `Playing`→`Live`). §B.2.9: SongEntry JSON Schema repaired (trailing comma removed; `additionalProperties: false` added). §3.1 Song Start Flow: `sendAssignSinger` correctly precedes `broadcastPlaybackState`. §2.3 T8.5.5: moved to inline; description corrected to match 10-device cap. §1.6: OS range opened to Android TV 11+ (was 11–14). §2.6.5.6: `BorderFocus` changed to `#FFFFFF` @ 60% alpha; §2.6.9 focus-indicator rule updated accordingly. §2.6.12: DPAD navigation table corrected — Random actions row added; playlist Up rule fixed; Play Medley Down fixed. §2.4: stale "internal = ×4" comments on `#BPM` removed (file beats used directly per §4.6). §2.2 / §3.2: `ScoringEngine.suspend()` renamed `pause()`. Appendix C: subsections renamed E.x→C.x. §2.6.16 / §2.6.17: medley `n=1` minimal-strip rule unified. §2.3 T8.3.11: conditional `countdownMs` documented. §2.4: `#DUETSINGERP1` / `#DUETSINGERP2` accepted as aliases of `#P1` / `#P2`. §2.5 / §2.6.10: `previewStartSec` cross-referenced. §2.6.5.4 / §2.6.12: SongList-specific compact tokens relocated to §2.6.12. Footer date stamp removed. F13 rewritten for range-query model: old single-frame-selection + 120ms staleness cases dropped; four sub-cases (case_lateness_drop, case_seq_drop, case_regression_large_drop, case_regression_small_accept) replace them; T5.2.3.4–7 warning removed; §2.2 Knowledge Gaps updated.
 **Changelog since 1.4**: Test and fixture audit. T5.2.3.1–3 fixture column added (inline). F13 rewrite required — note added to T5.2.3.4–7 and ScoringEngine Knowledge Gaps. T5.3.2 `currentBeatD` corrected 22→23. T6.1.2–4 frame-set attribution corrected to inline. T6.1.5 expected value corrected (10000 not 0). T6.4.2 subcase path corrected. T6.5.2/3 moved to inline (F11 does not cover forgiveness/empty-line cases). T6.5.5 moved to F16/T9.5.7.5 (not an F11 case). T6.6.2 moved to inline (F11 perfect case does not trigger ceil branch). T8.3.7 moved to inline (F15 has no >10-phone scenario). T3.1.1–5 fixture column added (F23). T3.3 table restructured with Fixture column; T3.3.1 references F04/valid_duet_interleaved; T3.3.2–5 inline. T9.5.7.1 filename corrected (expected.medleySegments.json). T9.5.7.3–6 moved to inline (F16 has no scoring data). T9.6.1 moved to F11/medley_aggregation. UsdxParser Knowledge Gaps: F03 parsedSong stale schema documented.
 **Changelog since 1.3**: §1.6 Performance Targets: removed song-grid FPS row. §2.6.3 SLAs: replaced FPS/memory table with degradation-policy reference. §2.6.5.4: added `ButtonCornerRadius` token. §2.6.5.9: added button corner-radius rule. §2.6.10: added preview-pane video specification. §2.6.12: added medley playlist overflow-scroll rule. §2.6.16: added `AndroidView` hosting note; added runtime gameplay-degradation monitor. §4.3: added scoring-coroutine responsibility for degradation monitor. §7.6 DOD: replaced FPS/memory bullets with degradation-gate verification item.
 **Changelog since 1.2**: Playback backend migrated from Media3/ExoPlayer to LibVLC. §1.1 Testability, §1.6 Minimal Footprint, §2.1 PlaybackCoordinator (songStartTvMs Capture, Playback error handling, new Audio Focus subsection), §2.6 UI Layer (new Playback Backend Seam), §2.6.16 SingingScreen (new SurfaceView z-order rule), §3.1/§3.2 flow diagrams, and §4.2 Medley Audio Prebuffering all updated. AV-sync and dual-track mixing resolved: §2.1 Audio/Video Asset Coupling added (two-MP model, audio master, #VIDEOGAP arithmetic). Phone pre-mixes #INSTRUMENTAL/#VOCALS; TV always receives a single audioUrl. instrumentalUrl/vocalsUrl removed from all wire schemas.
@@ -120,7 +121,7 @@ Normative target device: mid-tier Android TV stick/box.
 | RAM | 2GB DDR3/DDR4 | App budget: ≤512MB including LibVLC buffers. |
 | Storage | 16GB eMMC | Very slow R/W. No temp files during playback. |
 | GPU | Mali-G31 MP2 (OpenGL ES 3.2) | Flat rendering only. No blur, glow, or post-processing. |
-| OS | Android TV 11–14 | Min API 30. Multicast lock required for mDNS. |
+| OS | Android TV 11+ | Min API 30. Multicast lock required for mDNS. |
 
 Higher-spec devices (4GB RAM) must work without degradation; lower-spec (1GB RAM, S805) are out of scope.
 
@@ -284,7 +285,7 @@ interface PlaybackCoordinator {
     fun onSingerReconnected(playerId: PlayerId, newConnectionId: UShort)
     
     // Derived state for NetworkController
-    fun isLocked(): Boolean = gamePhase.value !in setOf(GamePhase.Idle, GamePhase.Results)
+    fun isLocked(): Boolean = gamePhase.value !in setOf(GamePhase.Open, GamePhase.Results)
     
     // Clock sync (logic here, transport via NetworkController)
     suspend fun runClockSync(phoneId: String): ClockSyncResult
@@ -349,7 +350,7 @@ interface ScoringEngine {
     fun loadChart(chart: ParsedSong, micDelayMs: Int, medleyWindow: BeatRange?, config: ScoringConfig)
     fun setSongStart(songStartTvMs: Long)
     fun start()
-    fun suspend()
+    fun pause()
     fun resume()
     suspend fun finalizeAll(): Map<PlayerId, PlayerScore>
     fun reset()
@@ -524,13 +525,11 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | T5.2.3.1 | Note not finalized before `noteEndTvMs + 450` | No scoring result before finalization time | inline |
 | T5.2.3.2 | At finalization, all qualifying frames collected | `samplesInNote` contains every frame with `noteStartTvMs <= tvTimeMs < noteEndTvMs` and `latenessMs <= 450` | inline |
 | T5.2.3.3 | Frames outside note window excluded | Frames with `tvTimeMs < noteStartTvMs` or `>= noteEndTvMs` not in `samplesInNote` | inline |
-| T5.2.3.4 | Frame too late: `latenessMs > 450` | Frame excluded | F13 ⚠ |
-| T5.2.3.5 | Decreasing `seq` → drop | Seq=3 dropped after seq=5 accepted | F13 ⚠ |
-| T5.2.3.6 | `tvTimeMs` regression > 200ms → drop | Frame dropped | F13 ⚠ |
-| T5.2.3.7 | `tvTimeMs` regression ≤ 200ms → accept | Frame retained and eligible | F13 ⚠ |
+| T5.2.3.4 | Frame too late: `latenessMs > 450` | Frame excluded | F13/`case_lateness_drop` |
+| T5.2.3.5 | Decreasing `seq` → drop | Seq=3 dropped after seq=5 accepted | F13/`case_seq_drop` |
+| T5.2.3.6 | `tvTimeMs` regression > 200ms → drop | Frame dropped | F13/`case_regression_large_drop` |
+| T5.2.3.7 | `tvTimeMs` regression ≤ 200ms → accept | Frame retained and eligible | F13/`case_regression_small_accept` |
 | T5.2.3.8 | No qualifying frames for a note | `samplesInNote` empty; `N=0` → `note_score=0` | inline |
-
-> ⚠ **F13 requires rewrite**: F13 models single-frame selection with a 120ms staleness threshold — neither concept exists in the current spec. The current jitter buffer model is a range query (`getFramesInWindow`) collecting all frames in `[noteStartTvMs, noteEndTvMs)` with `latenessMs <= 450ms`. F13 cases 6.1–6.3 test orphaned selection logic. Cases 6.4–6.7 test the correct validation rules (450ms, seq-drop, regression) but the fixture output format (`expectedToneValid` from a selected frame) is wrong for the range-query model. F13 must be rewritten before T5.2.3.4–7 can pass.
 
 ### Acceptance Tests (Beat-Time — 5.3)
 
@@ -601,7 +600,6 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 
 ### Knowledge Gaps
 
-- **F13 must be rewritten**: models single-frame selection + 120ms staleness threshold; current spec requires range-query + 450ms lateness. Cases 6.1–6.3 are orphaned. See T5.2.3.4–7 note.
 - **F08 README is stale**: references `(oldBeatD, currentBeatD]` beat-stepping which no longer exists; current implementation is deadline-driven (§4.3). Fixture data remains valid; only the README description needs updating.
 - **F03 `scoring/freestyle_only` misnamed**: the subcase is a mixed normal+freestyle chart producing `scoreTotalInt=10000`, not 0. Rename to `mixed_normal_freestyle` and add a genuine all-`F` subcase to verify `scoreTotalInt=0`.
 
@@ -710,13 +708,13 @@ The TV sends `assignSinger` to instruct the phone as follows:
 
 **Emission responsibility**: The `PlaybackCoordinator` MUST construct every `PlaybackStateMessage` and push it to `NetworkController.broadcastPlaybackState()`. Emission is triggered by: (a) each playback-bearing game-phase transition, or (b) the medley-source pre-run notification (§2.6.17) sent to non-singer phones before a medley starts. The `NetworkController` MUST NOT autonomously construct `playbackState` messages.
 
-**Phases that do NOT emit** `playbackState`: `Idle`, `Loading`, `Results`.
+**Phases that do NOT emit** `playbackState`: `Open`, `Preparing`, `Results`.
 
 **Phase → `state` field mapping**:
 | GamePhase | `state` field |
 |-----------|--------------|
 | `Countdown` | `"countdown"` |
-| `Playing` | `"playing"` |
+| `Live` | `"playing"` |
 | `Paused` or `DisconnectPaused` | `"paused"` |
 | `Stopped` | `"stopped"` |
 
@@ -940,7 +938,7 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 | T8.3.8 | Manifest fetch → library updated | F15 | Songs attributed to `clientId` visible |
 | T8.3.9 | Phone disconnects → songs removed | F15 | All songs for `clientId` removed immediately |
 | T8.3.10 | Manifest re-fetch replaces all prior songs for phone | F15 | Not appended; full replacement |
-| T8.3.11 | `assignSinger` contains all required fields per B.2.6 | F15 | `sessionId`, `songInstanceSeq`, `playerId`, `difficulty`, `startMode`, `stopAtLyricsTimeMs`, `udpPort`, `songTitle`, `songArtist` |
+| T8.3.11 | `assignSinger` contains all required fields per B.2.6 | F15 | `sessionId`, `songInstanceSeq`, `playerId`, `difficulty`, `startMode`, `stopAtLyricsTimeMs`, `udpPort`, `songTitle`, `songArtist`; also `countdownMs` when `startMode="countdown"` |
 | T8.3.12 | `playbackState` carries playback authority fields | F15 | `sessionId`, `songInstanceSeq`, `revision`, `state`, `lyricsTimeMs`, `stopAtLyricsTimeMs`, conditional `countdownRemainingMs`, enum-constrained `reason`, optional `tsTvMs` |
 | T8.3.13 | `connectionId` NOT in `assignSinger` | F15 | Field absent; delivered only via `sessionState` |
 
@@ -952,7 +950,7 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 | T8.5.2 | Reconnect → new `connectionId=2` | F15/`case_reconnect_reclaim` | Different from first |
 | T8.5.3 | `assignSinger` re-sent after reconnect; `connectionId` absent | F15/`case_reconnect_reclaim` | Field absent from `assignSinger` |
 | T8.5.4 | PitchFrames with old `connectionId=1` → dropped | F15/`case_reconnect_reclaim` | Silently dropped |
-| T8.5.5 | Third phone rejected | F15 | `error(code="session_full")` |
+| T8.5.5 | Roster at cap (10 devices); new `hello` with unknown `clientId` → rejected | inline | `error(code="session_full")` |
 
 **Frame Ingestion and Validation**
 
@@ -1022,7 +1020,7 @@ data class SongHeader(
     // Required fields
     val title: String,
     val artist: String,
-    val bpmFile: Float,              // Raw #BPM (file units; internal = ×4)
+    val bpmFile: Float,              // Raw #BPM as written in file (used directly; quarter-beat grid — see §4.6)
     val gapMs: Float,                // #GAP in milliseconds (fractional ms allowed); default 0
     val audio: String?,              // Resolved audio filename (#AUDIO if version≥1.0.0 and present, else #MP3). Null for #INSTRUMENTAL-only songs (phone mixes to a single served file; TV consumes via audioUrl).
     val songPath: String,            // Canonical path/URI to song root directory
@@ -1202,7 +1200,7 @@ enum class Difficulty { Easy, Medium, Hard }
 |-----|----------|------|-----------|
 | `#TITLE` | yes | string | Song title |
 | `#ARTIST` | yes | string | Song artist |
-| `#BPM` | yes | float | Beats per minute (file BPM; internal = ×4) |
+| `#BPM` | yes | float | Raw beats per minute as written in file (quarter-beat grid; time-per-beat = 15000/bpmFile ms — see §4.6) |
 | `#GAP` | no | float | Delay from audio start to first beat (ms); default `0` if absent |
 | `#MP3` / `#AUDIO` | yes, unless `#INSTRUMENTAL` present | string | Relative path to audio file. If `#INSTRUMENTAL` is present, `#MP3`/`#AUDIO` is optional; the phone mixes `#INSTRUMENTAL`+`#VOCALS` into the served `audioUrl`. |
 | `#VIDEO` | no | string | Relative path to video file. The composite key=value format used by some tools (e.g., `#VIDEO:v=<ytid>,co=<cover>,bg=<bg>`) is **not supported**; the parser treats `#VIDEO` as a plain file path. |
@@ -1219,6 +1217,8 @@ enum class Difficulty { Easy, Medium, Hard }
 | `#MEDLEYENDBEAT` | no | int | Medley window end (file beats) |
 | `#P1` | no | string | Duet singer name for Player 1 (stored only) |
 | `#P2` | no | string | Duet singer name for Player 2 (stored only) |
+| `#DUETSINGERP1` | no | string | Legacy alias for `#P1`; last value wins if both present |
+| `#DUETSINGERP2` | no | string | Legacy alias for `#P2`; last value wins if both present |
 | `#YEAR` | no | int | Metadata year |
 | `#GENRE` | no | string | Metadata genre (multi-valued) |
 | `#EDITION` | no | string | Metadata edition (multi-valued; used for filtering/sorting) |
@@ -1252,7 +1252,7 @@ All other tags (including `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#CALCMEDLEY`
 - `#VERSION` absent → treat as legacy `0.3.0`.
 - `#VERSION` present but fails to parse as dotted numeric → **invalid**.
 - Supported versions are `< 2.0.0`; if `>= 2.0.0` → **invalid** (`ERROR_CORRUPT_SONG_INVALID_VERSION`).
-- `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#DUETSINGERP1`, `#DUETSINGERP2`, `#CALCMEDLEY` MUST be treated as **unknown tags** regardless of version — preserved in `customTags`, no semantic processing.
+- `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#CALCMEDLEY` MUST be treated as **unknown tags** regardless of version — preserved in `customTags`, no semantic processing.
 
 **Body grammar**:
 - `duration = 0` on any note token: **warn** with line number ("found note with length zero -> converted to FreeStyle") and convert the note to `F` (Freestyle); `duration` stays 0.
@@ -1422,7 +1422,7 @@ The `IndexedSong` fields are defined by the data class in §2.5 Public API above
 - `hasInstrumental`: set by the phone based on whether the song source contains a `#INSTRUMENTAL` tag. The TV uses this flag only to display the `I` chip (§2.5 Song Grid Tag Overlays); it MUST NOT use it to decide playback strategy. `instrumentalUrl` and `vocalsUrl` are NOT present in the manifest.
 - `medleySource == "tag"` ⇒ `medleyStartBeat` and `medleyEndBeat` both non-null, and `medleyStartBeat < medleyEndBeat`.
 - `medleySource == null` ⇒ `canMedley == false`.
-- `previewStartSec` derivation: `#PREVIEWSTART` if present and > 0; else if `medleySource != null` use `timeFromBeat(medleyStartBeat)`; else `0.0`.
+- `previewStartSec` derivation: `#PREVIEWSTART` if present and > 0; else if `medleySource != null` use `timeFromBeat(medleyStartBeat)`; else `0.0`. This is the canonical scan-time derivation; §2.6.10 consumes the manifest-provided value and applies a runtime fallback only when it resolves to 0.
 - `startSec`: from `#START` if present; else `0.0`.
 
 ### Medley Eligibility: `canMedley` (Normative)
@@ -1834,9 +1834,6 @@ This rule extends the Mali-G31 constraint in [§1.6](#16-minimal-footprint) from
 | AppMarginHorizontal | 48dp |  |
 | AppMarginVertical | 36dp |  |
 | HeaderHeight | 76dp |  |
-| SongListCompactMarginHorizontal | 24dp | compact Song List margin |
-| SongListCompactMarginVertical | 20dp | compact Song List margin |
-| SongListCompactHeaderHeight | 56dp | compact Song List header |
 | StandardButtonHeight | 72dp |  |
 | ButtonCornerRadius | 8dp | all button components; full pill shape not permitted |
 | StandardRowHeight | 76dp |  |
@@ -1897,7 +1894,7 @@ Semantic color roles are implemented as fixed theme values:
 | SurfaceLaneBandBase | `#111821` | lane plate base before alpha |
 | SurfaceLyricsBandBase | `#050A0F` | lyrics plate base before alpha |
 | BorderSubtle | `#8A98A8` | unfocused structure border |
-| BorderFocus | `#33D7FF` | focused border |
+| BorderFocus | `#FFFFFF` @ 60% alpha | focused border (white; visually distinct from `Player1Accent`, `Player2Accent`, `RewardAccent`) |
 | TextPrimary | `#F4F7FB` | highest-priority text |
 | TextSecondary | `#B8C4D2` | secondary metadata |
 | TextDisabled | `#6F7B89` | disabled state |
@@ -2080,11 +2077,11 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 - **Special case**: Settings entered from Select Players "No phones connected" action — Back on Settings root returns to Select Players modal, not Song List.
 
 **Focus indicator (normative)**:
-- Focused element: draw a `FocusBorderWidth` (3dp) solid border in `BorderFocus`, inset `FocusBorderInset` (2dp) from the component edge, plus a subtle filled plate on the component body for additional contrast against video/background content.
+- Focused element: draw a `FocusBorderWidth` (3dp) solid border in `BorderFocus` at 60% alpha, inset `FocusBorderInset` (2dp) from the component edge, plus a subtle filled plate on the component body for additional contrast against video/background content.
 - Unfocused enabled element: draw a `BorderThin` (1dp) border using `BorderSubtle` at `UnfocusedBorderOpacity` (20%) so grid/list structure remains legible at TV distance.
 - Border corner radius MUST follow the component shape (buttons and cards use `RadiusSmall`–`RadiusMedium` rounded, square-edged fields may use 0dp).
 - Focus MUST be border-plus-plate only; do not add focus shadows, blur, elevation changes, glow, or background pulse.
-- Focus MUST NOT use `Player1Accent`, `Player2Accent`, or `RewardAccent`.
+- Focus MUST use the `BorderFocus` token (`#FFFFFF` @ 60% alpha) — MUST NOT use `Player1Accent`, `Player2Accent`, or `RewardAccent`.
 - Disabled elements MUST NOT be focusable.
 
 **Focus animation (optional)**:
@@ -2105,7 +2102,7 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 
 **What plays**:
 - Uses `audioUrl` from cached manifest, seeks to `previewStartSec`.
-- If `previewStartSec > 0.0`, use it; otherwise fall back to 0 seconds (Iteration 1). Iteration 2 replaces the 0-second fallback with `min(audioLengthSec / 4, 60s)` when `audioLengthSec > 120s`.
+- If `previewStartSec > 0.0` (derived by the phone per §2.5 Index Fields, carried in the manifest), use it; otherwise fall back to 0 seconds (Iteration 1). Iteration 2 replaces the 0-second fallback with `min(audioLengthSec / 4, 60s)` when `audioLengthSec > 120s`.
 - Plays from start position until stopped (no fixed 10s limit).
 - If HTTP fails, suppress silently.
 
@@ -2196,6 +2193,9 @@ Pause, Disconnect auto-pause, Restart/Quit confirm dialogs, the Countdown-discon
 | SongListCompactPlaylistVisibleRows | 3 |
 | SongListPlayMedleyTopGap | 16dp |
 | SongListCompactPlayMedleyTopGap | 8dp |
+| SongListCompactMarginHorizontal | 24dp |
+| SongListCompactMarginVertical | 20dp |
+| SongListCompactHeaderHeight | 56dp |
 
 **Header composition:**
 - Contents: Search field, Join button, Settings gear button. Standard header uses `HeaderHeight` (76dp); compact header uses `SongListCompactHeaderHeight` (56dp).
@@ -2267,13 +2267,14 @@ Tag placement and priority:
 
 | Current focus | DPAD Up | DPAD Down | DPAD Left | DPAD Right |
 |---|---|---|---|---|
-| Search field | — | First grid tile | Join button | Settings button |
-| Grid tile (top row) | Search field | Tile below | Left tile, or left panel entry | Right tile |
+| Search field | — | First Random action (Random Song) | Join button | Settings button |
+| Random actions row | Search field | First grid tile | Previous Random action (or wrap) | Next Random action (or wrap) |
+| Grid tile (top row) | Random actions row | Tile below | Left tile, or left panel entry | Right tile |
 | Grid tile (non-top row) | Tile above | Tile below | Left tile, or left panel entry | Right tile |
-| Medley playlist row | Previous row (or Play Medley) | Next row (or Random Medley) | — | Search field |
-| Play Medley | Last playlist row | Random Medley | — | Search field |
+| Medley playlist row | Previous row (no wrap) | Next row (or Play Medley if at last row) | — | Search field |
+| Play Medley | Last playlist row | — (no movement) | — | Search field |
 
-**Left-panel entry target** (from leftmost grid column): 1) first Medley playlist row if present, 2) Play Medley if empty, 3) Random Medley as fallback.
+**Left-panel entry target** (from leftmost grid column): 1) first Medley playlist row if present, 2) Play Medley if empty, 3) no movement.
 
 **Back from grid/left panel**: move focus to Search field. Back from top controls: clear filter if active; else exit app.
 
@@ -2730,7 +2731,7 @@ If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` pitch frames arrive in any `VI
 **Top metadata rules (normative)**:
 - On song start and on medley segment change, render the top metadata in the intro strip at `SingingTopIntroStripHeight` (title + artist, oversized tier).
 - During active singing, collapse metadata to the minimal strip at `SingingTopMinimalStripHeight` using `TopMetadataMinimal`.
-- In medley, the minimal strip renders as `<i>/<n>: <Artist> — <Title>`.
+- In medley with more than one segment in total (n > 1), the minimal strip renders as `<i>/<n>: <Artist> — <Title>`. For a single-segment medley run (n = 1), render artist/title only, identical to a normal song.
 
 **Singer lane layout rules (normative)**:
 - **Single singer**: exactly one centered lane band at `SingingSingleLaneHeight` (192dp), full width, vertically centered on screen.
@@ -2983,7 +2984,7 @@ Quit confirm (default focus Cancel)
 - Invalid manifest entries missing `audioUrl` MUST be rejected before they can enter the medley playlist or produce a `MedleySegment`.
 - Audio URL becomes unreachable during playback (e.g., source phone disconnected): abort medley, follow playback-error exit path (return to Song List, show error modal).
 
-**Segment indicator (normative)**: when `n > 1` segments remain, the in-song artist/title label MUST render as `<i>/<n>: <Artist> — <Title>`. A segment progress indicator MUST be shown in the top-left corner alongside this label. (When only one segment — i.e. a single-song medley — no indicator is required.)
+**Segment indicator (normative)**: when the medley has more than one segment in total (n > 1), the in-song artist/title label MUST render as `<i>/<n>: <Artist> — <Title>` for the entire run. A segment progress indicator MUST be shown in the top-left corner alongside this label. For a single-segment medley run (n = 1), no `<i>/<n>` prefix or progress indicator is rendered.
 
 **Segment transition visual (normative)**: segment-to-segment transitions rely on audio crossfade as the primary perceptual transition (V0 per [§VFX table](#2658-motion-and-vfx-budget)). The visual transition is limited to the top metadata intro-strip swap described in [§SingingScreen Behavior — Top metadata rules](#2616-singingscreen-behavior). MUST NOT add a full-screen overlay transition, wipe, or cinematic cut between segments.
 
@@ -3213,8 +3214,8 @@ fetchTxt()   parse()       loadChart(config) (via Intent)
 PlaybackEvent.Prepared(durationMs)
     │
     ▼
-NetworkCtrl.broadcastPlaybackState()
 NetworkCtrl.sendAssignSinger()
+NetworkCtrl.broadcastPlaybackState()  (emitted on phase transition → Countdown or Live)
     │
     ▼
 UI.Play(stopAtLyricsTimeMs) ──→ LibVLC starts ──→ PlaybackEvent.Ready(songStartTvMs)
@@ -3311,7 +3312,7 @@ NetworkController.pitchFrames ──→ ScoringEngine (subscribes)
 scoringEngine.loadChart(chart, micDelayMs, medleyWindow, scoringConfig)
 scoringEngine.setSongStart(songStartTvMs)
 scoringEngine.start()
-scoringEngine.suspend()
+scoringEngine.pause()
 scoringEngine.resume()
 scoringEngine.finalizeAll()
 scoringEngine.reset()
@@ -3873,7 +3874,7 @@ The note is finalized when TV monotonic clock reaches `noteEndTvMs + NOTE_FINALI
 | F10 | Rap scoring toneValid gate | ScoringEngine |
 | F11 | Line bonus and rounding | ScoringEngine |
 | F12v2 | Binary pitch codec | NetworkController |
-| F13 | Jitter buffer selection/staleness | ScoringEngine |
+| F13 | Jitter buffer insert validation and range query | ScoringEngine |
 | F14v2 | Clock sync (phone-side) | — (phone OOS) |
 | F15 | Session lifecycle disconnect/reconnect | NetworkController, PlaybackCoordinator |
 | F16 | Medley sequencer | PlaybackCoordinator |
@@ -4518,8 +4519,9 @@ Struct: <IqIBBH (little-endian)
     "audioUrl": {"type": "string", "format": "uri"},
     "videoUrl": {"type": ["string", "null"], "format": "uri"},
     "coverUrl": {"type": ["string", "null"], "format": "uri"},
-    "backgroundUrl": {"type": ["string", "null"], "format": "uri"},
-  }
+    "backgroundUrl": {"type": ["string", "null"], "format": "uri"}
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -4529,7 +4531,7 @@ Struct: <IqIBBH (little-endian)
 
 Numeric reference examples to remove ambiguity in timing/beat conversion ([§4.6](#46-beat-time-conversion)), note-window boundaries ([§4.3](#43-scoring-coroutine), [§2.2](#22-scoringengine)), scoring normalization ([§2.2](#22-scoringengine)), and line bonus/rounding ([§2.2](#22-scoringengine)). These examples are the reference for fixtures F06, F08, F24.
 
-## E.1 Static BPM — Highlight Cursor and Note Scoring Windows
+## C.1 Static BPM — Highlight Cursor and Note Scoring Windows
 
 Given:
 - `BPM_file = 120.0`
@@ -4547,7 +4549,7 @@ Given:
 - Frames with `54600 <= tvTimeMs < 55100` are collected.
 - Note finalized at `55100 + 450 = 55550`.
 
-## E.2 Beat-to-Time and Time-to-Beat Round-Trip
+## C.2 Beat-to-Time and Time-to-Beat Round-Trip
 
 Given `BPM_file=120`, `GAPms=2000` (beatsPerSec = 120/15 = 8):
 
@@ -4559,7 +4561,7 @@ Round-trip `lyricsTimeSec=5.0` → beat:
 - `highlightTimeSec = 5.0 − 2.0 = 3.0`
 - `MidBeat = 3.0 × 8.0 = 24.0` → `CurrentBeat = 24` ✓
 
-## E.3 Note-Window Boundary Convention
+## C.3 Note-Window Boundary Convention
 
 Note: `startBeatFile=11`, `durationBeats=2` → `endBeatFileExclusive=13`.
 
@@ -4574,7 +4576,7 @@ noteEndTvMs   = songStartTvMs + (13 × 15000 / BPM_file) + GAPms + micDelayMs
 Frame included if: noteStartTvMs <= frame.tvTimeMs < noteEndTvMs
 ```
 
-## E.4 Scoring Normalization and Line Bonus (Fully-Worked)
+## C.4 Scoring Normalization and Line Bonus (Fully-Worked)
 
 Setup: Line bonus ON, `MaxSongPoints=9000`, `MaxLineBonusPool=1000`, `BPM_file=120`, `GAPms=0`, `micDelayMs=0`, `songStartTvMs=10000`, pitch rate 50 fps.
 
@@ -4619,7 +4621,7 @@ Rounding:
 - Line 2: `LinePerfection = clamp(3600/5998, 0, 1) = 0.6002...` → `ScoreLine += 300.10...`
 - `Player.ScoreLine = 700.36...`
 
-## E.5 Golden Rounding Direction Rule
+## C.5 Golden Rounding Direction Rule
 
 Demonstrates the "golden rounds opposite" rule to prevent `ScoreTotalInt > 10000`.
 
@@ -4629,7 +4631,7 @@ Given: `Player.Score = 4090.909...`, `Player.ScoreGolden = 100.909...`
 - `ScoreInt (4090) < Player.Score (4090.909)` is TRUE → apply **ceil** for golden:
   - `ScoreGoldenInt = ceil(100.909/10)×10 = 110`
 
-## E.6 Minimal Fixture Layout for E.4
+## C.6 Minimal Fixture Layout for C.4
 
 ```
 fixtures/E4_score_linebonus_perfect/
@@ -4642,6 +4644,3 @@ fixtures/E4_score_linebonus_perfect/
 
 `pitchFrames.jsonl` is OPTIONAL if the test harness injects hit counts directly. If using the full pipeline, provide frames at 50fps with `toneValid=true` and matching `midiNote` for hit frames.
 
----
-
-*Document updated: 2026-04-21*
