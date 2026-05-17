@@ -1,5 +1,5 @@
 {
-  "specVersion": "tv_app.md v1.8 (2026-05-17) / phone_app.md v1.2 (2026-04-26)",
+  "specVersion": "tv_app.md v1.9 (2026-05-17) / phone_app.md v1.3 (2026-05-17)",
   "fixtures": [
     {
       "id": "F01_song_discovery_validation_acceptance",

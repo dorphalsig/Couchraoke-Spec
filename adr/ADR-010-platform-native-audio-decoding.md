@@ -7,7 +7,7 @@
 
 ## Context
 
-Audio mixing requires decoding MP3 → PCM. Options:
+Audio mixing requires decoding source audio assets to PCM. Options:
 
 1. **Platform-native decoders** — MediaCodec (Android), AVAssetReader (iOS)
 2. **Cross-platform library** — FFmpeg, libsndfile

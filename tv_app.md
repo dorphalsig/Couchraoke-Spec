@@ -1,13 +1,14 @@
 # Couchraoke TV App — Specification
 
-**Version**: 1.8
+**Version**: 1.9
 **Date**: 2026-05-17
+**Changelog since 1.8**: USDX pitch base corrected to C4/MIDI 60; effective audio-source validity aligned with accepted `#INSTRUMENTAL`+`#VOCALS` mix pairs; TV-facing audio wording clarified to a single effective `audioUrl`.
 **Changelog since 1.7: §4.6 BeatCalculator: purged `bpmInternal`, renamed `timeSecToMidBeatInternal`→`timeSecToBeat`, `beatInternalToTimeSec`→`beatToTimeSec`, corrected `/60.0`→`/15.0` per Appendix C. Appendix B.2.2: added `connectedDevices[]` to `sessionState` schema (max 10 devices). §2.6.17/§4.2: deleted txtUrl-fail skip clause; prefetch-all-or-fail normative. ScoringEngine: added `healthEvents: SharedFlow<GameplayHealthEvent>`. Dependencies pinned: navigation-compose 2.9.5, hilt-android 2.57.1, hilt-navigation-compose 1.2.0. Fixtures: F06 cursor 22→23, F15 clientIds renamed (c-a→client-aa, c-b→client-bb, c-c→client-cc), F15 case_slot_taken rewritten (11th-device cap=10 scenario), F16 expected.medleySegments.json created, F18 transcript.json→transcript.jsonl.
 **Scope**: Android TV Host App (phone companion OOS)
 **Changelog since 1.5**: Consistency audit fixes. §2.1 / §2.3: GamePhase names aligned with §4.1 sealed class (`Idle`→`Open`, `Loading`→`Preparing`, `Playing`→`Live`). §B.2.9: SongEntry JSON Schema repaired (trailing comma removed; `additionalProperties: false` added). §3.1 Song Start Flow: `sendAssignSinger` correctly precedes `broadcastPlaybackState`. §2.3 T8.5.5: moved to inline; description corrected to match 10-device cap. §1.6: OS range opened to Android TV 11+ (was 11–14). §2.6.5.6: `BorderFocus` changed to `#FFFFFF` @ 60% alpha; §2.6.9 focus-indicator rule updated accordingly. §2.6.12: DPAD navigation table corrected — Random actions row added; playlist Up rule fixed; Play Medley Down fixed. §2.4: stale "internal = ×4" comments on `#BPM` removed (file beats used directly per §4.6). §2.2 / §3.2: `ScoringEngine.suspend()` renamed `pause()`. Appendix C: subsections renamed E.x→C.x. §2.6.16 / §2.6.17: medley `n=1` minimal-strip rule unified. §2.3 T8.3.11: conditional `countdownMs` documented. §2.4: `#DUETSINGERP1` / `#DUETSINGERP2` accepted as aliases of `#P1` / `#P2`. §2.5 / §2.6.10: `previewStartSec` cross-referenced. §2.6.5.4 / §2.6.12: SongList-specific compact tokens relocated to §2.6.12. Footer date stamp removed. F13 rewritten for range-query model: old single-frame-selection + 120ms staleness cases dropped; four sub-cases (case_lateness_drop, case_seq_drop, case_regression_large_drop, case_regression_small_accept) replace them; T5.2.3.4–7 warning removed; §2.2 Knowledge Gaps updated.
 **Changelog since 1.4**: Test and fixture audit. T5.2.3.1–3 fixture column added (inline). F13 rewrite required — note added to T5.2.3.4–7 and ScoringEngine Knowledge Gaps. T5.3.2 `currentBeatD` corrected 22→23. T6.1.2–4 frame-set attribution corrected to inline. T6.1.5 expected value corrected (10000 not 0). T6.4.2 subcase path corrected. T6.5.2/3 moved to inline (F11 does not cover forgiveness/empty-line cases). T6.5.5 moved to F16/T9.5.7.5 (not an F11 case). T6.6.2 moved to inline (F11 perfect case does not trigger ceil branch). T8.3.7 moved to inline (F15 has no >10-phone scenario). T3.1.1–5 fixture column added (F23). T3.3 table restructured with Fixture column; T3.3.1 references F04/valid_duet_interleaved; T3.3.2–5 inline. T9.5.7.1 filename corrected (expected.medleySegments.json). T9.5.7.3–6 moved to inline (F16 has no scoring data). T9.6.1 moved to F11/medley_aggregation. UsdxParser Knowledge Gaps: F03 parsedSong stale schema documented.
 **Changelog since 1.3**: §1.6 Performance Targets: removed song-grid FPS row. §2.6.3 SLAs: replaced FPS/memory table with degradation-policy reference. §2.6.5.4: added `ButtonCornerRadius` token. §2.6.5.9: added button corner-radius rule. §2.6.10: added preview-pane video specification. §2.6.12: added medley playlist overflow-scroll rule. §2.6.16: added `AndroidView` hosting note; added runtime gameplay-degradation monitor. §4.3: added scoring-coroutine responsibility for degradation monitor. §7.6 DOD: replaced FPS/memory bullets with degradation-gate verification item.
-**Changelog since 1.2**: Playback backend migrated from Media3/ExoPlayer to LibVLC. §1.1 Testability, §1.6 Minimal Footprint, §2.1 PlaybackCoordinator (songStartTvMs Capture, Playback error handling, new Audio Focus subsection), §2.6 UI Layer (new Playback Backend Seam), §2.6.16 SingingScreen (new SurfaceView z-order rule), §3.1/§3.2 flow diagrams, and §4.2 Medley Audio Prebuffering all updated. AV-sync and dual-track mixing resolved: §2.1 Audio/Video Asset Coupling added (two-MP model, audio master, #VIDEOGAP arithmetic). Phone pre-mixes #INSTRUMENTAL/#VOCALS; TV always receives a single audioUrl. instrumentalUrl/vocalsUrl removed from all wire schemas.
+**Changelog since 1.2**: Playback backend migrated from Media3/ExoPlayer to LibVLC. §1.1 Testability, §1.6 Minimal Footprint, §2.1 PlaybackCoordinator (songStartTvMs Capture, Playback error handling, new Audio Focus subsection), §2.6 UI Layer (new Playback Backend Seam), §2.6.16 SingingScreen (new SurfaceView z-order rule), §3.1/§3.2 flow diagrams, and §4.2 Medley Audio Prebuffering all updated. AV-sync and dual-track mixing resolved: §2.1 Audio/Video Asset Coupling added (two-MP model, audio master, #VIDEOGAP arithmetic). Phone prepares #INSTRUMENTAL/#VOCALS as a single effective audioUrl; TV always receives only that audioUrl. instrumentalUrl/vocalsUrl removed from all wire schemas.
 **Changelog since 1.1**: §2.6 Design Tokens and Visual System added; screen subsections updated with token references, revised song-card composition, interruption-overlay shell, winner-emphasis rule, and singing-screen motion budget. Source: `2026-04-21-tv-app-design.md` (merged and retired).
 ---
 
@@ -229,7 +230,7 @@ The TV's monotonic clock for all `*TvMs` values throughout this spec is `System.
 
 The TV uses **two independent LibVLC `MediaPlayer` instances** for songs that carry a video asset: an audio MP (master) and a video MP (decoration). For audio-only songs a single audio MP is used. The video MP is an optional decoration; its failure MUST NOT affect audio, scoring, or session state.
 
-**Phone-side audio preparation (normative)**: the phone's HTTP server MUST serve a single pre-mixed audio file at `audioUrl` for every song entry. If the song's source files contain both `#INSTRUMENTAL` and `#VOCALS` tracks, the phone MUST mix them into a single audio file before (or at first) serving. The TV MUST NOT attempt to fetch or mix `#INSTRUMENTAL`/`#VOCALS` URLs directly; those URLs MUST NOT appear in any TV-facing wire message.
+**Phone-side audio preparation (normative)**: the phone's HTTP server MUST serve exactly one playable audio resource at `audioUrl` for every song entry. If the song has an accepted `#INSTRUMENTAL`+`#VOCALS` mix pair, the phone MUST mix them into that single resource before or during the first request. The TV MUST NOT attempt to fetch or mix `#INSTRUMENTAL`/`#VOCALS` URLs directly; those URLs MUST NOT appear in any TV-facing wire message.
 
 **Two-MP start sequence (normative)**: when `videoUrl` is non-null and video is enabled (§2.6.15.6):
 
@@ -457,7 +458,7 @@ If `N > 0`:
 - **Normal** (`:`) and **Golden** (`*`): `s.toneValid = true` AND `abs(octaveNormalized(s.tone, note.toneSemitone) − note.toneSemitone) <= Range`.
 - **Rap** (`R`) and **RapGolden** (`G`): `s.toneValid = true` (presence-only; pitch difference ignored).
 
-Where `s.tone = s.midiNote − 36` (C2=36 → Tone=0, matching USDX's C2=0 pitch base).
+Where `s.tone = s.midiNote − 60` (C4/MIDI 60 → Tone=0, matching the USDX pitch base).
 
 **Scoring configuration contract (normative)**:
 - `ScoringEngine.loadChart(...)` MUST receive all gameplay inputs that affect scoring through `ScoringConfig`.
@@ -895,7 +896,7 @@ This is best-effort routing, not a security control.
 
 **MIDI-to-scoring conversion**:
 ```
-Tone = midiNote - 36    (C2=36 → Tone=0)
+Tone = midiNote - 60    (C4/MIDI 60 → Tone=0)
 ```
 This value is input to octave normalization in scoring.
 
@@ -1032,7 +1033,7 @@ data class SongHeader(
     val artist: String,
     val bpmFile: Float,              // Raw #BPM as written in file (used directly; quarter-beat grid — see §4.6)
     val gapMs: Float,                // #GAP in milliseconds (fractional ms allowed); default 0
-    val audio: String?,              // Resolved audio filename (#AUDIO if version≥1.0.0 and present, else #MP3). Null for #INSTRUMENTAL-only songs (phone mixes to a single served file; TV consumes via audioUrl).
+    val audio: String?,              // Resolved base audio filename (#AUDIO if version≥1.0.0 and present, else #MP3). Null only when an accepted mix pair provides the served audioUrl.
     val songPath: String,            // Canonical path/URI to song root directory
 
     // Optional playback-timing offsets (sourced from header tags)
@@ -1045,8 +1046,8 @@ data class SongHeader(
     val video: String?,              // #VIDEO
     val cover: String?,              // #COVER
     val background: String?,         // #BACKGROUND
-    val instrumental: String?,       // #INSTRUMENTAL (sole backing track when present; replaces #AUDIO/#MP3)
-    val vocals: String?,             // #VOCALS (phone mixes with #INSTRUMENTAL before serving; TV receives single pre-mixed audioUrl)
+    val instrumental: String?,       // #INSTRUMENTAL source for phone-side mixing
+    val vocals: String?,             // #VOCALS source for phone-side mixing; TV receives only the effective audioUrl
 
     // Optional metadata
     val version: String,             // #VERSION if present; "0.3.0" treated as default when absent
@@ -1103,7 +1104,7 @@ data class NoteEvent(
     val noteType: NoteType,          // Normal (:), Golden (*), Rap (R), RapGolden (G), Freestyle (F)
     val startBeatFile: Int,          // Chart beat (file units; not ×4)
     val durationBeats: Int,          // Chart beats; duration=0 parser-converted to Freestyle (warn)
-    val toneSemitone: Int,           // Semitone (USDX scale, C2 = 0). Used directly as TargetTone.
+    val toneSemitone: Int,           // Semitone (USDX scale: C4/MIDI 60 = 0). Used directly as TargetTone.
     val lyric: String                // As authored; may be empty
 ) {
     val endBeatFileExclusive: Int
@@ -1151,7 +1152,7 @@ data class BeatRange(
 data class MedleySegment(
     val index: Int,               // 0-based position in the medley run
     val txtUrl: String,
-    val audioUrl: String,         // pre-mixed backing track (phone mixes stems); non-null for playable segments
+    val audioUrl: String,         // effective phone-served audio resource; non-null for playable segments
     val videoUrl: String?,        // optional video asset for this segment
     val videoGapSec: Float?,      // #VIDEOGAP for this segment's video asset
     val medleyStartSec: Float,    // max(0, timeFromBeat(startBeat) − MEDLEY_FADE_IN_SEC)
@@ -1199,7 +1200,7 @@ enum class Difficulty { Easy, Medium, Hard }
 
 **Per-note fields** (for `:`, `*`, `F`, `R`, `G`): `<token> <startBeatFile> <durationBeats> <toneSemitone> <lyric...>`
 - `startBeatFile` and `durationBeats` are integers in chart beat units (file units; used as-is per §4.6).
-- `toneSemitone` is an integer semitone index (USDX scale, C2 = 0).
+- `toneSemitone` is an integer semitone index (USDX scale: C4/MIDI 60 = 0).
 - `lyric` is the remainder of the line after the numeric fields.
 
 **Duet structure**: if the first non-empty body line begins with `P`, the song is duet (`isDuet = true`) with two tracks. `P1`/`P2` markers set the active track (0/1). Notes and `-` breaks are assigned to the current active track. A single `E` ends the file.
@@ -1212,13 +1213,13 @@ enum class Difficulty { Easy, Medium, Hard }
 | `#ARTIST` | yes | string | Song artist |
 | `#BPM` | yes | float | Raw beats per minute as written in file (quarter-beat grid; time-per-beat = 15000/bpmFile ms — see §4.6) |
 | `#GAP` | no | float | Delay from audio start to first beat (ms); default `0` if absent |
-| `#MP3` / `#AUDIO` | yes, unless `#INSTRUMENTAL` present | string | Relative path to audio file. If `#INSTRUMENTAL` is present, `#MP3`/`#AUDIO` is optional; the phone mixes `#INSTRUMENTAL`+`#VOCALS` into the served `audioUrl`. |
+| `#MP3` / `#AUDIO` | yes, unless accepted mix pair | string | Relative path to base audio file. If an accepted `#INSTRUMENTAL`+`#VOCALS` mix pair exists, base audio is optional and the phone serves the generated mix as `audioUrl`. |
 | `#VIDEO` | no | string | Relative path to video file. The composite key=value format used by some tools (e.g., `#VIDEO:v=<ytid>,co=<cover>,bg=<bg>`) is **not supported**; the parser treats `#VIDEO` as a plain file path. |
 | `#VIDEOGAP` | no | float | Video offset in seconds |
 | `#COVER` | no | string | Relative path to cover image |
 | `#BACKGROUND` | no | string | Relative path to background image |
-| `#INSTRUMENTAL` | no | string | Instrumental audio track (replaces `#AUDIO` as sole backing; `>= 1.1.0`) |
-| `#VOCALS` | no | string | Acapella track (mixed with `#INSTRUMENTAL`; ignored if `#INSTRUMENTAL` absent; `>= 1.1.0`) |
+| `#INSTRUMENTAL` | no | string | Instrumental source for phone-side mixing (`>= 1.1.0`) |
+| `#VOCALS` | no | string | Vocal source for phone-side mixing; ignored if `#INSTRUMENTAL` absent (`>= 1.1.0`) |
 | `#START` | no | float | Skip to this second on playback start |
 | `#END` | no | int | Stop playback at this millisecond |
 | `#PREVIEWSTART` | no | float | Preview start position in seconds |
@@ -1249,7 +1250,7 @@ All other tags (including `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#CALCMEDLEY`
 - Header lines read while first character is `#`; any other line ends header parsing.
 - Tag names are case-insensitive; matching on `Uppercase(Trim(TagName))`.
 - Duplicate known tags: last successfully parsed value wins.
-- Malformed required tag (TITLE/ARTIST/BPM): mark song **invalid**. Audio source (AUDIO-or-MP3 or INSTRUMENTAL): at least one MUST be present and valid; if none resolves, mark song **invalid** (`ERROR_CORRUPT_SONG_MISSING_REQUIRED_HEADER`). Malformed optional tag: **warn**, treat as absent.
+- Malformed required tag (TITLE/ARTIST/BPM): mark song **invalid**. Effective audio source: a valid base `#AUDIO`/`#MP3` asset or an accepted `#INSTRUMENTAL`+`#VOCALS` mix pair MUST resolve; if none resolves, mark song **invalid** (`ERROR_CORRUPT_SONG_MISSING_REQUIRED_HEADER`). Malformed optional tag: **warn**, treat as absent.
 - Unknown tags, empty-value tags (`#NAME:`), and no-separator tags (no `:`): **warn** and preserve in `customTags`.
 
 - Songs with `#BPM` missing or ≤ 0 MUST be rejected.
@@ -1374,7 +1375,7 @@ data class IndexedSong(
     val isDuet: Boolean,
     val hasRap: Boolean,             // R/G tokens detected in body
     val hasVideo: Boolean,           // invariant: == (videoUrl != null)
-    val hasInstrumental: Boolean,    // phone-detected: true if song has #INSTRUMENTAL track (phone serves pre-mixed audio regardless)
+    val hasInstrumental: Boolean,    // phone-detected: true if #INSTRUMENTAL resolves locally; display-only
 
     // Medley
     val canMedley: Boolean,
@@ -1414,10 +1415,10 @@ A song is **valid** if:
 - A `.txt` file is found in a song directory.
 - The `#TITLE`, `#ARTIST`, and `#BPM` headers are present and parseable.
 - `#BPM` is > 0.
-- A required audio file is resolved (version-conditional):
-  - **`#VERSION >= 1.0.0`**: `#AUDIO` takes precedence over `#MP3`; at least one MUST be present. If both present, `#AUDIO` is used. Exception: if `#INSTRUMENTAL` is present and resolves on disk, neither `#AUDIO` nor `#MP3` is required — the phone mixes `#INSTRUMENTAL`+`#VOCALS` into the served `audioUrl`.
-  - **Legacy (`#VERSION` absent or `< 1.0.0`)**: `#MP3` MUST be present; `#AUDIO` (if present) MUST be ignored for audio resolution. `#INSTRUMENTAL` on legacy files follows the same exception as above.
-- The resolved audio file MUST exist on disk; missing file → invalid.
+- A required playback resource is resolved (version-conditional):
+  - **`#VERSION >= 1.0.0`**: `#AUDIO` takes precedence over `#MP3`; at least one MUST be present unless an accepted `#INSTRUMENTAL`+`#VOCALS` mix pair exists. If both base tags are present, `#AUDIO` is used.
+  - **Legacy (`#VERSION` absent or `< 1.0.0`)**: `#MP3` MUST be present unless an accepted `#INSTRUMENTAL`+`#VOCALS` mix pair exists; `#AUDIO` (if present) MUST be ignored for audio resolution.
+- The selected playback source MUST be available: base audio must exist on disk, or both accepted mix-source files must exist on disk. Missing source file → invalid.
 - At least one valid note line exists in the body (after empty-sentence cleanup).
 
 ### Index Fields (Normative)
@@ -1429,7 +1430,7 @@ The `IndexedSong` fields are defined by the data class in §2.5 Public API above
 - `modifiedTimeMs`: Unix epoch milliseconds, TXT last-modified at scan time on phone.
 - `txtUrl` and `audioUrl` MUST be non-null for entries that appear in `/manifest.json` (validity prerequisite from the Discovery and Validation Rules above).
 - `hasVideo == (videoUrl != null)`. Violation → reject manifest entry.
-- `hasInstrumental`: set by the phone based on whether the song source contains a `#INSTRUMENTAL` tag. The TV uses this flag only to display the `I` chip (§2.5 Song Grid Tag Overlays); it MUST NOT use it to decide playback strategy. `instrumentalUrl` and `vocalsUrl` are NOT present in the manifest.
+- `hasInstrumental`: set by the phone when a valid `#INSTRUMENTAL` source resolves locally. The TV uses this flag only to display the `I` chip (§2.5 Song Grid Tag Overlays); it MUST NOT use it to decide playback strategy. `instrumentalUrl` and `vocalsUrl` are NOT present in the manifest.
 - `medleySource == "tag"` ⇒ `medleyStartBeat` and `medleyEndBeat` both non-null, and `medleyStartBeat < medleyEndBeat`.
 - `medleySource == null` ⇒ `canMedley == false`.
 - `previewStartSec` derivation: `#PREVIEWSTART` if present and > 0; else if `medleySource != null` use `timeFromBeat(medleyStartBeat)`; else `0.0`. This is the canonical scan-time derivation; §2.6.10 consumes the manifest-provided value and applies a runtime fallback only when it resolves to 0.
@@ -1497,7 +1498,7 @@ The `/manifest.json` response is a JSON array of `SongEntry` objects. Each entry
 }
 ```
 
-Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet`, `hasRap`, `hasVideo`, `hasInstrumental`, `canMedley`, `startSec`, `previewStartSec`, `txtUrl`, `audioUrl`. Optional URL fields (`videoUrl`, `coverUrl`, `backgroundUrl`) are `null` when the corresponding file is absent. `instrumentalUrl` and `vocalsUrl` are NOT included in the manifest; the phone serves a pre-mixed `audioUrl`.
+Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet`, `hasRap`, `hasVideo`, `hasInstrumental`, `canMedley`, `startSec`, `previewStartSec`, `txtUrl`, `audioUrl`. Optional URL fields (`videoUrl`, `coverUrl`, `backgroundUrl`) are `null` when the corresponding file is absent. `instrumentalUrl` and `vocalsUrl` are NOT included in the manifest; the phone serves a single effective `audioUrl`.
 
 ### Acceptance Tests (Library, Discovery, Index)
 
@@ -2053,7 +2054,7 @@ Singing screen MUST separate real-time pitch lane rendering from Compose UI:
 
 ### 2.6.7 #INSTRUMENTAL / #VOCALS Playback
 
-The TV always plays a single pre-mixed `audioUrl` per song. The phone is responsible for mixing `#INSTRUMENTAL` and `#VOCALS` tracks before serving; the TV MUST NOT attempt dual-track mixing.
+The TV always plays a single `audioUrl` per song. When phone-side mixing is active, the phone is responsible for producing the generated mix before or during first serving; the TV MUST NOT attempt dual-track mixing.
 
 - `hasInstrumental == true` affects only the `I` chip display in the song list (§2.5). It has no effect on TV playback logic.
 - **Settings > Audio > Vocals Volume** (default 50%): this control is reserved for a future release in which the phone exposes a mix-parameter endpoint. For MVP it MUST be rendered as a disabled slider with a "Coming soon" label.
@@ -2987,7 +2988,7 @@ Quit confirm (default focus Cancel)
 - Scoring window: only notes within `[medleyStartBeat, medleyEndBeat)` use normal ScoreFactor; notes outside treated as Freestyle (ScoreFactor=0).
 
 **Video positioning**: if video present and enabled, position to `videoGapSec + medleyStartSec`.
-- `MedleySegment` and `PlaybackIntent.PrebufferNext` MUST carry the per-segment media assets needed for medley playback: `audioUrl` (pre-mixed, non-null for playable segments), optional `videoUrl`, and optional `videoGapSec`.
+- `MedleySegment` and `PlaybackIntent.PrebufferNext` MUST carry the per-segment media assets needed for medley playback: `audioUrl` (effective phone-served audio, non-null for playable segments), optional `videoUrl`, and optional `videoGapSec`.
 
 **Segment failure handling (normative)**:
 - If the full medley `SingingRenderModel` cannot be built before countdown (e.g., any required segment `txtUrl` fetch or parse fails), the medley MUST fail before start and return to Song List with an error modal.
@@ -3180,10 +3181,10 @@ A `:mock-phone` Gradle module MUST be maintained in the repository to enable TV 
 
 | Profile | Behaviour |
 |---------|-----------|
-| `PERFECT` | Every frame within a note window emits `midiNote = note.toneSemitone + 36` |
+| `PERFECT` | Every frame within a note window emits `midiNote = note.toneSemitone + 60` |
 | `PARTIAL(hitRate: Float)` | Randomly sets `midiNote = 255` for `(1 - hitRate)` fraction of frames |
 | `SILENCE` | All frames `midiNote = 255` |
-| `OCTAVE_OFF` | Emits `midiNote = note.toneSemitone + 36 + 12` (validates octave normalization) |
+| `OCTAVE_OFF` | Emits `midiNote = note.toneSemitone + 60 + 12` (validates octave normalization) |
 | `REPLAY(path: Path)` | Replays a `pitchFrames.bin` fixture file with original timing |
 
 The generator computes `tvTimeMs` from `clockOffsetMs` (derived from clock sync exchange with the TV) plus local monotonic time. `songInstanceSeq` and `connectionId` are taken from `assignSinger` and `sessionState` messages received over the WebSocket.
@@ -3844,7 +3845,7 @@ noteStartTvMs = songStartTvMs + (startBeat × 15000 / BPM_file) + GAPms + micDel
 noteEndTvMs   = songStartTvMs + ((startBeat + durationBeats) × 15000 / BPM_file) + GAPms + micDelayMs
 ```
 
-Where `songStartTvMs` is captured per [§2.1](#21-playbackcoordinator) by the UI layer and delivered to the coordinator via `PlaybackEvent.Ready`, `BPM_file` is the raw `#BPM` before ×4, `GAPms` is `#GAP` in ms, and `micDelayMs` is the effective mic delay (shifts window later to account for audio pipeline latency).
+Where `songStartTvMs` is captured per [§2.1](#21-playbackcoordinator) by the UI layer and delivered to the coordinator via `PlaybackEvent.Ready`, `BPM_file` is the raw `#BPM` from the file with no scaling, `GAPms` is `#GAP` in ms, and `micDelayMs` is the effective mic delay (shifts window later to account for audio pipeline latency).
 
 A pitch frame falls within the window if: `noteStartTvMs <= frame.tvTimeMs < noteEndTvMs`.
 

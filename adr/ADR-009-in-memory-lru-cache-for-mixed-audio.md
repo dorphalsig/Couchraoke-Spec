@@ -15,7 +15,7 @@ Generated mixed WAV files need caching to meet the ≤100ms cached SLA. Three st
 
 ## Decision
 
-In-memory LRU cache, max 3 songs (~90MB for three 3-minute stereo 48kHz WAVs).
+In-memory LRU cache, max 3 songs (~102 MB for three 3-minute stereo 48kHz WAVs).
 
 ## Rationale
 
@@ -47,7 +47,7 @@ In-memory LRU cache, max 3 songs (~90MB for three 3-minute stereo 48kHz WAVs).
 - Self-cleaning: eviction on app termination
 
 **Negative:**
-- Memory: ~90 MB baseline, spikes to ~120 MB during 4th song decode (before eviction)
+- Memory: ~102 MB typical baseline, spikes to ~136 MB during 4th song decode (before eviction)
 - Cold start: first play of 4 songs in a row will evict and regenerate
 
 ## Implementation

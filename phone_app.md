@@ -1,7 +1,7 @@
 # Couchraoke Phone Companion App
 
-**Version**: 1.2
-**Date**: 2026-04-26  
+**Version**: 1.3
+**Date**: 2026-05-17
 **Scope**: Android Phone Companion (iOS follows same architecture)  
 ---
 
@@ -55,8 +55,8 @@ Ordered by priority.
 
 | Requirement | Implementation |
 |-------------|----------------|
-| First byte ≤100ms P95 | Ktor CIO async I/O |
-| Sustained ≥2 Mbps | Direct SAF stream, no buffering |
+| Static/cached first byte ≤100ms P95 | Ktor CIO async I/O; generated mixes use cache |
+| Sustained ≥2 Mbps | Static assets stream from SAF; generated WAVs serve from bounded cache |
 | Range requests | Ktor partial-content plugin |
 
 ## 1.4 Scan Performance (Medium)
@@ -75,7 +75,7 @@ Ordered by priority.
 
 | Requirement | Implementation |
 |-------------|----------------|
-| Total app ≤300MB | Lean allocations, no caching |
+| Total app ≤300MB | Lean allocations; generated WAV cache capped at 3 entries |
 | Pitch buffers fixed 50KB | Pre-allocated at init |
 | Manifest ≤2MB for 500 songs | ~4KB per SongEntry |
 
@@ -166,12 +166,12 @@ The songs folder is selected via `UIDocumentPickerViewController(forOpeningConte
 
 A song is accepted if and only if:
 
-1. **Required headers present**:
+1. **Required metadata and playback source present**:
    - `#TITLE` and `#ARTIST` non-empty
    - `#BPM` parseable as non-zero float
-   - Audio tag: `#AUDIO` or `#MP3` (v1.0.0+: `#AUDIO` precedence; legacy: `#MP3` required)
+   - Effective audio source: resolved base `#AUDIO`/`#MP3`, or an accepted `#INSTRUMENTAL`+`#VOCALS` mix pair
 
-2. **Required audio file exists**: resolved relative to `.txt` directory
+2. **Required playback resource exists**: base audio exists, or both mix-source files exist and pass mix eligibility
 
 3. **Notes parse without fatal errors**: unknown tokens warn, fatal numeric errors reject
 
@@ -190,7 +190,7 @@ Header processing is best-effort and MUST continue past unknown or non-fatal iss
   - **Empty value**: `#NAME:` (value is empty string after trimming).
 
 For each header line:
-- **Well-formed known tag**: parse according to its definition. If the value is malformed: if the tag is **required** (TITLE/ARTIST/AUDIO-or-MP3/BPM) → mark the song **invalid**; if the tag is **optional** (VIDEO, COVER, etc.) → **warn** and treat as absent.
+- **Well-formed known tag**: parse according to its definition. If the value is malformed: if the tag is **required** (TITLE/ARTIST/BPM) → mark the song **invalid**; if the tag is **optional** (VIDEO, COVER, etc.) → **warn** and treat as absent. Audio-source validity is decided by the Audio Resolution Rules below.
 - **Well-formed unknown tag**: **warn** and preserve in `CustomTags` as `(NAME, VALUE)`.
 - **Empty value** (`#NAME:`): **info/warn** and preserve in `CustomTags` as `(NAME, "")`.
 - **No separator** (no `:`): **warn** and preserve in `CustomTags` as `("", CONTENT)` where `CONTENT` is the original line without the leading `#`.
@@ -199,14 +199,14 @@ For each header line:
 
 ### BPM Parsing (Normative)
 
-`#BPM` values using a comma as decimal separator (e.g., `120,5`) MUST have the comma replaced with a period before parsing. Parsing MUST be locale-independent (always use `.` as decimal separator regardless of device locale). Internal BPM: `BPM_internal = BPM_file × 4`.
+`#BPM` values using a comma as decimal separator (e.g., `120,5`) MUST have the comma replaced with a period before parsing. Parsing MUST be locale-independent (always use `.` as decimal separator regardless of device locale). The parsed file BPM is the sole timing BPM; beat values are used as-is with no `×4` scaling.
 
 ### Version Handling (Normative)
 
 - If `#VERSION` is absent, treat the song as legacy format `0.3.0`.
 - If `#VERSION` is present, it MUST parse as a dotted numeric version (e.g., `1.0.0`). If it fails to parse: **invalid** (`ERROR_CORRUPT_SONG_INVALID_VERSION`).
 - Supported versions are `< 2.0.0`. If `#VERSION >= 2.0.0`: **invalid**.
-- All files are treated as UTF-8. The tags `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#DUETSINGERP1`, `#DUETSINGERP2`, and `#CALCMEDLEY` are treated as **unknown tags** regardless of version — preserved in `CustomTags`, no version-conditional processing.
+- All files are treated as UTF-8. The tags `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, and `#CALCMEDLEY` are treated as **unknown tags** regardless of version — preserved in `CustomTags`, no version-conditional processing. `#DUETSINGERP1` / `#DUETSINGERP2` are supported legacy aliases for `#P1` / `#P2`.
 
 ### Supported Header Tags (Normative)
 
@@ -214,9 +214,9 @@ For each header line:
 |-----|----------|------|-----------|
 | `#TITLE` | yes | string | Song title |
 | `#ARTIST` | yes | string | Song artist |
-| `#BPM` | yes | float | Beats per minute (file BPM; internal = ×4) |
+| `#BPM` | yes | float | Raw UltraStar file BPM; time-per-beat = `15000/bpmFile` ms |
 | `#GAP` | no | float | Delay from audio start to first beat (ms) |
-| `#MP3` / `#AUDIO` | yes (one) | string | Relative path to audio file |
+| `#MP3` / `#AUDIO` | yes, unless accepted mix pair | string | Relative path to base audio file |
 | `#VIDEO` | no | string | Relative path to video file |
 | `#VIDEOGAP` | no | float | Video offset in seconds |
 | `#COVER` | no | string | Relative path to cover image |
@@ -231,6 +231,8 @@ For each header line:
 | `#MEDLEYENDBEAT` | no | int | Medley window end (file beats) |
 | `#P1` | no | string | Duet singer name for Player 1 (stored only) |
 | `#P2` | no | string | Duet singer name for Player 2 (stored only) |
+| `#DUETSINGERP1` | no | string | Legacy alias for `#P1`; last value wins if both present |
+| `#DUETSINGERP2` | no | string | Legacy alias for `#P2`; last value wins if both present |
 | `#YEAR` | no | int | Metadata year |
 | `#GENRE` | no | string | Metadata genre |
 
@@ -262,11 +264,11 @@ For all other `#VIDEO` values, treat as a relative local filename. If the file d
 
 ### Audio Resolution Rules (Normative)
 
-- For `#VERSION >= 1.0.0`: at least one of `#AUDIO` or `#MP3` MUST be present and non-empty. If both are present, `#AUDIO` takes precedence.
-- For legacy format (`#VERSION` absent or `< 1.0.0`): `#MP3` MUST be present and non-empty. `#AUDIO` (if present) MUST be ignored for audio resolution (USDX behavior).
-- `#AUDIO` / `#MP3` identifies the song's base audio asset. It is the fallback playback source when no phone-side mixing path is active.
+- For `#VERSION >= 1.0.0`: base audio is resolved from `#AUDIO` or `#MP3`; if both are present, `#AUDIO` takes precedence.
+- For legacy format (`#VERSION` absent or `< 1.0.0`): base audio is resolved from `#MP3`; `#AUDIO` (if present) MUST be ignored for audio resolution (USDX behavior).
+- `#AUDIO` / `#MP3` identifies the song's base audio asset. It is the fallback playback source when no phone-side mixing path is active. If no accepted mix pair exists, a valid base audio asset is required.
 - `#INSTRUMENTAL` and `#VOCALS` are source assets for phone-side mixing only. They MUST NOT be exposed to the TV as independent playback URLs.
-- If `#INSTRUMENTAL` resolves to a local file, the phone MUST expose exactly one effective `audioUrl` for the song. That effective `audioUrl` MUST represent the phone's chosen playback source for the song: either the unchanged base audio asset or a phone-generated mixed audio resource under `/songs/generated/`.
+- If an accepted `#INSTRUMENTAL`+`#VOCALS` pair exists, the phone MUST expose exactly one generated effective `audioUrl` under `/songs/generated/`. If the pair is incomplete or ineligible, the phone MUST fall back to the base audio asset; if no valid base asset exists, the song is invalid.
 - `#VOCALS` without a valid `#INSTRUMENTAL` source MUST be ignored for playback resolution and MUST emit a warn diagnostic.
 
 ### Phone-Side Mixing Policy (Normative)
@@ -275,12 +277,12 @@ For all other `#VIDEO` values, treat as a relative local filename. If the file d
 - MVP scope: the `#INSTRUMENTAL` and `#VOCALS` source pair MUST have the same decoded sample rate and the same channel count. Differing compressed bitrates are allowed and do not affect validity.
 - If the source pair differs in decoded sample rate or channel count, the phone MUST NOT attempt resampling or channel remixing in MVP. The song MUST fall back to the base `#AUDIO` / `#MP3` asset for `audioUrl`, and a warn diagnostic MUST be emitted.
 - If the source pair is accepted for mixing, the phone MUST expose exactly one generated playback URL for the song under `/songs/generated/`. The generated relative path MUST equal `generated/<relativeTxtPath-with-.txt-suffix-replaced-by-.wav>`.
-- The mixed playback resource MUST be pre-rendered before playback begins and MUST be served as RIFF/WAV containing PCM16LE samples.
+- The mixed playback resource MUST be generated lazily on first HTTP GET unless already cached, and MUST be served as RIFF/WAV containing PCM16LE samples once generated.
 - The mixed playback resource MUST preserve the accepted source pair's decoded sample rate and channel count. Original compressed bitrate MUST NOT be preserved or reported as a playback invariant.
 - The mixed playback resource MUST be deterministic for a given song scan result and fixed MVP mix parameters.
 - MVP mix parameters are fixed by the phone implementation. The TV-side vocals-volume control does not alter the mix in MVP.
 - The effective playback duration of the mixed resource MUST equal the shorter decoded duration of the accepted source pair.
-- If a song is accepted for mixing, `hasInstrumental` remains `true` whether the phone stores the pre-rendered WAV in memory, a temporary file, or another internal server-backed representation.
+- `hasInstrumental` is true when a valid `#INSTRUMENTAL` source resolves locally, regardless of whether the phone later serves base audio or a generated mix.
 
 ### Supported Note Tokens (Normative)
 
@@ -352,15 +354,15 @@ Each entry: `severity` (`info`|`warn`|`invalid`), `code`, `message`, `txtUri`, `
 
 ### Parsed Song Model (Normative — Appendix C)
 
-**SongHeader**: `title`, `artist`, `bpmFile` (raw, before ×4), `gapMs`, `videoGapSec`, `startSec`, `endMs`, `isDuet`, `previewStartSec`, custom tags (ordered list).
+**SongHeader**: `title`, `artist`, `bpmFile` (raw file BPM, no scaling), `gapMs`, `videoGapSec`, `startSec`, `endMs`, `isDuet`, `previewStartSec`, custom tags (ordered list).
 
-**SongTiming**: `bpmFile` (sole BPM). `BPM_internal = BPM_file × 4`.
+**SongTiming**: `bpmFile` is the sole BPM; file beat values are used as-is.
 
 **Track**: `trackIndex` (0 for P1/solo, 1 for P2), `lines` (ordered).
 
 **Line**: `lineIndex` (0-based), `notes` (ordered by `startBeatFile`).
 
-**NoteEvent**: `noteType` (enum), `startBeatFile`, `durationBeats`, `toneSemitone` (C2=0), `lyric`, `endBeatFileExclusive = startBeatFile + durationBeats`.
+**NoteEvent**: `noteType` (enum), `startBeatFile`, `durationBeats`, `toneSemitone` (USDX scale: C4/MIDI 60 = 0), `lyric`, `endBeatFileExclusive = startBeatFile + durationBeats`.
 
 **Beat convention**: `noteActive if startBeat <= beat < endBeat` (start inclusive, end exclusive).
 
@@ -393,6 +395,7 @@ Each entry: `severity` (`info`|`warn`|`invalid`), `code`, `message`, `txtUri`, `
 | T3.2.9a | Nested relative asset path resolves segment-by-segment | F01/`c/nested_relative_asset_path` | `isValid=true`, asset present when each path segment exists |
 | T3.2.10 | `#VOCALS` without `#INSTRUMENTAL` | F01/`d/vocals_without_instrumental` | `isValid=true`, `audioUrl` resolves from base audio asset, warn diagnostic emitted |
 | T3.2.11 | Accepted mixing pair publishes one effective audio URL | F01/`d/mix_pair_same_rate_channels` | `isValid=true`, `hasInstrumental=true`, manifest contains single `audioUrl`, no `instrumentalUrl`/`vocalsUrl` fields |
+| T3.2.11a | Accepted mixing pair without base audio | `inline` | `isValid=true`, generated `audioUrl` under `/songs/generated/` |
 | T3.2.12 | Mixing pair with mismatched sample rate falls back to base audio | F01/`d/mix_pair_mismatched_sample_rate` | `isValid=true`, `hasInstrumental=true`, `audioUrl` resolves from base audio asset, warn diagnostic emitted |
 | T3.2.13 | Mixing pair with mismatched channel count falls back to base audio | F01/`d/mix_pair_mismatched_channels` | `isValid=true`, `hasInstrumental=true`, `audioUrl` resolves from base audio asset, warn diagnostic emitted |
 | T4.1.1 | P1/P2 track routing | F04/`a/valid_duet_interleaved` | 2 tracks, notes assigned per track |
@@ -546,7 +549,7 @@ If any condition fails, fall back to the base `#AUDIO` or `#MP3` asset and emit 
 
 1. **Scan time**: Store relative paths for `#INSTRUMENTAL` and `#VOCALS`; determine eligibility; record in scan metadata
 2. **Manifest construction**: If eligible, set `audioUrl` to `/songs/generated/<relativeTxtPath-with-.txt-replaced-by-.wav>`
-3. **First GET request**: Decode both MP3s, mix to WAV, cache in memory
+3. **First GET request**: Decode both source audio files, mix to WAV, cache in memory
 4. **Subsequent requests**: Serve from cache
 5. **Song end or session leave**: Discard cached WAV
 
@@ -970,7 +973,7 @@ All messages: JSON objects, `type` (string), `protocolVersion` (int, MUST be `1`
 
 **`assignSinger`** (TV → Phone): `sessionId`, `songInstanceSeq` (uint32), `playerId` (`"P1"`/`"P2"`), `difficulty` (`"Easy"`/`"Medium"`/`"Hard"`), `startMode` (`"countdown"`/`"live"`), `countdownMs` (int|null), `stopAtLyricsTimeMs` (int), `udpPort` (int), `songTitle`, `songArtist`.
 
-**`stopAtLyricsTimeMs` computation**: normal song: if `#END` present and > 0, use `endMs`; otherwise `audioDurationMs`. Medley: lyrics-time ms at end of final segment fade-out. MUST be recomputed on Restart or reconnect.
+**`stopAtLyricsTimeMs` computation**: normal song: if `#END` present and > 0, use `endMs`; otherwise `effectivePlaybackDurationMs - gapMs`, where `effectivePlaybackDurationMs` is the prepared audio resource duration and `gapMs` defaults to 0. Medley: lyrics-time ms at end of final segment fade-out. MUST be recomputed on Restart or reconnect.
 
 **`playbackState`** (TV → Phone): `sessionId`, `songInstanceSeq`, `revision` (monotonically increasing per songInstanceSeq), `state` (`"countdown"`/`"playing"`/`"paused"`/`"stopped"`), `lyricsTimeMs`, `stopAtLyricsTimeMs`, `countdownRemainingMs` (int|null, present only when `state="countdown"`; omitted otherwise), `reason` (`""`/`"user_pause"`/`"singer_disconnected"`/`"song_end"`/`"user_quit"`/`"restart"`/`"segment_transition"`/`"medley_source"`/`"medley_end"`), `tsTvMs`.
 
@@ -1669,7 +1672,7 @@ data class ServerState(
 
 interface GeneratedPlaybackResource
 
-Generated playback resources MUST expose deterministic byte content, total content length, and support byte-range reads over the pre-rendered WAV payload.
+Generated playback resources MUST expose deterministic byte content, total content length, and support byte-range reads over the generated WAV payload.
 ```
 
 ## 3.3 PitchDetector

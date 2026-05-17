@@ -41,5 +41,5 @@ Mix lazily on first HTTP GET request. Cache result in memory (LRU, max 3 songs).
 
 - Android: `MediaCodec` + `MediaExtractor` (built-in, API 21+)
 - iOS: `AVAssetReader` + `AVAssetReaderTrackOutput` (built-in)
-- Cache: LRU eviction, ~30MB per 3-min stereo 48kHz WAV
+- Cache: LRU eviction, ~34 MB per 3-min stereo 48kHz WAV
 - SLA: ≤3s uncached, ≤100ms cached (§4.2)
