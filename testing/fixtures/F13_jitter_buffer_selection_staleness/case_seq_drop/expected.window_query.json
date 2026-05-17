@@ -1,0 +1,9 @@
+{
+  "description": "seq=3 arrives after seq=5 has been accepted; 3 <= 5 triggers the decreasing-seq drop rule.",
+  "inserts": [
+    {"seq": 5, "disposition": "accepted"},
+    {"seq": 3, "disposition": "dropped_decreasing_seq"}
+  ],
+  "noteWindow": {"startTvMs": 1000, "endTvMs": 1200},
+  "expectedFrameSeqs": [5]
+}
