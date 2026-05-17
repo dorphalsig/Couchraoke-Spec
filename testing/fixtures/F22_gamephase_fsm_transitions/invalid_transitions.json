@@ -1,9 +1,37 @@
 [
-  { "from": "Idle", "to": "Paused", "trigger": "invalid_pause_without_song" },
-  { "from": "Idle", "to": "Playing", "trigger": "invalid_play_without_loading" },
-  { "from": "Loading", "to": "Results", "trigger": "invalid_skip_to_results" },
-  { "from": "Countdown", "to": "Paused", "trigger": "invalid_user_pause_during_countdown" },
-  { "from": "Playing", "to": "Loading", "trigger": "invalid_back_to_loading" },
-  { "from": "Stopped", "to": "Playing", "trigger": "invalid_resume_after_stop" },
-  { "from": "Results", "to": "Playing", "trigger": "invalid_reenter_song" }
+  {
+    "from": "Open",
+    "to": "Paused",
+    "trigger": "invalid_pause_without_song"
+  },
+  {
+    "from": "Open",
+    "to": "Live",
+    "trigger": "invalid_play_without_loading"
+  },
+  {
+    "from": "Preparing",
+    "to": "Results",
+    "trigger": "invalid_skip_to_results"
+  },
+  {
+    "from": "Countdown",
+    "to": "Paused",
+    "trigger": "invalid_user_pause_during_countdown"
+  },
+  {
+    "from": "Live",
+    "to": "Preparing",
+    "trigger": "invalid_back_to_loading"
+  },
+  {
+    "from": "Stopped",
+    "to": "Live",
+    "trigger": "invalid_resume_after_stop"
+  },
+  {
+    "from": "Results",
+    "to": "Live",
+    "trigger": "invalid_reenter_song"
+  }
 ]

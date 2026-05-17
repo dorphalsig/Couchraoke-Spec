@@ -304,7 +304,7 @@ interface PlaybackCoordinator {
 | Metric | Target | Test |
 |--------|--------|------|
 | Phase transition latency | <50ms | Unit test, measure emission time |
-| Clock sync completes | <3s for 5 samples | F14v2 fixture |
+| Clock sync completes | <3s for 5 samples | F21 fixture |
 
 ### L2 Visible Shapes
 
@@ -1193,7 +1193,7 @@ enum class Difficulty { Easy, Medium, Hard }
 | `P1`, `P2` | Duet part delimiters | — |
 
 **Per-note fields** (for `:`, `*`, `F`, `R`, `G`): `<token> <startBeatFile> <durationBeats> <toneSemitone> <lyric...>`
-- `startBeatFile` and `durationBeats` are integers in chart beat units (file units; internal = ×4).
+- `startBeatFile` and `durationBeats` are integers in chart beat units (file units; used as-is per §4.6).
 - `toneSemitone` is an integer semitone index (USDX scale, C2 = 0).
 - `lyric` is the remainder of the line after the numeric fields.
 
@@ -1298,7 +1298,7 @@ The canonical definitions of `ParsedSong`, `SongHeader`, `SongTiming`, `Track`, 
 
 ### L2 Visible Shapes
 - **BodyTokenizer**: Tokenizes note lines (`:`, `*`, `F`, `R`, `G`, `-`, `E`, `P`)
-- **BeatCalculator**: Applies BPM×4 rule for supported static-BPM charts
+- **BeatCalculator**: Converts between time (ms) and beat units for static-BPM charts
 - **ErrorCollector**: Accumulates warnings, decides accept/reject
 
 ### Acceptance Tests (Error Handling)
@@ -3366,7 +3366,7 @@ This section captures supporting mechanics and implementation shape for behavior
 | `Results` | Results screen visible, session returned to Open | Iter 2 |
 | `DisconnectPaused` | Auto-pause because a required singer disconnected | Iter 3 |
 
-> **Implementation note**: `Open`, `Preparing`, `Live`, `Paused`, and `Error` are implemented in Iteration 1. `Stopped` and `Results` are added in Iteration 2. `DisconnectPaused` is added in Iteration 3.
+> **Implementation note**: `Open`, `Preparing`, `Countdown`, `Live`, `Paused`, and `Error` are implemented in Iteration 1. `Stopped` and `Results` are added in Iteration 2. `DisconnectPaused` is added in Iteration 3.
 
 **Transitions**:
 
@@ -3881,10 +3881,13 @@ The note is finalized when TV monotonic clock reaches `noteEndTvMs + NOTE_FINALI
 | F11 | Line bonus and rounding | ScoringEngine |
 | F12v2 | Binary pitch codec | NetworkController |
 | F13 | Jitter buffer insert validation and range query | ScoringEngine |
-| F14v2 | Clock sync (phone-side) | — (phone OOS) |
 | F15 | Session lifecycle disconnect/reconnect | NetworkController, PlaybackCoordinator |
 | F16 | Medley sequencer | PlaybackCoordinator |
+| F17 | YIN DSP pipeline accuracy | — (phone OOS) |
 | F18 | HTTP asset client smoke test | NetworkController |
+| F19 | iCloud eviction (iOS) | — (phone OOS) |
+
+> **Note**: F07 was retired (merged into F08 redesign for range-query model). F17 and F19 are phone-only fixtures.
 
 ## 6.2 New Fixtures Required
 
