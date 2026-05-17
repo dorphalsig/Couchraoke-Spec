@@ -1,7 +1,7 @@
 # F18_http_server_range_coordination
 
 ## Spec Sections Covered
-["8.6"]
+["phone_app.md §2.2", "phone_app.md §3.2", "tv_app.md §2.5"]
 
 ## Purpose
 Validation of HTTP Range request handling for partial asset streaming.

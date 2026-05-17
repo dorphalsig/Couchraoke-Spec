@@ -96,7 +96,7 @@ Ordered by priority. These describe *how* the system should be built.
 |----------|----------|
 | Singer disconnect | Auto-pause (`DisconnectPaused`), not crash |
 | Song source disconnect | Error modal, return to song list |
-| Clock sync failure | Use best available sample, log warning |
+| Clock sync failure | Use best valid sample if one exists; abort song start if zero valid samples remain after retry |
 | Manifest fetch failure | Retain previous catalog, show toast |
 
 ## 1.5 Offline-First
@@ -152,7 +152,7 @@ Higher-spec devices (4GB RAM) must work without degradation; lower-spec (1GB RAM
 | Lazy initialization | LibVLC instance, mDNS created on demand |
 | Amlogic S905X4 codec workaround | ⚠ Needs hardware retest under LibVLC. Pass `--codec=mediacodec_ndk,all` to LibVLC at construction. If HD/FHD playback still fails on the S905X4 reference device in QA, fall back to `#BACKGROUND` still image (existing fallback path in §2.6.15.6). See paragraph below for context. |
 
-**LibVLC codec selection on Amlogic S905X4 (open)**: Under Media3, the S905X4 reported inaccurate `PerformancePoint` capabilities, causing unnecessary HD/FHD downscaling, and required a custom `MediaCodecSelector` workaround. LibVLC routes hardware decode through `MediaCodec` as well, so the same underlying device bug *may* still bite. The required mitigation under LibVLC is unknown until QA verification on the reference device. The construction-time option `--codec=mediacodec_ndk,all` instructs LibVLC to prefer the NDK MediaCodec backend, which is the closest analogue to the Media3 workaround. **Action**: verify HD/FHD playback on the S905X4 reference unit before MVP sign-off. If verification fails, the existing `#BACKGROUND` still-image fallback (§2.6.15.6) is the only ship-blocker mitigation and Video MUST be forced OFF on the affected device profile via runtime device-model match.
+**LibVLC codec selection on Amlogic S905X4 (open)**: A previous playback backend exposed inaccurate S905X4 `PerformancePoint` capabilities, causing unnecessary HD/FHD downscaling and requiring a codec-selection workaround. LibVLC routes hardware decode through `MediaCodec` as well, so the same underlying device bug *may* still bite. The required mitigation under LibVLC is unknown until QA verification on the reference device. The construction-time option `--codec=mediacodec_ndk,all` instructs LibVLC to prefer the NDK MediaCodec backend. **Action**: verify HD/FHD playback on the S905X4 reference unit before MVP sign-off. If verification fails, the existing `#BACKGROUND` still-image fallback (§2.6.15.6) is the only ship-blocker mitigation and Video MUST be forced OFF on the affected device profile via runtime device-model match.
 
 ---
 
@@ -1033,8 +1033,7 @@ data class SongHeader(
     val artist: String,
     val bpmFile: Float,              // Raw #BPM as written in file (used directly; quarter-beat grid — see §4.6)
     val gapMs: Float,                // #GAP in milliseconds (fractional ms allowed); default 0
-    val audio: String?,              // Resolved base audio filename (#AUDIO if version≥1.0.0 and present, else #MP3). Null only when an accepted mix pair provides the served audioUrl.
-    val songPath: String,            // Canonical path/URI to song root directory
+    val audio: String?,              // Selected authored base audio filename (#AUDIO if version≥1.0.0 and present, else #MP3). Null when no base audio tag is authored.
 
     // Optional playback-timing offsets (sourced from header tags)
     val startSec: Float?,            // #START in seconds
@@ -1128,6 +1127,8 @@ data class DiagnosticEntry(
 enum class Severity { Info, Warn, Invalid }
 ```
 
+**Parser boundary**: `UsdxParser` is pure and performs no file, URI, network, or asset-existence resolution. `SongHeader` contains only values derivable from `txtBytes` plus the caller-supplied `songId`. `LibraryManager` / phone scanning owns song-root paths, canonical URIs, source-file availability, and effective `audioUrl` selection.
+
 **Invariants**:
 
 - All `NoteEvent` in all tracks MUST satisfy `durationBeats >= 0`. `durationBeats == 0` is parser-converted to `Freestyle` (warn) and contributes 0 score.
@@ -1149,9 +1150,11 @@ data class BeatRange(
     val endBeat: Int      // medleyEndBeat (file beats, exclusive)
 )
 
+// Coordinator/library type built after parse + manifest validation; not returned by UsdxParser.
 data class MedleySegment(
     val index: Int,               // 0-based position in the medley run
     val txtUrl: String,
+    val chart: ParsedSong,        // parsed during pre-start medley build; no transition-time fetch/parse
     val audioUrl: String,         // effective phone-served audio resource; non-null for playable segments
     val videoUrl: String?,        // optional video asset for this segment
     val videoGapSec: Float?,      // #VIDEOGAP for this segment's video asset
@@ -1327,7 +1330,7 @@ The canonical definitions of `ParsedSong`, `SongHeader`, `SongTiming`, `Track`, 
 
 ### Knowledge Gaps
 
-- **F03 `expected.parsedSong.json` uses stale field names**: `toneUsdx` (→ `toneSemitone`), `trackIndex` (→ `playerId`), `relativeMode` (removed), `timing.bpmChanges` (→ `SongTiming { bpmFile: Float }`), `customTags: {}` (→ `List<CustomHeaderTag>`). This file must be updated to match the current `ParsedSong` data class before parser tests can pass against it.
+None known.
 
 ---
 
@@ -1627,6 +1630,8 @@ sealed class PlaybackEvent {
     data class Ready(val songStartTvMs: Long) : PlaybackEvent()
     data class Error(val cause: Throwable) : PlaybackEvent()
     object Ended : PlaybackEvent()
+    object FocusLostTransient : PlaybackEvent()
+    object FocusRegained : PlaybackEvent()
 }
 
 // Commands from PlaybackCoordinator (via state/intents)
@@ -1664,8 +1669,8 @@ sealed class PlaybackIntent {
 //   1. Production code can be unit-tested without instantiating a real
 //      `org.videolan.libvlc.MediaPlayer` (whose `Event` constructors are
 //      package-private and cannot be invoked from test code).
-//   2. The playback backend can be swapped (e.g., back to Media3, or to a
-//      future LibVLC 4.x) by replacing the UI/playback adapter implementation alone.
+//   2. The playback backend can be swapped by replacing the UI/playback
+//      adapter implementation alone.
 
 interface LibVlcPlayerHandle {
     /** Translated, main-thread-dispatched event stream. */
@@ -2402,7 +2407,7 @@ Song Grid: 4 cards / row at 4K, 3 at 1080p. Compact TV viewports use 3 or 4 colu
 
 **Medley render-model build (normative)**: for medley play, the coordinator MUST fetch and parse all segment `txtUrl` values required to build the full medley `SingingRenderModel` before countdown begins. This pre-start build MUST compute medley-wide vertical pitch bounds for each player from the union of that player's scorable notes across all medley segments.
 
-**Medley prefetch (normative)**: fetching and parsing the full medley render model is required and blocks Start. Additional eager fetches beyond that are optional and MAY continue in the background once the medley playlist is confirmed.
+**Medley prefetch (normative)**: fetching and parsing every segment chart needed for the full medley render model is required and blocks Start. Additional eager media preparation (for example LibVLC prebuffering of the next `audioUrl`) is optional and MAY continue in the background once the medley playlist is confirmed.
 
 **Start failure**: abort, return to Song List, show blocking error: title `ERROR`, body `This song can't be played.` / `Check Settings > Song Library — the song's phone may be disconnected.`, single `OK` action.
 
@@ -2600,6 +2605,8 @@ Shows song contribution status per connected phone: device name and song count. 
 | Hints: OK=Action  Back=Return                                                  |
 +--------------------------------------------------------------------------------+
 ```
+
+<a id="26153-settings--audio"></a>
 
 #### 2.6.15.3 Settings > Audio
 - **Preview Volume**: reserved for future Settings work. Iteration 1 has no Settings screen and no app-level preview preamp; Song List preview audibility follows TV/system media volume only.
@@ -2884,10 +2891,10 @@ The error MUST NOT crash the app, corrupt session state, or leave the session Lo
 
 1. Before `LibVlcPlayerHandle.play()`, request `AUDIOFOCUS_GAIN` on `STREAM_MUSIC` via `AudioManager.requestAudioFocus(AudioFocusRequest)`. If the request is not granted, the UI layer MUST emit `PlaybackEvent.Error` and follow the Playback error handling path above.
 2. Register an `OnAudioFocusChangeListener` for the lifetime of playback:
-   - `AUDIOFOCUS_LOSS_TRANSIENT` or `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` → emit `PlaybackIntent.Pause`. The coordinator pauses scoring per the existing pause/resume rules (`pauseStartedTvMs` / `totalPausedDurationMs`, steps 10–12 of §2.1 songStartTvMs Capture).
-   - `AUDIOFOCUS_GAIN` after a transient loss → coordinator resumes, emitting `PlaybackIntent.Play(stopAtLyricsTimeMs)` with the value from the active phase plan (unchanged on resume).
-   - `AUDIOFOCUS_LOSS` (permanent) → follow the Playback error handling path above.
-3. The listener fires on a binder thread; the UI layer MUST dispatch onto the ViewModel's main scope before emitting any intent.
+   - `AUDIOFOCUS_LOSS_TRANSIENT` or `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` → the UI layer emits `PlaybackEvent.FocusLostTransient`; the coordinator then emits `PlaybackIntent.Pause` and pauses scoring per the existing pause/resume rules (`pauseStartedTvMs` / `totalPausedDurationMs`, steps 10–12 of §2.1 songStartTvMs Capture).
+   - `AUDIOFOCUS_GAIN` after a transient loss → the UI layer emits `PlaybackEvent.FocusRegained`; the coordinator resumes by emitting `PlaybackIntent.Play(stopAtLyricsTimeMs)` with the value from the active phase plan (unchanged on resume).
+   - `AUDIOFOCUS_LOSS` (permanent) → the UI layer emits `PlaybackEvent.Error` and follows the Playback error handling path above.
+3. The listener fires on a binder thread; the UI layer MUST dispatch onto the ViewModel's main scope before emitting any `PlaybackEvent`.
 4. On song end, error exit, or Restart, the UI layer MUST call `AudioManager.abandonAudioFocusRequest`.
 
 #### Singing Screen Wireframe
@@ -2973,6 +2980,8 @@ Quit confirm (default focus Cancel)
 |  > Cancel     OK                     |
 +--------------------------------------+
 ```
+
+<a id="2617-singingscreen--medley-mode"></a>
 
 ### 2.6.17 SingingScreen — Medley Mode
 
@@ -3300,7 +3309,7 @@ Coordinator ──(PlaybackIntent)──→ UI/playback controller ──→ Lib
 - UI/playback layer observes intents and executes them through one audio `LibVlcPlayerHandle` plus an optional decorative video handle.
 - UI enforces `stopAtLyricsTimeMs` received in `PlaybackIntent.Play` as the active stop boundary on the audio handle.
 - When UI detects that playback has reached the active `stopAtLyricsTimeMs`, it MUST stop the active handle pair and emit `PlaybackEvent.Ended`.
-- UI emits `PlaybackEvent` (`Prepared` with effective playback-plan duration, `Ready` with songStartTvMs, `Error`, `Ended`).
+- UI emits `PlaybackEvent` (`Prepared` with effective playback-plan duration, `Ready` with songStartTvMs, `Error`, `Ended`, and audio-focus events).
 - UI exposes `currentPositionMs: StateFlow<Long>` for observation; this is always the audio handle position.
 
 ### NetworkController ↔ ScoringEngine
@@ -3418,7 +3427,6 @@ This section captures supporting mechanics and implementation shape for behavior
 | Open | Preparing | User starts song from SelectPlayers | Iter 1 |
 | Preparing | Countdown | Playback plan prepared, `assignSinger` sent, countdown enabled | Iter 1 |
 | Preparing | Live | Playback plan prepared, `assignSinger` sent, countdown disabled | Iter 1 |
-| Preparing | Open | Playback error or audio URL unreachable | Iter 1 |
 | Countdown | Live | Countdown reaches 0 | Iter 1 |
 | Countdown | Open | Required singer disconnects during countdown | Iter 1 |
 | Preparing | Error | Playback setup error or audio URL unreachable | Iter 1 |
@@ -3502,12 +3510,9 @@ private suspend fun transitionMedleySegment(
         return
     }
     
-    // Step 4: Fetch and parse next chart
-    val txtBytes = networkController.fetchTxt(next.txtUrl).getOrElse {
-        // Skip segment, try next
-        return transitionMedleySegment(completed, nextAfter(next))
-    }
-    val chart = usdxParser.parse(txtBytes).getOrThrow()
+    // Step 4: Load prebuilt next chart. All medley segment charts were fetched
+    // and parsed before countdown; transition-time fetch/parse/skip is forbidden.
+    val chart = next.chart
     
     // Step 5: Configure scoring
     scoringEngine.reset()
@@ -3723,7 +3728,7 @@ class ClockSyncLogic(
             val t3 = pong.tPhoneSendMs
             
             val rtt = (t4 - t1) - (t3 - t2)
-            val offset = ((t2 - t1) + (t3 - t4)) / 2
+            val offset = ((t1 - t2) + (t4 - t3)) / 2  // TV-minus-phone; phone estimates TV time as phoneTime + offset
             
             if (rtt in 0..2000) {
                 samples.add(ClockSample(rtt, offset, pong.pingId, t4))

@@ -15,7 +15,7 @@ Generated mixed WAV files need caching to meet the ≤100ms cached SLA. Three st
 
 ## Decision
 
-In-memory LRU cache, max 3 songs (~102 MB for three 3-minute stereo 48kHz WAVs).
+In-memory LRU cache, max 3 songs and max ~102 MB for three 3-minute stereo 48kHz WAVs. Evict before decoding an uncached mix so the cache has room for the new output buffer.
 
 ## Rationale
 
@@ -47,24 +47,35 @@ In-memory LRU cache, max 3 songs (~102 MB for three 3-minute stereo 48kHz WAVs).
 - Self-cleaning: eviction on app termination
 
 **Negative:**
-- Memory: ~102 MB typical baseline, spikes to ~136 MB during 4th song decode (before eviction)
+- Memory: ~102 MB cache budget; cold-mix transient memory is bounded because eviction happens before decode and the mixer streams bounded PCM chunks into one final WAV buffer.
 - Cold start: first play of 4 songs in a row will evict and regenerate
 
 ## Implementation
 
 ```kotlin
-class MixCache(private val maxEntries: Int = 3) {
+class MixCache(
+    private val maxEntries: Int = 3,
+    private val maxBytes: Long = 102L * 1024L * 1024L
+) {
     private val cache = LinkedHashMap<String, CachedMix>(maxEntries, 0.75f, true)
-    
+    private var usedBytes: Long = 0
+
     fun get(path: String): ByteArray? = cache[path]?.data
-    
-    fun put(path: String, data: ByteArray) {
-        if (cache.size >= maxEntries && !cache.containsKey(path)) {
-            cache.remove(cache.keys.first())
+
+    fun reserveFor(incomingBytes: Long) {
+        while (cache.isNotEmpty() && (cache.size >= maxEntries || usedBytes + incomingBytes > maxBytes)) {
+            val eldest = cache.keys.first()
+            usedBytes -= cache.remove(eldest)!!.data.size
         }
+    }
+
+    fun put(path: String, data: ByteArray) {
+        cache.remove(path)?.let { usedBytes -= it.data.size }
+        reserveFor(data.size.toLong())
         cache[path] = CachedMix(data, System.currentTimeMillis())
+        usedBytes += data.size
     }
 }
 ```
 
-Eviction: automatic on 4th song via `LinkedHashMap` access-order mode.
+Eviction: access-order LRU; call `reserveFor()` before decoding an uncached mix and again inside `put()` as a safety net.

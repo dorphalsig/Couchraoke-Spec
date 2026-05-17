@@ -22,7 +22,7 @@ Drop Flutter. Implement:
 
 - **Android TV host** in Kotlin with Jetpack Compose for TV (unchanged).
 - **Android companion** in Kotlin (`AudioRecord`, `DocumentFile`/`ContentResolver`, Ktor server, OkHttp).
-- **iOS companion** in Swift (`AVAudioEngine`, `UIDocumentPickerViewController`, `NSFileCoordinator`, Swifter, `URLSessionWebSocketTask`).
+- **iOS companion** in Swift (`AVAudioEngine`, `UIDocumentPickerViewController`, `NSFileCoordinator`, Hummingbird, `URLSessionWebSocketTask`).
 
 The pitch-detection algorithm is implemented independently in each language rather than shared through FFI — see [ADR-005](ADR-005-pitch-detection-native-fft-yin.md).
 
