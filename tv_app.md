@@ -1,7 +1,8 @@
 # Couchraoke TV App — Specification
 
-**Version**: 1.6
+**Version**: 1.7
 **Date**: 2026-05-17
+**Changelog since 1.6**: §2.3 Session Token: replaced opaque alphanumeric format with two-word Adjective-Noun join code (bundled wordlists, ~18 bits entropy); updated mDNS instance-name and TXT-code examples throughout. §2.3 / §2.6.16: `stopAtLyricsTimeMs` no-`#END` formula corrected to `effectivePlaybackDurationMs − gapMs` (converts audio EOF to lyrics-time); removed stale dual-track / shorter-track language. §3.1 Song Start Flow: split broadcast into countdown-mode and live-mode steps to clarify that `state="playing"` fires only after `PlaybackEvent.Ready`. §2.2 T6.1.5: fixture renamed `mixed_normal_freestyle`; T6.1.6a added for all-Freestyle chart (`scoreTotalInt=0`); F03 `scoring/all_freestyle` subcase created. §2.2 Knowledge Gaps: resolved F03 freestyle-naming entry removed. ADR-008/009/010 (phone-side audio mixing) added to `adr/`; `manifest.json` updated (specVersion v1.6→v1.7, covers T-refs corrected per current test tables, ADR index added).
 **Scope**: Android TV Host App (phone companion OOS)
 **Changelog since 1.5**: Consistency audit fixes. §2.1 / §2.3: GamePhase names aligned with §4.1 sealed class (`Idle`→`Open`, `Loading`→`Preparing`, `Playing`→`Live`). §B.2.9: SongEntry JSON Schema repaired (trailing comma removed; `additionalProperties: false` added). §3.1 Song Start Flow: `sendAssignSinger` correctly precedes `broadcastPlaybackState`. §2.3 T8.5.5: moved to inline; description corrected to match 10-device cap. §1.6: OS range opened to Android TV 11+ (was 11–14). §2.6.5.6: `BorderFocus` changed to `#FFFFFF` @ 60% alpha; §2.6.9 focus-indicator rule updated accordingly. §2.6.12: DPAD navigation table corrected — Random actions row added; playlist Up rule fixed; Play Medley Down fixed. §2.4: stale "internal = ×4" comments on `#BPM` removed (file beats used directly per §4.6). §2.2 / §3.2: `ScoringEngine.suspend()` renamed `pause()`. Appendix C: subsections renamed E.x→C.x. §2.6.16 / §2.6.17: medley `n=1` minimal-strip rule unified. §2.3 T8.3.11: conditional `countdownMs` documented. §2.4: `#DUETSINGERP1` / `#DUETSINGERP2` accepted as aliases of `#P1` / `#P2`. §2.5 / §2.6.10: `previewStartSec` cross-referenced. §2.6.5.4 / §2.6.12: SongList-specific compact tokens relocated to §2.6.12. Footer date stamp removed. F13 rewritten for range-query model: old single-frame-selection + 120ms staleness cases dropped; four sub-cases (case_lateness_drop, case_seq_drop, case_regression_large_drop, case_regression_small_accept) replace them; T5.2.3.4–7 warning removed; §2.2 Knowledge Gaps updated.
 **Changelog since 1.4**: Test and fixture audit. T5.2.3.1–3 fixture column added (inline). F13 rewrite required — note added to T5.2.3.4–7 and ScoringEngine Knowledge Gaps. T5.3.2 `currentBeatD` corrected 22→23. T6.1.2–4 frame-set attribution corrected to inline. T6.1.5 expected value corrected (10000 not 0). T6.4.2 subcase path corrected. T6.5.2/3 moved to inline (F11 does not cover forgiveness/empty-line cases). T6.5.5 moved to F16/T9.5.7.5 (not an F11 case). T6.6.2 moved to inline (F11 perfect case does not trigger ceil branch). T8.3.7 moved to inline (F15 has no >10-phone scenario). T3.1.1–5 fixture column added (F23). T3.3 table restructured with Fixture column; T3.3.1 references F04/valid_duet_interleaved; T3.3.2–5 inline. T9.5.7.1 filename corrected (expected.medleySegments.json). T9.5.7.3–6 moved to inline (F16 has no scoring data). T9.6.1 moved to F11/medley_aggregation. UsdxParser Knowledge Gaps: F03 parsedSong stale schema documented.
@@ -551,7 +552,8 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | T6.1.2 | N=0 (no frames) → `note_score=0` | F08 chart + inline frames | `note_score=0` |
 | T6.1.3 | Partial hits: `note_score = max_note_score × (hits/N)` | F08 chart + inline frames | Per-note values match formula |
 | T6.1.4 | Normal/Rap → `Player.Score`; Golden/RapGolden → `Player.ScoreGolden` | F08 chart + inline frames | Accumulation fields match |
-| T6.1.5 | Freestyle: `ScoreFactor=0` → `note_score=0` even with `toneValid=true` | F03/`scoring/freestyle_only` | `scoreTotalInt=10000`; freestyle beats contribute 0, normal beats score normally ⚠ |
+| T6.1.5 | Mixed normal+freestyle: `ScoreFactor=0` → freestyle notes contribute 0; normal notes score normally | F03/`scoring/mixed_normal_freestyle` | `scoreTotalInt=10000` |
+| T6.1.6a | All-freestyle chart: every note has `ScoreFactor=0` | F03/`scoring/all_freestyle` | `scoreTotalInt=0` |
 | T6.1.6 | Sentence finalization triggers line bonus | F11 | Line bonus applied at sentence boundary |
 
 **Note Types**
@@ -601,7 +603,6 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 ### Knowledge Gaps
 
 - **F08 README is stale**: references `(oldBeatD, currentBeatD]` beat-stepping which no longer exists; current implementation is deadline-driven (§4.3). Fixture data remains valid; only the README description needs updating.
-- **F03 `scoring/freestyle_only` misnamed**: the subcase is a mixed normal+freestyle chart producing `scoreTotalInt=10000`, not 0. Rename to `mixed_normal_freestyle` and add a genuine all-`F` subcase to verify `scoreTotalInt=0`.
 
 ---
 
@@ -742,11 +743,15 @@ Session state is owned by the TV host app.
 
 ### Session Token / Join Code (Normative)
 
-- Random token to prevent accidental LAN joins; minimum 32 bits entropy (recommended 64+).
-- Same token shown as join code AND used as `token` query parameter on WebSocket URL.
-- The session token is the single source of truth for joining. The displayed join code is the human-enterable representation of that token, the QR payload encodes that same token in the WebSocket URL, and mDNS TXT `code` advertises the same token in normalized form for manual-code matching.
-- MUST be human-enterable: case-insensitive alphabet, MAY display in groups (e.g., `ABCD-EFGH`).
-- Phone normalization: strip spaces/hyphens, case-insensitive comparison.
+The join code is two random English words — Adjective + Noun — drawn from bundled wordlists (~500 words each, shipped as app assets), yielding ~18 bits of entropy: sufficient to prevent accidental LAN collisions.
+
+```kotlin
+val code = "${adjectives.random()}-${nouns.random()}".uppercase()  // e.g. "SWIFT-PANDA"
+```
+
+- The join code is the session token. It is used as the `token` query parameter on the WebSocket URL, encoded in the QR payload, and advertised in mDNS TXT `code`.
+- Display: `SWIFT-PANDA` (uppercase, hyphen separator). QR payload and mDNS TXT `code` use the same form.
+- Phone normalization: strip hyphens, case-insensitive comparison (`SWIFT-PANDA` = `swiftpanda` = `swift-panda`).
 - Generated per session start; invalidated when session ends. Reuse across sessions NOT allowed.
 - TV MUST reject WebSocket connections with missing or incorrect token: `error(code="invalid_token")`.
 
@@ -781,7 +786,7 @@ All messages are JSON objects with common envelope: `type` (string), `protocolVe
 
 Before the TV sends `assignSinger`, it MUST already have at least one valid clock-sync sample for that singer. If `startMode="countdown"`, this requirement applies before countdown begins.
 
-**`stopAtLyricsTimeMs` computation (normative)**: for a normal song, if `#END` present and > 0, use `endMs`; otherwise use the effective playback-plan duration reported by the UI (`audioDurationMs` for single-track playback; for dual-track playback, the coupled plan's natural stop duration after applying the shorter-track rule). `#START` changes initial playback position only, not timing origin. For medley: lyrics-time ms at the end of the final segment's fade-out. MUST be recomputed on Restart or reconnect.
+**`stopAtLyricsTimeMs` computation (normative)**: for a normal song, if `#END` present and > 0, use `endMs` (already in lyrics-time); otherwise `stopAtLyricsTimeMs = effectivePlaybackDurationMs - gapMs`, where `effectivePlaybackDurationMs` is the total audio file duration reported by `PlaybackEvent.Prepared` and `gapMs` is `#GAP` in ms (default 0). This converts audio end position to lyrics-time: at audio EOF, `lyricsTimeMs = playerHandle.timeMs − gapMs`. `#START` shifts the playback seek position but does not affect `effectivePlaybackDurationMs` or this formula. For medley: lyrics-time ms at the end of the final segment's fade-out. MUST be recomputed on Restart or reconnect.
 
 **`playbackState`** (TV → Phone): required fields per Appendix B [§B.2.7](#b27-playbackstate):
 
@@ -841,9 +846,9 @@ TV MUST advertise via mDNS for session duration:
 | Field | Value |
 |-------|-------|
 | Service type | `_karaoke._tcp` |
-| Instance name | `KaraokeTV-<last4>` (last 4 chars of join code, e.g., `KaraokeTV-EFGH`). MUST be unique on the LAN. |
+| Instance name | `KaraokeTV-<noun>` (noun portion of join code, e.g., `KaraokeTV-PANDA`). MUST be unique on the LAN. |
 | Port | WebSocket server port |
-| TXT `code` | Full join code, uppercase, no hyphens (e.g., `code=ABCDEFGH`) |
+| TXT `code` | Full join code, uppercase with hyphen (e.g., `code=SWIFT-PANDA`) |
 | TXT `v` | `1` (protocol version) |
 
 **Library**: Use jmDNS (not NsdManager — unreliable on some OEM firmware).
@@ -2295,7 +2300,7 @@ Tag placement and priority:
 
 **Join button**: opens the Join and QR overlay — see [Join Overlay Behavior](#2613-join-overlay-behavior) for visual and interaction rules.
 
-**QR payload (normative)**: The QR code MUST encode the full WebSocket endpoint URL including the `token` query parameter (e.g., `ws://192.168.1.10:8080/?token=ABCDEFGH`). It MUST NOT encode an NSD/mDNS service-discovery identifier. Phones that scan the QR code connect directly to the encoded URL without any additional discovery step.
+**QR payload (normative)**: The QR code MUST encode the full WebSocket endpoint URL including the `token` query parameter (e.g., `ws://192.168.1.10:8080/?token=SWIFT-PANDA`). It MUST NOT encode an NSD/mDNS service-discovery identifier. Phones that scan the QR code connect directly to the encoded URL without any additional discovery step.
 
 #### Song List Wireframe
 
@@ -2545,7 +2550,7 @@ QR code + short join code for pairing. Connected device list with Kick action (c
 | SETTINGS > CONNECT PHONES                                                      |
 +--------------------------------------------------------------------------------+
 | Join this session:                                                             |
-|   [   QR CODE   ]             Code: ABCD-EFGH                                       |
+|   [   QR CODE   ]             Code: SWIFT-PANDA                                       |
 |                                                                                |
 | Connected devices (up to 10):                                                  |
 |  > Pixel-7        Connected                                                    |
@@ -2840,7 +2845,7 @@ Spectator disconnects (phones not assigned as singers) MUST NOT trigger auto-pau
 
 **Song end (normative)**:
 - `stopAtLyricsTimeMs` is the authoritative stop point, expressed in lyrics-time milliseconds.
-  - Normal song: if `#END > 0`, `stopAtLyricsTimeMs = endMs`; otherwise `stopAtLyricsTimeMs` uses the effective playback-plan duration reported by `PlaybackEvent.Prepared` (`audioDurationMs` for single-track playback; for dual-track playback, the coupled plan's natural stop duration after applying the shorter-track rule). `#START` changes initial playback position only — it does NOT change the timing origin.
+  - Normal song: if `#END > 0`, `stopAtLyricsTimeMs = endMs`; otherwise `stopAtLyricsTimeMs = effectivePlaybackDurationMs − gapMs`, where `effectivePlaybackDurationMs` is the total audio file duration from `PlaybackEvent.Prepared` and `gapMs` is `#GAP` in ms. `#START` shifts the seek position but does not affect this formula.
   - Medley: `stopAtLyricsTimeMs` is lyrics-time ms at the end of the final segment's `medleyEndSec`.
 - UI MUST enforce `stopAtLyricsTimeMs` as the active playback stop boundary on the LibVLC `MediaPlayer` (via `LibVlcPlayerHandle`).
 - When UI reaches `stopAtLyricsTimeMs`, it MUST call `LibVlcPlayerHandle.stop()` and emit `PlaybackEvent.Ended`; the coordinator treats that event as the authoritative trigger for `Stopped` → scoring finalization → `Results`, unless an explicit error or quit path overrides it.
@@ -3215,14 +3220,15 @@ PlaybackEvent.Prepared(durationMs)
     │
     ▼
 NetworkCtrl.sendAssignSinger()
-NetworkCtrl.broadcastPlaybackState()  (emitted on phase transition → Countdown or Live)
+NetworkCtrl.broadcastPlaybackState(state="countdown")   // countdown mode only; fires on Countdown phase entry
     │
-    ▼
+    ▼  (countdown mode: wait for countdown to complete; live mode: skip directly to Play)
 UI.Play(stopAtLyricsTimeMs) ──→ LibVLC starts ──→ PlaybackEvent.Ready(songStartTvMs)
                                         │
                                         ▼
                               ScoringEngine.setSongStart()
                               ScoringEngine.start()
+NetworkCtrl.broadcastPlaybackState(state="playing")     // fires on Live phase entry (both modes)
 ```
 
 ### Pitch Frame Flow

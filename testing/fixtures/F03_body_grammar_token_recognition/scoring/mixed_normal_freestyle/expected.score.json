@@ -1,0 +1,8 @@
+{
+  "description": "Mixed normal+freestyle: normal beats score; freestyle beats contribute 0 (ScoreFactor=0).",
+  "playerScores": {
+    "P1": {
+      "scoreTotalInt": 10000
+    }
+  }
+}
