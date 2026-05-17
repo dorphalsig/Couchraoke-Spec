@@ -1,11 +1,6 @@
 {
   "accepted": true,
-  "finalAssignments": [
-    { "clientId": "c-c", "singerSlot": 0 },
-    { "clientId": "c-b", "singerSlot": 1 }
-  ],
-  "reclaimed": [],
-  "rejected": [
-    { "clientId": "c-a", "reason": "session_full" }
-  ]
+  "connectedDevices": 10,
+  "assignedSlots": ["P1", "P2"],
+  "description": "10 devices connected (P1, P2 assigned, 8 unassigned). 11th device attempts join → session_full"
 }

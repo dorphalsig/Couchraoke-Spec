@@ -1,8 +1,8 @@
 # Couchraoke TV App — Specification
 
-**Version**: 1.7
+**Version**: 1.8
 **Date**: 2026-05-17
-**Changelog since 1.6**: §2.3 Session Token: replaced opaque alphanumeric format with two-word Adjective-Noun join code (bundled wordlists, ~18 bits entropy); updated mDNS instance-name and TXT-code examples throughout. §2.3 / §2.6.16: `stopAtLyricsTimeMs` no-`#END` formula corrected to `effectivePlaybackDurationMs − gapMs` (converts audio EOF to lyrics-time); removed stale dual-track / shorter-track language. §3.1 Song Start Flow: split broadcast into countdown-mode and live-mode steps to clarify that `state="playing"` fires only after `PlaybackEvent.Ready`. §2.2 T6.1.5: fixture renamed `mixed_normal_freestyle`; T6.1.6a added for all-Freestyle chart (`scoreTotalInt=0`); F03 `scoring/all_freestyle` subcase created. §2.2 Knowledge Gaps: resolved F03 freestyle-naming entry removed. ADR-008/009/010 (phone-side audio mixing) added to `adr/`; `manifest.json` updated (specVersion v1.6→v1.7, covers T-refs corrected per current test tables, ADR index added).
+**Changelog since 1.7: §4.6 BeatCalculator: purged `bpmInternal`, renamed `timeSecToMidBeatInternal`→`timeSecToBeat`, `beatInternalToTimeSec`→`beatToTimeSec`, corrected `/60.0`→`/15.0` per Appendix C. Appendix B.2.2: added `connectedDevices[]` to `sessionState` schema (max 10 devices). §2.6.17/§4.2: deleted txtUrl-fail skip clause; prefetch-all-or-fail normative. ScoringEngine: added `healthEvents: SharedFlow<GameplayHealthEvent>`. Dependencies pinned: navigation-compose 2.9.5, hilt-android 2.57.1, hilt-navigation-compose 1.2.0. Fixtures: F06 cursor 22→23, F15 clientIds renamed (c-a→client-aa, c-b→client-bb, c-c→client-cc), F15 case_slot_taken rewritten (11th-device cap=10 scenario), F16 expected.medleySegments.json created, F18 transcript.json→transcript.jsonl.
 **Scope**: Android TV Host App (phone companion OOS)
 **Changelog since 1.5**: Consistency audit fixes. §2.1 / §2.3: GamePhase names aligned with §4.1 sealed class (`Idle`→`Open`, `Loading`→`Preparing`, `Playing`→`Live`). §B.2.9: SongEntry JSON Schema repaired (trailing comma removed; `additionalProperties: false` added). §3.1 Song Start Flow: `sendAssignSinger` correctly precedes `broadcastPlaybackState`. §2.3 T8.5.5: moved to inline; description corrected to match 10-device cap. §1.6: OS range opened to Android TV 11+ (was 11–14). §2.6.5.6: `BorderFocus` changed to `#FFFFFF` @ 60% alpha; §2.6.9 focus-indicator rule updated accordingly. §2.6.12: DPAD navigation table corrected — Random actions row added; playlist Up rule fixed; Play Medley Down fixed. §2.4: stale "internal = ×4" comments on `#BPM` removed (file beats used directly per §4.6). §2.2 / §3.2: `ScoringEngine.suspend()` renamed `pause()`. Appendix C: subsections renamed E.x→C.x. §2.6.16 / §2.6.17: medley `n=1` minimal-strip rule unified. §2.3 T8.3.11: conditional `countdownMs` documented. §2.4: `#DUETSINGERP1` / `#DUETSINGERP2` accepted as aliases of `#P1` / `#P2`. §2.5 / §2.6.10: `previewStartSec` cross-referenced. §2.6.5.4 / §2.6.12: SongList-specific compact tokens relocated to §2.6.12. Footer date stamp removed. F13 rewritten for range-query model: old single-frame-selection + 120ms staleness cases dropped; four sub-cases (case_lateness_drop, case_seq_drop, case_regression_large_drop, case_regression_small_accept) replace them; T5.2.3.4–7 warning removed; §2.2 Knowledge Gaps updated.
 **Changelog since 1.4**: Test and fixture audit. T5.2.3.1–3 fixture column added (inline). F13 rewrite required — note added to T5.2.3.4–7 and ScoringEngine Knowledge Gaps. T5.3.2 `currentBeatD` corrected 22→23. T6.1.2–4 frame-set attribution corrected to inline. T6.1.5 expected value corrected (10000 not 0). T6.4.2 subcase path corrected. T6.5.2/3 moved to inline (F11 does not cover forgiveness/empty-line cases). T6.5.5 moved to F16/T9.5.7.5 (not an F11 case). T6.6.2 moved to inline (F11 perfect case does not trigger ceil branch). T8.3.7 moved to inline (F15 has no >10-phone scenario). T3.1.1–5 fixture column added (F23). T3.3 table restructured with Fixture column; T3.3.1 references F04/valid_duet_interleaved; T3.3.2–5 inline. T9.5.7.1 filename corrected (expected.medleySegments.json). T9.5.7.3–6 moved to inline (F16 has no scoring data). T9.6.1 moved to F11/medley_aggregation. UsdxParser Knowledge Gaps: F03 parsedSong stale schema documented.
@@ -346,7 +346,8 @@ Supporting mechanics live in [§3.2](#32-interaction-contracts), [§4.3](#43-sco
 ```kotlin
 interface ScoringEngine {
     val playerScores: StateFlow<Map<PlayerId, PlayerScore>>
-    val livePitch: SharedFlow<PitchEvent>  // For UI pitch cursor
+    val livePitch: SharedFlow<PitchEvent>
+    val healthEvents: SharedFlow<GameplayHealthEvent>
     
     fun loadChart(chart: ParsedSong, micDelayMs: Int, medleyWindow: BeatRange?, config: ScoringConfig)
     fun setSongStart(songStartTvMs: Long)
@@ -381,6 +382,10 @@ data class PitchEvent(
     val tvTimeMs: Long,
     val arrivalTvMs: Long
 )
+
+sealed class GameplayHealthEvent {
+    object LowPitchFrameRate : GameplayHealthEvent()
+}
 ```
 
 ### NFRs Applied
@@ -538,7 +543,7 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 |----|------|---------|---------|
 | T5.3.1 | Highlight cursor: `lyricsTimeSec=5.0`, `GAP=2000`, `BPM_file=120` | F06/`expected.beat_cursors.json` | `currentBeat=24` |
 | T5.3.2 | Scoring cursor: same + `micDelayMs=100` | F06 | `currentBeatD=23` |
-| T5.3.3 | Round-trip: `BeatInternalToTimeSec(TimeSecToMidBeatInternal(t)) ≈ t` | inline | Match to 1e-9s |
+| T5.3.3 | Round-trip: `beatToTimeSec(timeSecToBeat(t)) ≈ t` | inline | Match to 1e-9s |
 | T5.3.4 | Note window: `startBeat=11`, `duration=2` | inline | Active at b=11,12; NOT at b=13 |
 | T5.3.5 | Medley: notes outside `[medleyStartBeat, medleyEndBeat)` treated as Freestyle | inline | ScoreFactor=0 at scoring time |
 
@@ -780,7 +785,7 @@ All messages are JSON objects with common envelope: `type` (string), `protocolVe
 **`hello`** (Phone → TV): `clientId`, `deviceName`, `appVersion`, `httpPort`.
 - `deviceName` is a persisted human-friendly phone label used for TV display. It MUST NOT default to a raw hardware model string if a friendlier label is available.
 
-**`sessionState`** (TV → Phone): `sessionId`, `slots { P1: { connected, deviceName }, P2: { connected, deviceName } }`, `inSong`, `songTimeSec`, `connectionId` (present only in initial response to hello; null in broadcasts).
+**`sessionState`** (TV → Phone): `sessionId`, `slots { P1: { connected, deviceName }, P2: { connected, deviceName } }` (singer assignment slots), `connectedDevices` (array of all connected phones up to 10), `inSong`, `songTimeSec`, `connectionId` (present only in initial response to hello; null in broadcasts).
 
 **`assignSinger`** (TV → Phone): `sessionId`, `songInstanceSeq` (uint32), `playerId` (`"P1"` / `"P2"`), `difficulty` (`"Easy"` / `"Medium"` / `"Hard"`), `startMode` (`"countdown"` or `"live"`), `countdownMs` (int; if countdown), `stopAtLyricsTimeMs` (int), `udpPort` (int), `songTitle`, `songArtist`.
 
@@ -1602,9 +1607,9 @@ sealed class Screen(val route: String) {
 
 | Artifact | Version |
 |---|---|
-| `androidx.navigation:navigation-compose` | `2.8.x` |
-| `com.google.dagger:hilt-android` | `2.51.x` |
-| `androidx.hilt:hilt-navigation-compose` | `1.2.x` |
+| `androidx.navigation:navigation-compose` | `2.9.5` |
+| `com.google.dagger:hilt-android` | `2.57.1` |
+| `androidx.hilt:hilt-navigation-compose` | `1.2.0` |
 
 ### 2.6.1 Public API (Exposed to System)
 
@@ -3551,7 +3556,6 @@ private suspend fun transitionMedleySegment(
 - Prebuffer trigger: 5 seconds before segment end
 
 **Error Handling (Normative)**:
-- If `txtUrl` fetch fails: skip that segment and continue to next remaining segment.
 - If audio is unreachable: medley MUST abort and follow playback-error exit path (show error modal, return to song list).
 
 **Audio Prebuffering (Normative)**:
@@ -3764,15 +3768,15 @@ object BeatCalculator {
      * Convert time (seconds relative to chart origin) to internal beat position.
      * Chart origin = lyricsTimeSec - GAPms/1000.0 (may be negative).
      */
-    fun timeSecToMidBeatInternal(tSec: Double, bpmInternal: Float): Double {
-        return tSec * (bpmInternal / 60.0)
+    fun timeSecToBeat(tSec: Double, bpmFile: Float): Double {
+        return tSec * (bpmFile / 15.0)
     }
     
     /**
      * Convert internal beat to time (seconds relative to chart origin).
      */
-    fun beatInternalToTimeSec(beatInt: Double, bpmInternal: Float): Double {
-        return beatInt * (60.0 / bpmInternal)
+    fun beatToTimeSec(beat: Double, bpmFile: Float): Double {
+        return beat * (15.0 / bpmFile)
     }
 }
 ```
@@ -3793,8 +3797,8 @@ Two beat computations from the same `BPM_file` and `GAPms`:
 
 | Consumer | Formula | micDelayMs |
 |----------|---------|------------|
-| **Lyrics beat** (highlight, elapsed display) | `floor(timeSecToMidBeatInternal(lyricsTimeSec - GAPms/1000.0))` | 0 |
-| **Lane beat** (pitch targets, scoring windows) | `songStartTvMs + beatInternalToTimeSec(startBeat)*1000 + GAPms + micDelayMs` | Configured |
+| **Lyrics beat** (highlight, elapsed display) | `floor(timeSecToBeat(lyricsTimeSec - GAPms/1000.0))` | 0 |
+| **Lane beat** (pitch targets, scoring windows) | `songStartTvMs + beatToTimeSec(startBeat)*1000 + GAPms + micDelayMs` | Configured |
 
 - Lyrics beat tracks what audience hears from speakers.
 - Lane beat tracks where singer's voice should appear given mic/network delay.
@@ -4290,7 +4294,7 @@ All messages MUST include:
   "title": "sessionState",
   "type": "object",
   "additionalProperties": false,
-  "required": ["type", "protocolVersion", "sessionId", "slots", "inSong"],
+  "required": ["type", "protocolVersion", "sessionId", "slots", "connectedDevices", "inSong"],
   "properties": {
     "type": {"const": "sessionState"},
     "protocolVersion": {"type": "integer", "const": 1},
@@ -4318,6 +4322,21 @@ All messages MUST include:
             "connected": {"type": "boolean"},
             "deviceName": {"type": "string"}
           }
+        }
+      }
+    },
+    "connectedDevices": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["clientId", "displayName", "state"],
+        "properties": {
+          "clientId": {"type": "string", "minLength": 8},
+          "displayName": {"type": "string"},
+          "state": {"type": "string", "enum": ["assigned", "connected_unassigned"]},
+          "slot": {"type": ["string", "null"], "enum": ["P1", "P2", null]}
         }
       }
     },

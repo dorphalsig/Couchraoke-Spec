@@ -1,0 +1,9 @@
+{
+  "description": "Medley window computation per segment (§2.6.17 / §4.2)",
+  "tolerance_ms": 10,
+  "segments": [
+    {"songId": "A", "medleyStartSec": 4.0, "medleyEndSec": 26.0},
+    {"songId": "B", "medleyStartSec": 7.0, "medleyEndSec": 26.0},
+    {"songId": "C", "medleyStartSec": 4.0, "medleyEndSec": 23.4286}
+  ]
+}
