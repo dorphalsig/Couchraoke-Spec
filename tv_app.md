@@ -749,6 +749,8 @@ Session state is owned by the TV host app.
 
 ### Session Token / Join Code (Normative)
 
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
+
 The join code is two random English words — Adjective + Noun — drawn from bundled wordlists (~500 words each, shipped as app assets), yielding ~18 bits of entropy: sufficient to prevent accidental LAN collisions.
 
 ```kotlin
@@ -762,6 +764,8 @@ val code = "${adjectives.random()}-${nouns.random()}".uppercase()  // e.g. "SWIF
 - TV MUST reject WebSocket connections with missing or incorrect token: `error(code="invalid_token")`.
 
 ### Pitch Frame Wire Format (Normative)
+
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
 `pitchFrame` is an **20-byte fixed-size binary UDP datagram**:
 
@@ -780,6 +784,8 @@ Struct format: `<IqIBBH` (little-endian). Frames MUST NOT be batched. Each datag
 **`toneValid` is implicit**: `toneValid = (midiNote != 255)`. A `midiNote` of `0` is a valid MIDI note (not silence). Only `255` signals unvoiced/silence.
 
 ### Control Message Schemas (Normative)
+
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
 All messages are JSON objects with common envelope: `type` (string), `protocolVersion` (int, MUST be `1`), `tsTvMs` (optional).
 
@@ -847,6 +853,8 @@ TV MUST reject clients whose `hello.protocolVersion != 1` with `error(code="prot
 
 ### mDNS Service Advertisement (Normative)
 
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
+
 TV MUST advertise via mDNS for session duration:
 
 | Field | Value |
@@ -871,6 +879,8 @@ Without lock, multicast packets silently dropped on many Android TV devices.
 **Android 17+**: Request local-network permission before starting mDNS, WebSocket server, UDP listener, or HTTP fetches to peers.
 
 ### connectionId Assignment (Normative)
+
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
 - Assign unique `connectionId` (uint16) on successful `hello` handshake. Simple incrementing counter from 1.
 - Deliver in `sessionState` response to `hello`.
@@ -919,6 +929,8 @@ TV fetches HTTP assets from LAN phones. Include in `res/xml/network_security_con
 Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED` on API 28+.
 
 ### Asset Streaming
+
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
 **Song source policy (normative)**: after a successful `hello` handshake, the TV MUST fetch `/manifest.json` from the phone's HTTP server to populate the library with that phone's songs. No separate pairing, trust list, or approval step is required — the current join code already gates who can join.
 
@@ -1471,6 +1483,8 @@ Fetch replaces all songs for that `clientId` (not append). On failure: retain pr
 **Phone disconnect**: Immediately remove all songs for that `clientId` from library.
 
 ### SongEntry Manifest Schema (Normative)
+
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
 The `/manifest.json` response is a JSON array of `SongEntry` objects. Each entry MUST include:
 
@@ -3700,6 +3714,8 @@ class JitterBuffer(
 
 ## 4.5 Clock Sync Logic
 
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
+
 NTP-lite protocol, best-of-N selection.
 
 **Sync Schedule (Normative)**:
@@ -4263,6 +4279,8 @@ The testing goal is to verify TV-host behavior at the external peer boundary, no
 
 # Appendix B: Protocol JSON Schemas
 
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
+
 This appendix is **normative**. Schemas use JSON Schema Draft 2020-12. `additionalProperties: false` keeps fixtures deterministic.
 
 ## B.1 Common Envelope
@@ -4521,6 +4539,9 @@ Struct: <IqIBBH (little-endian)
 ```
 
 ### B.2.9 `SongEntry` (HTTP `/manifest.json` response element)
+
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
