@@ -105,7 +105,7 @@ This is not a theoretical edge case. The internal scoring code (`PitchFrame.tvTi
 ### Options considered (on the day)
 
 - **Widen to `int64`.** Frame grows 16 → 20 bytes. Struct `<IqIBBH`. +4 B × 50 fps × 2 singers = ~800 B/s per session. **Adopted.**
-- **Redefine `tvTimeMs` as song-relative.** Requires a zero-point field in `assignSinger` and breaks the symmetry where phone and TV read the same monotonic value. Complicates worked examples in Appendix E. **Rejected.**
+- **Redefine `tvTimeMs` as song-relative.** Requires a zero-point field in `assignSinger` and breaks the symmetry where phone and TV read the same monotonic value. Complicates worked examples in Appendix C. **Rejected.**
 - **Reinterpret `int32` as `uint32` with epoch heuristic.** Extends range to 49.7 days and requires sliding-epoch logic that will break silently at an unpredictable boundary. **Rejected as brittle.**
 
 The widening was mechanical: fixture F12v2 golden bytes, Appendix A.3 UDP test data policy references to "16-byte", and mock phone packing (`<IiIBBH` → `<IqIBBH`) all changed in one pass.
@@ -147,6 +147,6 @@ Authenticity: best-effort routing, not a security control. `toneValid = (midiNot
 2. [x] 2026-03-01: `pitchHmacKey` removed from `sessionState` schema.
 3. [x] 2026-04-24: `tvTimeMs` widened to `int64`, frame 16 B → 20 B, struct `<IqIBBH`.
 4. [x] 2026-04-24: `mock_phone.py` and `mock_phone_reconnect.py` updated to new packing.
-5. [ ] Verify Appendix A.3 UDP test data policy references "20-byte" consistently — any lingering "16-byte" is a stale artefact from Act 2.
+5. [x] Verify Appendix A.3 UDP test data policy references "20-byte" consistently — any lingering "16-byte" is a stale artefact from Act 2.
 6. [ ] Update stored memory note that records a 30-byte / `<IiIBBH>` layout (never matched any shipped version).
 7. [ ] Revisit this ADR if a public-venue deployment model is ever proposed — the "trusted LAN" threat model is the only thing holding the no-crypto decision in place.

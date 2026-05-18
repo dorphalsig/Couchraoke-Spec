@@ -1,5 +1,5 @@
 {
-  "description": "Beat stepping uses (oldBeatD,currentBeatD] and note window start<=b<end (Appendix E.1/E.3).",
+  "description": "Deadline-driven note finalization uses jitter-buffer range query over noteStartTvMs <= tvTimeMs < noteEndTvMs (Appendix C.3).",
   "assumptions": {
     "playerId": "P1",
     "difficulty": "Medium",
@@ -11,26 +11,6 @@
     "TrackScoreValue": 2,
     "CurBeatPoints_Normal": 4500
   },
-  "perBeat": [
-    {
-      "beat": 0,
-      "activeNoteType": "Normal",
-      "toneValid": true,
-      "expected": { "scoreDelta": 4500, "scoreGoldenDelta": 0 }
-    },
-    {
-      "beat": 1,
-      "activeNoteType": "Normal",
-      "toneValid": true,
-      "expected": { "scoreDelta": 4500, "scoreGoldenDelta": 0 }
-    },
-    {
-      "beat": 2,
-      "activeNoteType": null,
-      "toneValid": true,
-      "expected": { "scoreDelta": 0, "scoreGoldenDelta": 0 }
-    }
-  ],
   "lineBonus": {
     "NonEmptyLines": 1,
     "LineBonusPerLine": 1000,
@@ -44,5 +24,16 @@
     "scoreGoldenInt": 0,
     "scoreLineInt": 1000,
     "scoreTotalInt": 10000
+  },
+  "noteWindow": {
+    "startBeat": 0,
+    "endBeatExclusive": 2,
+    "qualifyingFrameSeq": [
+      1,
+      2
+    ],
+    "hits": 2,
+    "samplesInNote": 2,
+    "expectedNoteScore": 9000
   }
 }

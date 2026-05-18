@@ -20,8 +20,8 @@ The main issues were:
 - "Forget" implied remembered-device semantics that were not actually defined anywhere in the spec
 - Scoring rules depended on per-player difficulty and the line-bonus gameplay toggle, but the public `ScoringEngine` contract did not receive those gameplay inputs explicitly
 - TV Song Library wording referenced invalid-song counts per phone even though the phone-side interfaces only publish valid songs to the TV
-- `songStartTvMs` ownership was described inconsistently: one section put Media3 listener ownership in the coordinator while the intent/event boundary and blocker notes put capture in the UI layer
-- Playback stop-boundary enforcement was only implied: the spec named `stopAtLyricsTimeMs` as authoritative, but did not explicitly state that the UI enforces it on Media3 and emits the end event consumed by the coordinator
+- `songStartTvMs` ownership was described inconsistently: one section put playback-backend listener ownership in the coordinator while the intent/event boundary and blocker notes put capture in the UI layer
+- Playback stop-boundary enforcement was only implied: the spec named `stopAtLyricsTimeMs` as authoritative, but did not explicitly state that the UI/playback layer enforces it on playback and emits the end event consumed by the coordinator
 - the TV↔phone message contracts carried redundant fields and unclear source-of-truth rules, especially around active-song metadata
 - `playbackState` schema requirements contradicted field semantics for conditional `countdownRemainingMs`, optional `tsTvMs`, and enum-bounded `reason`
 - `assignSinger` still exposed `effectiveMicDelayMs` even though the phone was forbidden to act on it
@@ -51,11 +51,11 @@ We updated the spec to make the smallest complete set of clarifications needed t
 
 ### 4. Library refresh never happens during gameplay
 - Reconnect-time manifest refresh is allowed immediately only in Open/Results.
-- During Countdown/Playing/Paused/DisconnectPaused/Stopped, the phone catalog is marked stale and refresh is deferred until Results/Open.
+- During Countdown/Live/Paused/DisconnectPaused/Stopped, the phone catalog is marked stale and refresh is deferred until Results/Open.
 
-### 5. Dual-track playback and medley timing authority are explicit
-- Single-track playback uses `audioUrl` as timing authority.
-- Dual-track playback uses `instrumentalUrl` as timing authority; `vocalsUrl` follows it and never becomes an independent timing source.
+### 5. Effective audio playback and medley timing authority are explicit
+- Every TV-facing song uses one effective `audioUrl` as timing authority.
+- If `#INSTRUMENTAL`/`#VOCALS` mixing is active, the phone produces the single effective resource; the TV never receives or coordinates `instrumentalUrl`/`vocalsUrl`.
 - During medley, exactly one segment is authoritative at a time; the active segment's `songStartTvMs` remains in force until the next segment emits `PlaybackEvent.Ready`.
 
 ### 6. Singing UI receives a chart-derived render contract
@@ -102,17 +102,17 @@ We updated the spec to make the smallest complete set of clarifications needed t
 - We explicitly chose not to introduce a new endpoint or summary field just to expose invalid-song counts on TV.
 
 ### 14. UI captures `songStartTvMs`, coordinator consumes it
-- The UI layer owns Media3, so it also owns Media3 timing listeners and fallback timing capture.
+- The UI/playback layer owns the playback backend, so it also owns backend timing events and fallback timing capture.
 - The UI emits `PlaybackEvent.Ready(songStartTvMs)` once timing is known.
 - The coordinator remains responsible for orchestration: waiting for `PlaybackEvent.Ready`, gating scoring, and forwarding `songStartTvMs` into `ScoringEngine`.
-- We explicitly rejected direct coordinator ownership of Media3 listeners because it conflicts with the narrow-interface intent/event boundary.
+- We explicitly rejected direct coordinator ownership of playback-backend listeners because it conflicts with the narrow-interface intent/event boundary.
 
 ### 15. UI enforces the playback stop boundary, coordinator consumes the end event
 - `stopAtLyricsTimeMs` remains the authoritative stop point.
-- Because the UI owns Media3, the UI is responsible for enforcing the active stop boundary on playback.
+- Because the UI/playback layer owns the playback backend, it is responsible for enforcing the active stop boundary on playback.
 - Before countdown or live playback begins, the UI emits `PlaybackEvent.Prepared(effectivePlaybackDurationMs)` so the coordinator can compute `stopAtLyricsTimeMs` from the actual playback plan.
 - When playback begins, the UI emits `PlaybackEvent.Ready(songStartTvMs)`.
-- When the UI reaches `stopAtLyricsTimeMs`, it stops Media3 and emits `PlaybackEvent.Ended`.
+- When the UI reaches `stopAtLyricsTimeMs`, it stops playback and emits `PlaybackEvent.Ended`.
 - The coordinator consumes that event and treats it as the authoritative trigger for `Stopped` → finalization → `Results`, unless an explicit error or quit path overrides it.
 
 ### 16. TV↔phone message contracts are minimal and authoritative
@@ -197,7 +197,7 @@ It also ruled out Option C because the project already has enough moving parts; 
 
 The adopted changes preserve existing architectural directions where possible:
 - playback/media remains separate from singing render state
-- the UI layer owns Media3-specific listeners and timing capture, while the coordinator owns orchestration through intent/event boundaries
+- the UI/playback layer owns playback-backend listeners and timing capture, while the coordinator owns orchestration through intent/event boundaries
 - scoring remains the owner of scoring semantics, but now receives explicit gameplay configuration instead of relying on implicit settings reach-through
 - rendering gets a chart-derived contract instead of raw parser ownership
 - the remaining Connect Phones administration stays with the network/session owner instead of adding another controller

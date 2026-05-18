@@ -27,5 +27,5 @@ Tolerance: ±10 ms.
 ## Guard conditions (inline, not file-driven)
 
 - `medleyStartBeat >= medleyEndBeat` → assertion error
-- `audioUrl` null → skip segment
+- `audioUrl` null → reject before playlist/start; no `MedleySegment` is produced
 - Scan-time: `#MEDLEYSTARTBEAT >= #MEDLEYENDBEAT` → `canMedley=false`

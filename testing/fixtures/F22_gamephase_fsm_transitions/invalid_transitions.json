@@ -7,12 +7,17 @@
   {
     "from": "Open",
     "to": "Live",
-    "trigger": "invalid_play_without_loading"
+    "trigger": "invalid_play_without_preparing"
   },
   {
     "from": "Preparing",
     "to": "Results",
     "trigger": "invalid_skip_to_results"
+  },
+  {
+    "from": "Preparing",
+    "to": "Open",
+    "trigger": "invalid_bypass_error_on_prepare_failure"
   },
   {
     "from": "Countdown",
@@ -22,7 +27,7 @@
   {
     "from": "Live",
     "to": "Preparing",
-    "trigger": "invalid_back_to_loading"
+    "trigger": "invalid_back_to_preparing"
   },
   {
     "from": "Stopped",

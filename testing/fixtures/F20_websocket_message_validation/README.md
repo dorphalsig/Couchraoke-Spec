@@ -18,4 +18,4 @@ Purpose: verify WebSocket handshake validation and error responses for malformed
 - Missing `httpPort` → reject with `invalid_message`
 - Valid `hello` → accept and return `sessionState` with `connectionId`
 
-Spec covers: §8.3.2.1, §8.3.3, Appendix B
+Spec covers: tv_app.md §2.3, tv_app.md Appendix B.2.1–B.2.2

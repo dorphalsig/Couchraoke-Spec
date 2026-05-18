@@ -8,7 +8,7 @@ Purpose: verify TV-side NTP-lite processing of `ping`/`pong` samples, including 
 
 ```text
 rttMs         = (t4 - t1) - (t3 - t2)
-clockOffsetMs = ((t2 - t1) + (t3 - t4)) / 2
+clockOffsetMs = ((t1 - t2) + (t4 - t3)) / 2
 ```
 
 ## Files
@@ -24,4 +24,4 @@ clockOffsetMs = ((t2 - t1) + (t3 - t4)) / 2
 - Choose the sample with the smallest valid RTT
 - Fail if no valid samples remain
 
-Spec covers: §8.8, Appendix B.2.3–B.2.4
+Spec covers: tv_app.md §4.5, tv_app.md Appendix B.2.3–B.2.4

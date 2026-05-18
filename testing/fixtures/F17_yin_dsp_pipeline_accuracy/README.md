@@ -1,7 +1,7 @@
 # F17_yin_dsp_pipeline_accuracy
 
 ## Spec Sections Covered
-["5.2.5.2"]
+["phone_app.md §2.3"]
 
 ## Purpose
 Verification of YIN algorithm implementation accuracy against reference waveforms.

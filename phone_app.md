@@ -1,7 +1,7 @@
 # Couchraoke Phone Companion App
 
-**Version**: 1.2
-**Date**: 2026-04-26  
+**Version**: 1.3
+**Date**: 2026-05-18
 **Scope**: Android Phone Companion (iOS follows same architecture)  
 ---
 
@@ -15,6 +15,7 @@
   - [2.4 NetworkClient](#24-networkclient)
   - [2.5 ClockSync](#25-clocksync)
   - [2.6 SessionCoordinator](#26-sessioncoordinator)
+  - [2.7 UI Layer](#27-ui-layer)
 - [3. Component APIs](#3-component-apis)
 - [4. SLAs](#4-slas)
 - [5. Resolved Blockers](#5-resolved-blockers)
@@ -55,8 +56,8 @@ Ordered by priority.
 
 | Requirement | Implementation |
 |-------------|----------------|
-| First byte ≤100ms P95 | Ktor CIO async I/O |
-| Sustained ≥2 Mbps | Direct SAF stream, no buffering |
+| Static/cached first byte ≤100ms P95 | Ktor CIO async I/O; generated mixes use cache |
+| Sustained ≥2 Mbps | Static assets stream from SAF; generated WAVs serve from bounded cache |
 | Range requests | Ktor partial-content plugin |
 
 ## 1.4 Scan Performance (Medium)
@@ -75,7 +76,7 @@ Ordered by priority.
 
 | Requirement | Implementation |
 |-------------|----------------|
-| Total app ≤300MB | Lean allocations, no caching |
+| Total app ≤300MB | Lean allocations; generated WAV cache capped at 3 entries |
 | Pitch buffers fixed 50KB | Pre-allocated at init |
 | Manifest ≤2MB for 500 songs | ~4KB per SongEntry |
 
@@ -156,22 +157,22 @@ Six components in a layered monolith (single `:app` module with package boundari
 
 The songs folder is selected via `ActivityResultContracts.OpenDocumentTree()`. The chosen tree URI MUST be persisted using `takePersistableUriPermission()` + SharedPreferences. On subsequent launches, check permission; prompt if revoked.
 
-Recursive enumeration uses `DocumentFile.fromTreeUri()` with `listFiles()`. For each `.txt` file found: read its content via `contentResolver.openInputStream(uri)`, parse the header tags, resolve asset filenames relative to the `.txt` directory using the segment-by-segment rules below, check file availability via `DocumentFile.exists()`, and record normalized relative asset paths plus scan metadata. Full `txtUrl`/`audioUrl`/`coverUrl`/etc. MUST NOT be constructed during scan; they are materialized later when `/manifest.json` is serialized (§2.2).
+Recursive enumeration uses `DocumentFile.fromTreeUri()` with `listFiles()`. For each `.txt` file found: read its content via `contentResolver.openInputStream(uri)`, parse the header tags, resolve asset filenames relative to the `.txt` directory using the segment-by-segment rules below, check file availability via `DocumentFile.exists()` and an immediate open/read probe for required playback resources, and record normalized relative asset paths plus scan metadata. Cloud-backed SAF providers that expose a placeholder but cannot open the required playback resource locally MUST be treated as absent. Full `txtUrl`/`audioUrl`/`coverUrl`/etc. MUST NOT be constructed during scan; they are materialized later when `/manifest.json` is serialized (§2.2).
 
 #### iOS (Security-Scoped Bookmarks — Swift)
 
-The songs folder is selected via `UIDocumentPickerViewController(forOpeningContentTypes: [.folder])`. The chosen URL MUST be persisted as a security-scoped bookmark (`url.bookmarkData(options: .minimalBookmark)`). On subsequent launches, resolve the bookmark with `URL(resolvingBookmarkData:)` and call `url.startAccessingSecurityScopedResource()` before any file operation. Recursive enumeration uses `FileManager.default.enumerator(at: folderUrl, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])`. File reads for `.txt` content use `Data(contentsOf: fileUrl)`. Asset file availability checks use `FileManager.default.fileExists(atPath:)`. Call `url.stopAccessingSecurityScopedResource()` when scanning is complete.
+The songs folder is selected via `UIDocumentPickerViewController(forOpeningContentTypes: [.folder])`. The chosen URL MUST be persisted as a security-scoped bookmark (`url.bookmarkData(options: .minimalBookmark)`). On subsequent launches, resolve the bookmark with `URL(resolvingBookmarkData:)` and call `url.startAccessingSecurityScopedResource()` before any file operation. Recursive enumeration uses `FileManager.default.enumerator(at: folderUrl, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])`. File reads for `.txt` content use `Data(contentsOf: fileUrl)`. Asset file availability checks use `FileManager.default.fileExists(atPath:)` plus the iCloud-locality check below for required playback resources. Call `url.stopAccessingSecurityScopedResource()` when scanning is complete.
 
 ### Validation Rules (Normative)
 
 A song is accepted if and only if:
 
-1. **Required headers present**:
+1. **Required metadata and playback source present**:
    - `#TITLE` and `#ARTIST` non-empty
    - `#BPM` parseable as non-zero float
-   - Audio tag: `#AUDIO` or `#MP3` (v1.0.0+: `#AUDIO` precedence; legacy: `#MP3` required)
+   - Effective audio source: resolved base `#AUDIO`/`#MP3`, or an accepted `#INSTRUMENTAL`+`#VOCALS` mix pair
 
-2. **Required audio file exists**: resolved relative to `.txt` directory
+2. **Required playback resource exists locally**: base audio exists and can be opened locally, or both mix-source files exist locally, can be opened locally, and pass mix eligibility. If the required resource is cloud-placeholder/evicted/unopenable, the song is invalid and MUST NOT appear in `/manifest.json`.
 
 3. **Notes parse without fatal errors**: unknown tokens warn, fatal numeric errors reject
 
@@ -190,7 +191,7 @@ Header processing is best-effort and MUST continue past unknown or non-fatal iss
   - **Empty value**: `#NAME:` (value is empty string after trimming).
 
 For each header line:
-- **Well-formed known tag**: parse according to its definition. If the value is malformed: if the tag is **required** (TITLE/ARTIST/AUDIO-or-MP3/BPM) → mark the song **invalid**; if the tag is **optional** (VIDEO, COVER, etc.) → **warn** and treat as absent.
+- **Well-formed known tag**: parse according to its definition. If the value is malformed: if the tag is **required** (TITLE/ARTIST/BPM) → mark the song **invalid**; if the tag is **optional** (VIDEO, COVER, etc.) → **warn** and treat as absent. Audio-source validity is decided by the Audio Resolution Rules below.
 - **Well-formed unknown tag**: **warn** and preserve in `CustomTags` as `(NAME, VALUE)`.
 - **Empty value** (`#NAME:`): **info/warn** and preserve in `CustomTags` as `(NAME, "")`.
 - **No separator** (no `:`): **warn** and preserve in `CustomTags` as `("", CONTENT)` where `CONTENT` is the original line without the leading `#`.
@@ -199,14 +200,14 @@ For each header line:
 
 ### BPM Parsing (Normative)
 
-`#BPM` values using a comma as decimal separator (e.g., `120,5`) MUST have the comma replaced with a period before parsing. Parsing MUST be locale-independent (always use `.` as decimal separator regardless of device locale). Internal BPM: `BPM_internal = BPM_file × 4`.
+`#BPM` values using a comma as decimal separator (e.g., `120,5`) MUST have the comma replaced with a period before parsing. Parsing MUST be locale-independent (always use `.` as decimal separator regardless of device locale). The parsed file BPM is the sole timing BPM; beat values are used as-is with no `×4` scaling.
 
 ### Version Handling (Normative)
 
 - If `#VERSION` is absent, treat the song as legacy format `0.3.0`.
 - If `#VERSION` is present, it MUST parse as a dotted numeric version (e.g., `1.0.0`). If it fails to parse: **invalid** (`ERROR_CORRUPT_SONG_INVALID_VERSION`).
 - Supported versions are `< 2.0.0`. If `#VERSION >= 2.0.0`: **invalid**.
-- All files are treated as UTF-8. The tags `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#DUETSINGERP1`, `#DUETSINGERP2`, and `#CALCMEDLEY` are treated as **unknown tags** regardless of version — preserved in `CustomTags`, no version-conditional processing.
+- All files are treated as UTF-8. The tags `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, and `#CALCMEDLEY` are treated as **unknown tags** regardless of version — preserved in `CustomTags`, no version-conditional processing. `#DUETSINGERP1` / `#DUETSINGERP2` are supported legacy aliases for `#P1` / `#P2`.
 
 ### Supported Header Tags (Normative)
 
@@ -214,9 +215,9 @@ For each header line:
 |-----|----------|------|-----------|
 | `#TITLE` | yes | string | Song title |
 | `#ARTIST` | yes | string | Song artist |
-| `#BPM` | yes | float | Beats per minute (file BPM; internal = ×4) |
+| `#BPM` | yes | float | Raw UltraStar file BPM; time-per-beat = `15000/bpmFile` ms |
 | `#GAP` | no | float | Delay from audio start to first beat (ms) |
-| `#MP3` / `#AUDIO` | yes (one) | string | Relative path to audio file |
+| `#MP3` / `#AUDIO` | yes, unless accepted mix pair | string | Relative path to base audio file |
 | `#VIDEO` | no | string | Relative path to video file |
 | `#VIDEOGAP` | no | float | Video offset in seconds |
 | `#COVER` | no | string | Relative path to cover image |
@@ -231,6 +232,8 @@ For each header line:
 | `#MEDLEYENDBEAT` | no | int | Medley window end (file beats) |
 | `#P1` | no | string | Duet singer name for Player 1 (stored only) |
 | `#P2` | no | string | Duet singer name for Player 2 (stored only) |
+| `#DUETSINGERP1` | no | string | Legacy alias for `#P1`; last value wins if both present |
+| `#DUETSINGERP2` | no | string | Legacy alias for `#P2`; last value wins if both present |
 | `#YEAR` | no | int | Metadata year |
 | `#GENRE` | no | string | Metadata genre |
 
@@ -262,11 +265,11 @@ For all other `#VIDEO` values, treat as a relative local filename. If the file d
 
 ### Audio Resolution Rules (Normative)
 
-- For `#VERSION >= 1.0.0`: at least one of `#AUDIO` or `#MP3` MUST be present and non-empty. If both are present, `#AUDIO` takes precedence.
-- For legacy format (`#VERSION` absent or `< 1.0.0`): `#MP3` MUST be present and non-empty. `#AUDIO` (if present) MUST be ignored for audio resolution (USDX behavior).
-- `#AUDIO` / `#MP3` identifies the song's base audio asset. It is the fallback playback source when no phone-side mixing path is active.
+- For `#VERSION >= 1.0.0`: base audio is resolved from `#AUDIO` or `#MP3`; if both are present, `#AUDIO` takes precedence.
+- For legacy format (`#VERSION` absent or `< 1.0.0`): base audio is resolved from `#MP3`; `#AUDIO` (if present) MUST be ignored for audio resolution (USDX behavior).
+- `#AUDIO` / `#MP3` identifies the song's base audio asset. It is the fallback playback source when no phone-side mixing path is active. If no accepted mix pair exists, a valid base audio asset is required.
 - `#INSTRUMENTAL` and `#VOCALS` are source assets for phone-side mixing only. They MUST NOT be exposed to the TV as independent playback URLs.
-- If `#INSTRUMENTAL` resolves to a local file, the phone MUST expose exactly one effective `audioUrl` for the song. That effective `audioUrl` MUST represent the phone's chosen playback source for the song: either the unchanged base audio asset or a phone-generated mixed audio resource under `/songs/generated/`.
+- If an accepted `#INSTRUMENTAL`+`#VOCALS` pair exists, the phone MUST expose exactly one generated effective `audioUrl` under `/songs/generated/`. If the pair is incomplete or ineligible, the phone MUST fall back to the base audio asset; if no valid base asset exists, the song is invalid.
 - `#VOCALS` without a valid `#INSTRUMENTAL` source MUST be ignored for playback resolution and MUST emit a warn diagnostic.
 
 ### Phone-Side Mixing Policy (Normative)
@@ -275,12 +278,12 @@ For all other `#VIDEO` values, treat as a relative local filename. If the file d
 - MVP scope: the `#INSTRUMENTAL` and `#VOCALS` source pair MUST have the same decoded sample rate and the same channel count. Differing compressed bitrates are allowed and do not affect validity.
 - If the source pair differs in decoded sample rate or channel count, the phone MUST NOT attempt resampling or channel remixing in MVP. The song MUST fall back to the base `#AUDIO` / `#MP3` asset for `audioUrl`, and a warn diagnostic MUST be emitted.
 - If the source pair is accepted for mixing, the phone MUST expose exactly one generated playback URL for the song under `/songs/generated/`. The generated relative path MUST equal `generated/<relativeTxtPath-with-.txt-suffix-replaced-by-.wav>`.
-- The mixed playback resource MUST be pre-rendered before playback begins and MUST be served as RIFF/WAV containing PCM16LE samples.
+- The mixed playback resource MUST be generated lazily on first HTTP GET unless already cached, and MUST be served as RIFF/WAV containing PCM16LE samples once generated.
 - The mixed playback resource MUST preserve the accepted source pair's decoded sample rate and channel count. Original compressed bitrate MUST NOT be preserved or reported as a playback invariant.
 - The mixed playback resource MUST be deterministic for a given song scan result and fixed MVP mix parameters.
 - MVP mix parameters are fixed by the phone implementation. The TV-side vocals-volume control does not alter the mix in MVP.
 - The effective playback duration of the mixed resource MUST equal the shorter decoded duration of the accepted source pair.
-- If a song is accepted for mixing, `hasInstrumental` remains `true` whether the phone stores the pre-rendered WAV in memory, a temporary file, or another internal server-backed representation.
+- `hasInstrumental` is true when a valid `#INSTRUMENTAL` source resolves locally, regardless of whether the phone later serves base audio or a generated mix.
 
 ### Supported Note Tokens (Normative)
 
@@ -350,17 +353,11 @@ If the phone binds a different port on restart or fallback, it MUST regenerate t
 
 Each entry: `severity` (`info`|`warn`|`invalid`), `code`, `message`, `txtUri`, `lineNumber` (optional 1-based). Invalid songs MUST have at least one `severity=invalid` entry and are not published in `/manifest.json`.
 
-### Parsed Song Model (Normative — Appendix C)
+### Parsed Song Model (Normative)
 
-**SongHeader**: `title`, `artist`, `bpmFile` (raw, before ×4), `gapMs`, `videoGapSec`, `startSec`, `endMs`, `isDuet`, `previewStartSec`, custom tags (ordered list).
+The phone parser MUST use the canonical `ParsedSong`, `SongHeader`, `SongTiming`, `Track`, `Line`, `NoteEvent`, `NoteType`, `DiagnosticEntry`, and `Severity` model defined in `tv_app.md` §2.4. Field names, nullability, and derived properties MUST match that model exactly; in particular, tracks use `playerId` (`P1`/`P2`), not `trackIndex`.
 
-**SongTiming**: `bpmFile` (sole BPM). `BPM_internal = BPM_file × 4`.
-
-**Track**: `trackIndex` (0 for P1/solo, 1 for P2), `lines` (ordered).
-
-**Line**: `lineIndex` (0-based), `notes` (ordered by `startBeatFile`).
-
-**NoteEvent**: `noteType` (enum), `startBeatFile`, `durationBeats`, `toneSemitone` (C2=0), `lyric`, `endBeatFileExclusive = startBeatFile + durationBeats`.
+Phone scanning adds platform asset-resolution metadata outside `ParsedSong`. The parser remains pure: no file existence checks, canonical song-root path, generated-resource path, or manifest URL belongs in the parsed model.
 
 **Beat convention**: `noteActive if startBeat <= beat < endBeat` (start inclusive, end exclusive).
 
@@ -376,6 +373,11 @@ Each entry: `severity` (`info`|`warn`|`invalid`), `code`, `message`, `txtUri`, `
 - `ERROR_CORRUPT_SONG_UNSUPPORTED_RELATIVE`
 - `ERROR_CORRUPT_SONG_INVALID_VERSION`
 - `ERROR_CORRUPT_SONG_INVALID_DUET_MARKER`
+
+Warning codes:
+- `WARN_VOCALS_WITHOUT_INSTRUMENTAL`
+- `WARN_MIX_PAIR_INELIGIBLE_SAMPLE_RATE`
+- `WARN_MIX_PAIR_INELIGIBLE_CHANNELS`
 
 ### Tests (Normative)
 
@@ -393,6 +395,7 @@ Each entry: `severity` (`info`|`warn`|`invalid`), `code`, `message`, `txtUri`, `
 | T3.2.9a | Nested relative asset path resolves segment-by-segment | F01/`c/nested_relative_asset_path` | `isValid=true`, asset present when each path segment exists |
 | T3.2.10 | `#VOCALS` without `#INSTRUMENTAL` | F01/`d/vocals_without_instrumental` | `isValid=true`, `audioUrl` resolves from base audio asset, warn diagnostic emitted |
 | T3.2.11 | Accepted mixing pair publishes one effective audio URL | F01/`d/mix_pair_same_rate_channels` | `isValid=true`, `hasInstrumental=true`, manifest contains single `audioUrl`, no `instrumentalUrl`/`vocalsUrl` fields |
+| T3.2.11a | Accepted mixing pair without base audio | `inline` | `isValid=true`, generated `audioUrl` under `/songs/generated/` |
 | T3.2.12 | Mixing pair with mismatched sample rate falls back to base audio | F01/`d/mix_pair_mismatched_sample_rate` | `isValid=true`, `hasInstrumental=true`, `audioUrl` resolves from base audio asset, warn diagnostic emitted |
 | T3.2.13 | Mixing pair with mismatched channel count falls back to base audio | F01/`d/mix_pair_mismatched_channels` | `isValid=true`, `hasInstrumental=true`, `audioUrl` resolves from base audio asset, warn diagnostic emitted |
 | T4.1.1 | P1/P2 track routing | F04/`a/valid_duet_interleaved` | 2 tracks, notes assigned per track |
@@ -460,6 +463,8 @@ Each entry: `severity` (`info`|`warn`|`invalid`), `code`, `message`, `txtUri`, `
 
 ### Manifest Endpoint (Normative)
 
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
+
 The phone MUST serve its catalog at `GET /manifest.json`. Response: `200 OK`, `Content-Type: application/json`, body is a JSON array of `SongEntry` objects.
 
 The endpoint MUST be served from an in-memory JSON byte array rebuilt on each scan. It MUST NOT read from disk on each request. The phone MUST set `Cache-Control: no-cache` on manifest responses.
@@ -516,7 +521,7 @@ Before including a file URL in `SongEntry`, check:
 (try? fileURL.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?
     .ubiquitousItemDownloadingStatus == .current
 ```
-If not `.current`, treat as absent. Call `FileManager.default.startDownloadingUbiquitousItem(at:)` as background hint only — do not block.
+If a required playback resource is not `.current`, treat it as absent: the song is invalid and MUST NOT appear in `/manifest.json`. Optional assets that are not `.current` are omitted from the manifest by publishing their URL as `null`. Call `FileManager.default.startDownloadingUbiquitousItem(at:)` as background hint only — do not block.
 
 ### iOS Idle Timer (Normative)
 
@@ -546,7 +551,7 @@ If any condition fails, fall back to the base `#AUDIO` or `#MP3` asset and emit 
 
 1. **Scan time**: Store relative paths for `#INSTRUMENTAL` and `#VOCALS`; determine eligibility; record in scan metadata
 2. **Manifest construction**: If eligible, set `audioUrl` to `/songs/generated/<relativeTxtPath-with-.txt-replaced-by-.wav>`
-3. **First GET request**: Decode both MP3s, mix to WAV, cache in memory
+3. **First GET request**: Decode both source audio files, mix to WAV, cache in memory
 4. **Subsequent requests**: Serve from cache
 5. **Song end or session leave**: Discard cached WAV
 
@@ -573,7 +578,12 @@ if (sampleRate != format2.getInteger(MediaFormat.KEY_SAMPLE_RATE) ||
     // Fall back to base audio
 }
 
-// 2. Decode to PCM
+// 2. Reserve cache budget before decoding this uncached mix.
+// Evict LRU entries until adding one max-size generated WAV cannot exceed
+// the cache byte budget. Do not wait until after decoding the 4th song.
+mixCache.reserveFor(expectedPcmBytes(durationUs, sampleRate, channels) + 44)
+
+// 3. Decode and mix in bounded chunks.
 val decoder1 = MediaCodec.createDecoderByType(format1.getString(MediaFormat.KEY_MIME)!!)
 val decoder2 = MediaCodec.createDecoderByType(format2.getString(MediaFormat.KEY_MIME)!!)
 
@@ -583,26 +593,19 @@ decoder2.configure(format2, null, null, 0)
 decoder1.start()
 decoder2.start()
 
-val pcm1 = mutableListOf<ShortArray>()
-val pcm2 = mutableListOf<ShortArray>()
-
-// Decode loop (standard MediaCodec pattern, omitted for brevity)
-// Output: List<ShortArray> of PCM16 samples
-
-// 3. Mix: sample-by-sample addition with clipping
-val mixed = ShortArray(pcm1.sumOf { it.size })
-var writeIdx = 0
-for (chunkIdx in pcm1.indices) {
-    val chunk1 = pcm1[chunkIdx]
-    val chunk2 = pcm2.getOrNull(chunkIdx) ?: ShortArray(chunk1.size) // pad if unequal
-    for (i in chunk1.indices) {
+val wavBuilder = WavByteBuilder(sampleRate, channels, expectedPcmBytes(durationUs, sampleRate, channels))
+while (decoder1.hasOutput() && decoder2.hasOutput()) {
+    val chunk1: ShortArray = decoder1.readPcmChunk()   // bounded buffer, reused by decoder adapter
+    val chunk2: ShortArray = decoder2.readPcmChunk()   // same sample rate/channels by eligibility rule
+    for (i in 0 until minOf(chunk1.size, chunk2.size)) {
         val sum = chunk1[i].toInt() + chunk2[i].toInt()
-        mixed[writeIdx++] = sum.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        wavBuilder.writePcm16(sum.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort())
     }
 }
 
-// 4. Write WAV header + PCM data
-val wavBytes = buildWavFile(mixed, sampleRate, channels)
+// 4. Finalize WAV header + PCM data. The only full-song allocation retained is
+// the final generated WAV byte array stored in the LRU cache.
+val generatedWav: ByteArray = wavBuilder.finish()
 ```
 
 **WAV Header Format** (RIFF/WAV PCM16LE, 44 bytes):
@@ -625,7 +628,7 @@ Offset | Bytes | Value
 44     | N     | PCM samples (shorts in LE byte order)
 ```
 
-**Caching**: LRU in-memory cache, max 3 songs (~90 MB for three 3-minute stereo 48kHz WAVs). Evict least-recently-used on 4th song.
+**Caching**: LRU in-memory cache, max 3 songs and max ~102 MB for three 3-minute stereo 48kHz PCM16 WAVs. Before decoding an uncached mix, evict least-recently-used entries until there is room for the new generated WAV; implementations MUST NOT hold full decoded source arrays plus the final WAV at the same time.
 
 **Timing**: First request decodes both files (~2-3s on mid-tier 2022 hardware), subsequent requests <100ms from cache.
 
@@ -673,30 +676,18 @@ reader2.add(output2)
 reader1.startReading()
 reader2.startReading()
 
-var pcm1: [Int16] = []
-var pcm2: [Int16] = []
+mixCache.reserveFor(expectedWavByteCount)
 
-while reader1.status == .reading {
-    if let buffer = output1.copyNextSampleBuffer() {
-        let blockBuffer = CMSampleBufferGetDataBuffer(buffer)!
-        var length: Int = 0
-        var dataPtr: UnsafeMutablePointer<Int8>?
-        CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &dataPtr)
-        let shorts = dataPtr!.withMemoryRebound(to: Int16.self, capacity: length / 2) { Array(UnsafeBufferPointer(start: $0, count: length / 2)) }
-        pcm1.append(contentsOf: shorts)
+let wav = WavByteBuilder(sampleRate: asbd1.mSampleRate, channels: asbd1.mChannelsPerFrame, pcmBytes: expectedPcmBytes)
+while reader1.status == .reading && reader2.status == .reading {
+    guard let buffer1 = output1.copyNextSampleBuffer(),
+          let buffer2 = output2.copyNextSampleBuffer() else { break }
+    for (s1, s2) in zippedPcm16Samples(buffer1, buffer2) {
+        wav.writePcm16(Int16(clamping: Int32(s1) + Int32(s2)))
     }
 }
 
-// Same for pcm2
-
-// Mix
-var mixed: [Int16] = []
-for i in 0..<min(pcm1.count, pcm2.count) {
-    let sum = Int32(pcm1[i]) + Int32(pcm2[i])
-    mixed.append(Int16(clamping: sum))
-}
-
-// Write WAV (same header format as Android)
+let generatedWav = wav.finish() // same header format as Android
 ```
 
 **Caching**: Same LRU strategy as Android.
@@ -744,7 +735,7 @@ For a given `#INSTRUMENTAL` + `#VOCALS` pair and fixed mix parameters, the gener
 | T8.7.10a | Manifest rebuilt after bound-port change | `inline` [I] | Published `audioUrl`/`txtUrl` use actual bound port |
 | T8.7.10b | Published host uses active WebSocket local address | `inline` [I] | Published manifest URLs use the local socket address of the TV connection |
 | T8.7.10c | Generated playback path is reserved and ends in `.wav` | F01/`d/mix_pair_same_rate_channels` | `audioUrl` path is under `/songs/generated/` and ends in `.wav` |
-| T8.7.11 | iCloud evicted file → `audioUrl=null` (iOS) | F19 | `audioUrl=null`, `coverUrl` present |
+| T8.7.11 | Required playback file unavailable locally (iOS iCloud or Android cloud-backed provider) | F19 / inline | Song invalid; no manifest `audioUrl` entry is published |
 | T8.7.12 | Mix with matching sample rate/channels | F01/`d/mix_pair_same_rate_channels` | Generates WAV, serves under `/songs/generated/` |
 | T8.7.13 | Mix with mismatched sample rate | F01/`d/mix_pair_mismatched_sample_rate` | Falls back to base audio, warn emitted |
 | T8.7.14 | Mix with mismatched channels | F01/`d/mix_pair_mismatched_channels` | Falls back to base audio, warn emitted |
@@ -752,7 +743,7 @@ For a given `#INSTRUMENTAL` + `#VOCALS` pair and fixed mix parameters, the gener
 | T8.7.16 | Generated WAV Range request | F01/`d/mix_pair_same_rate_channels` | Subsequent Range request returns correct subset |
 | T8.7.17 | Cache eviction (4th song) | `inline` [I] | LRU evicted, 4th song decoded fresh |
 
-**Source**: §8.7.1, §8.7.2, §8.7.3
+**Source**: §2.2 HttpFileServer, §3.2 HttpFileServer
 
 **NFRs**: 1.3 (HTTP throughput), 1.2 (reliability)
 
@@ -771,7 +762,7 @@ For a given `#INSTRUMENTAL` + `#VOCALS` pair and fixed mix parameters, the gener
 
 **Functional Boundary**:
 - Mic capture at 44100Hz, 1024 samples/window (~23ms)
-- FFT-YIN pitch detection (§5.2.5)
+- FFT-YIN pitch detection (§2.3 Algorithm Pipeline)
 - Voicing gate + sensitivity presets (0-7)
 - 3-frame median filter
 - Outputs `midiNote` (0-127 or 255)
@@ -780,7 +771,7 @@ For a given `#INSTRUMENTAL` + `#VOCALS` pair and fixed mix parameters, the gener
 - `MicCapture` — AudioRecord (Android) / AVAudioEngine (iOS)
 - `FftYinPipeline` — zero-allocation FFT, autocorrelation, d' computation
 - `MedianFilter` — 3-byte circular buffer
-- `SensitivityTable` — 8 presets from §5.2.5.3
+- `SensitivityTable` — 8 presets from §2.3 Sensitivity Table
 
 ### Pre-Allocated Buffers (Normative)
 
@@ -845,7 +836,7 @@ d'(tau) = d_t(tau) / ((1/tau) * sum(d_t(1..tau)))
 | 6 | 0.18 | 0.40 | Loud Party |
 | 7 | 0.25 | 0.45 | Extreme Noise |
 
-The `sensitivityIndex` (0–7) is sourced from the phone Settings **Mic Sensitivity** control (§7.3.5).
+The `sensitivityIndex` (0–7) is sourced from the phone Settings **Mic Sensitivity** control (§2.6 Phone Settings Screen).
 
 ### Frame Rate (Normative)
 
@@ -875,7 +866,7 @@ Phones MUST NOT send any computed scoring, judgement, combo, or rating values. P
 | T5.2.5.4 | Zero-padded FFT produces linear autocorrelation | `inline` | paddedBuffer second half zeros |
 | T5.2.5.5 | `d'(0) = 1.0` always | `inline` | normBuffer[0] == 1.0 |
 
-**Source**: §5.2.5, §8.6.2
+**Source**: §2.3 PitchDetector, §3.3 PitchDetector
 
 **NFRs**: 1.1 (pitch latency - CRITICAL), 1.6 (battery)
 
@@ -913,6 +904,8 @@ Phones MUST NOT send any computed scoring, judgement, combo, or rating values. P
 
 ### Pitch Frame Wire Format (20 bytes, little-endian)
 
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
+
 ```
 Offset  Size  Type     Field
   0      4    uint32   seq              — frame counter
@@ -927,15 +920,21 @@ Struct format: `<IqIBBH`.
 
 ### Session Token / Join Code (Normative)
 
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
+
 Two random English words (Adjective-Noun) drawn from bundled TV-side wordlists, uppercase hyphen-separated: e.g. `SWIFT-PANDA`. Provides ~18 bits of entropy — sufficient for accidental-join prevention on a LAN. Generated by the TV per session; the phone receives and displays it.
 
 Phone normalization for manual entry: strip hyphens, case-insensitive (`SWIFT-PANDA` = `swiftpanda` = `swift-panda`).
 
 ### QR Payload Format (Normative)
 
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
+
 Encodes the full WebSocket endpoint URL: `ws://<tv-ip>:<ws-port>/?token=SWIFT-PANDA`.
 
 ### mDNS Discovery (Manual Code Entry)
+
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
 1. Normalize input: strip hyphens, uppercase
 2. Browse `_karaoke._tcp`
@@ -951,12 +950,16 @@ If two TVs advertise the same code, prompt user to select by instance name.
 
 ### connectionId Semantics (Normative)
 
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
+
 - Assigned at `hello` via `sessionState`, stored by the phone.
 - Embedded in every UDP `pitchFrame` (bytes 18–19).
 - `connectionId` is **absent** from `assignSinger` — delivered only via `sessionState`.
 - On reconnect: TV assigns a **new** `connectionId`. Phone MUST use new value; old frames silently dropped.
 
 ### Control Message Schemas (Normative)
+
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
 All messages: JSON objects, `type` (string), `protocolVersion` (int, MUST be `1`), `tsTvMs` (optional).
 
@@ -965,12 +968,12 @@ All messages: JSON objects, `type` (string), `protocolVersion` (int, MUST be `1`
 - `deviceName` is the phone's persisted human-readable label for TV display. It MUST be generated locally on first launch, kept stable across rejoins, and MAY use a bundled funny/geeky adjective-name scheme such as `jumping-gazelle` or `recursive-octopus`.
 - `deviceName` is display-only. It is not required to be globally unique and MUST NOT be used as a protocol identity key.
 
-**`sessionState`** (TV → Phone): `sessionId`, `slots { P1: { connected, deviceName }, P2: { connected, deviceName } }`, `inSong`, `songTimeSec` (float|null), `connectionId` (present only in initial response to hello; null in broadcasts).
+**`sessionState`** (TV → Phone): `sessionId`, `slots { P1: { connected, deviceName }, P2: { connected, deviceName } }`, `connectedDevices` (array of all connected phones up to 10, with `clientId`, `displayName`, `state`, `slot`), `inSong`, `songTimeSec` (float|null), `connectionId` (present only in initial response to hello; null in broadcasts).
 - `sessionState.inSong=false` is the authoritative session-level signal that the phone MUST leave singing mode, clear active-song UI/state, and release any runtime-only source-phone indicators even if the last `playbackState` was `countdown`, `playing`, `paused`, or `stopped`.
 
 **`assignSinger`** (TV → Phone): `sessionId`, `songInstanceSeq` (uint32), `playerId` (`"P1"`/`"P2"`), `difficulty` (`"Easy"`/`"Medium"`/`"Hard"`), `startMode` (`"countdown"`/`"live"`), `countdownMs` (int|null), `stopAtLyricsTimeMs` (int), `udpPort` (int), `songTitle`, `songArtist`.
 
-**`stopAtLyricsTimeMs` computation**: normal song: if `#END` present and > 0, use `endMs`; otherwise `audioDurationMs`. Medley: lyrics-time ms at end of final segment fade-out. MUST be recomputed on Restart or reconnect.
+**`stopAtLyricsTimeMs` computation**: normal song: if `#END` present and > 0, use `endMs`; otherwise `effectivePlaybackDurationMs - gapMs`, where `effectivePlaybackDurationMs` is the prepared audio resource duration and `gapMs` defaults to 0. Medley: lyrics-time ms at end of final segment fade-out. MUST be recomputed on Restart or reconnect.
 
 **`playbackState`** (TV → Phone): `sessionId`, `songInstanceSeq`, `revision` (monotonically increasing per songInstanceSeq), `state` (`"countdown"`/`"playing"`/`"paused"`/`"stopped"`), `lyricsTimeMs`, `stopAtLyricsTimeMs`, `countdownRemainingMs` (int|null, present only when `state="countdown"`; omitted otherwise), `reason` (`""`/`"user_pause"`/`"singer_disconnected"`/`"song_end"`/`"user_quit"`/`"restart"`/`"segment_transition"`/`"medley_source"`/`"medley_end"`), `tsTvMs`.
 
@@ -979,6 +982,8 @@ Phones MUST ignore any `playbackState` with a lower `revision` than the last acc
 **`error`** (TV → Phone): `code`, `message`. Codes: `invalid_token`, `protocol_mismatch`, `session_full`, `session_locked`. Unknown codes displayed as generic error.
 
 ### Message Validation Rules (Normative)
+
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
 - Unknown `type`: ignore and warn. Exception: during handshake, unexpected type is fatal.
 - `protocolVersion` mismatch: TV sends `error(code="protocol_mismatch")` and closes.
@@ -1018,7 +1023,7 @@ Minimum requirement:
 
 `NSAllowsLocalNetworking` covers MVP LAN-local `http://` / `ws://` access to `.local`, unqualified, and local IP-address endpoints without broadly disabling ATS.
 
-**Source**: §8.1, §8.2, §8.3, §8.5, §8.6
+**Source**: §2.4 NetworkClient, §3.4 NetworkClient
 
 **NFRs**: 1.1 (pitch latency), 1.2 (reliability)
 
@@ -1027,6 +1032,8 @@ Minimum requirement:
 ---
 
 ## 2.5 ClockSync
+
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
 **Responsibility**: Compute and maintain `clockOffsetMs` to estimate TV time.
 
@@ -1049,7 +1056,7 @@ Minimum requirement:
 
 ### Clock Model (Normative)
 
-Phone and TV clocks are independent monotonic timers. The phone maintains:
+Phone and TV clocks are independent monotonic timers. `clockOffsetMs` is defined as **TV monotonic time minus phone monotonic time**. The phone maintains:
 
 ```
 tvTimeEstMs = phoneMonotonicMs + clockOffsetMs
@@ -1083,7 +1090,7 @@ t3 = tPhoneSendMs   (phone's record)
 t4 = tTvRecvMs      (from clockAck)
 
 RTT = (t4 - t1) - (t3 - t2)
-clockOffsetMs = ((t2 - t1) + (t3 - t4)) / 2
+clockOffsetMs = ((t1 - t2) + (t4 - t3)) / 2
 ```
 
 ### Sample Selection
@@ -1105,9 +1112,9 @@ fun toTvTime(phoneMonotonicMs: Long): Long = phoneMonotonicMs + clockOffsetMs
 | T8.8.1 | Per-sample computation | F14v2 | All 3 samples match to 0.5ms |
 | T8.8.2 | Best-of-N: smallest RTT | F14v2 | `chosen.pingId="a3"` (RTT=30) |
 | T8.8.3 | Invalid RTT discarded | `inline` | Not chosen |
-| T8.8.4 | `tvTimeMs` estimation | `inline` | `clockOffsetMs=-500`, `phoneMonotonicMs=2000` → `tvTimeMs=1500` |
+| T8.8.4 | `tvTimeMs` estimation | `inline` | `clockOffsetMs=500`, `phoneMonotonicMs=2000` → `tvTimeMs=2500` |
 
-**Source**: §8.8
+**Source**: §2.5 ClockSync, §3.5 ClockSync
 
 **NFRs**: 1.1 (pitch latency)
 
@@ -1321,7 +1328,7 @@ If phone was Singer when disconnected, it resumes that role only after fresh clo
 
 When `stopAtLyricsTimeMs` reached or `playbackState.state == "stopped"`, the phone MUST: stop audio capture and pitch detection, stop transmitting `pitchFrame` datagrams for that `songInstanceSeq`, transition to Waiting/Connected screen.
 
-**Source**: §7.1–§7.4, §9.5
+**Source**: §2.6 SessionCoordinator, §2.4 NetworkClient
 
 **NFRs**: 1.2 (reliability)
 
@@ -1380,17 +1387,16 @@ struct CouchraokePhoneApp: App {
 
 | Artifact | Version |
 |---|---|
-| `androidx.navigation:navigation-compose` | `2.8.x` |
-| `com.google.dagger:hilt-android` | `2.51.x` |
-| `androidx.compose.material3:material3` | `1.3.x` |
-| `androidx.camera:camera-camera2` | `1.4.x` |
-| `com.google.mlkit:barcode-scanning` | `17.3.x` |
+| `androidx.navigation:navigation-compose` | `2.9.5` |
+| `com.google.dagger:hilt-android` | `2.57.1` |
+| `androidx.compose.material3:material3` | `1.3.2` |
+| `androidx.camera:camera-camera2` | `1.4.2` |
+| `com.google.mlkit:barcode-scanning` | `17.3.0` |
 
 **Library versions** (iOS):
 
 | Artifact | Version |
 |---|---|
-| Swifter | `1.5.0` |
 | SwiftUI | Built-in (iOS 15+) |
 
 ### 2.7.1 Design System
@@ -1669,7 +1675,7 @@ data class ServerState(
 
 interface GeneratedPlaybackResource
 
-Generated playback resources MUST expose deterministic byte content, total content length, and support byte-range reads over the pre-rendered WAV payload.
+Generated playback resources MUST expose deterministic byte content, total content length, and support byte-range reads over the generated WAV payload.
 ```
 
 ## 3.3 PitchDetector
@@ -1792,6 +1798,8 @@ sealed class PhoneState {
 
 ## 3.7 SongEntry (manifest.json schema)
 
+> ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
+
 ```kotlin
 @Serializable
 data class SongEntry(
@@ -1812,15 +1820,15 @@ data class SongEntry(
     val medleyEndBeat: Int? = null,
     val startSec: Float,
     val previewStartSec: Float,
-    val txtUrl: String?,
-    val audioUrl: String?,
+    val txtUrl: String,
+    val audioUrl: String,
     val videoUrl: String? = null,
     val coverUrl: String? = null,
     val backgroundUrl: String? = null
 )
 ```
 
-Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet`, `hasRap`, `hasVideo`, `hasInstrumental`, `canMedley`, `startSec`, `previewStartSec`, `txtUrl`, `audioUrl`. URL fields are `null` when absent/unavailable. The `/manifest.json` response is a JSON array of these objects.
+Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet`, `hasRap`, `hasVideo`, `hasInstrumental`, `canMedley`, `startSec`, `previewStartSec`, `txtUrl`, `audioUrl`. `txtUrl` and `audioUrl` are non-null for every published entry. Optional URL fields (`videoUrl`, `coverUrl`, `backgroundUrl`) are `null` when the corresponding optional asset is absent or unavailable. Songs whose required playback resource is absent or unavailable are invalid and are excluded from `/manifest.json`. The `/manifest.json` response is a JSON array of these objects.
 
 `audioUrl` is the song's single TV-facing playback URL. It MUST identify the effective playback resource chosen by the phone for the song: either the unchanged base audio asset or a phone-generated mixed playback resource. For accepted phone-side mixing, `audioUrl` MUST point to the deterministic generated WAV resource under `/songs/generated/` for that song. That generated resource MAY be materialized on first request or earlier if already known locally, but once published it MUST remain deterministic for the lifetime of the active song/session use. `instrumentalUrl` and `vocalsUrl` MUST NOT appear in the manifest schema.
 

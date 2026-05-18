@@ -1,5 +1,5 @@
 {
-  "description": "Appendix E.4 perfect scoring across one Normal line and one Golden line.",
+  "description": "Appendix C.4 perfect scoring across one Normal line and one Golden line.",
   "assumptions": {"playerId":"P1","difficulty":"Medium","LineBonusEnabled":true},
   "derived": {
     "TrackScoreValue": 12,

@@ -20,4 +20,4 @@ Purpose: verify end-to-end scoring integration from chart + accepted pitch frame
 - `partial`: mixed hits/misses and unvoiced samples → partial score
 - `silence`: all frames unvoiced → `scoreTotalInt = 0`
 
-Spec covers: §5.2.3, §6.1–§6.6
+Spec covers: tv_app.md §2.2, tv_app.md §4.3–§4.4, tv_app.md Appendix C
