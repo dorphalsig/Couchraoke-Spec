@@ -3,13 +3,9 @@
 **Version**: 1.9
 **Date**: 2026-05-18
 **Changelog since 1.8**: USDX pitch base corrected to C4/MIDI 60; effective audio-source validity aligned with accepted `#INSTRUMENTAL`+`#VOCALS` mix pairs; TV-facing audio wording clarified to a single effective `audioUrl`; fixture catalog/README alignment refreshed; Settings > About license attribution added.
-**Changelog since 1.7: §4.6 BeatCalculator: purged `bpmInternal`, renamed `timeSecToMidBeatInternal`→`timeSecToBeat`, `beatInternalToTimeSec`→`beatToTimeSec`, corrected `/60.0`→`/15.0` per Appendix C. Appendix B.2.2: added `connectedDevices[]` to `sessionState` schema (max 10 devices). §2.6.17/§4.2: deleted txtUrl-fail skip clause; prefetch-all-or-fail normative. ScoringEngine: added `healthEvents: SharedFlow<GameplayHealthEvent>`. Dependencies pinned: navigation-compose 2.9.5, hilt-android 2.57.1, hilt-navigation-compose 1.2.0. Fixtures: F06 cursor 22→23, F15 clientIds renamed (c-a→client-aa, c-b→client-bb, c-c→client-cc), F15 case_slot_taken rewritten (11th-device cap=10 scenario), F16 expected.medleySegments.json created, F18 transcript.json→transcript.jsonl.
+**Changelog since 1.7**: §4.6 BeatCalculator: purged `bpmInternal`, renamed `timeSecToMidBeatInternal`→`timeSecToBeat`, `beatInternalToTimeSec`→`beatToTimeSec`, corrected `/60.0`→`/15.0` per Appendix C. Appendix B.2.2: added `connectedDevices[]` to `sessionState` schema (max 10 devices). §2.6.17/§4.2: deleted txtUrl-fail skip clause; prefetch-all-or-fail normative. ScoringEngine: added `healthEvents: SharedFlow<GameplayHealthEvent>`. Dependencies pinned: navigation-compose 2.9.5, hilt-android 2.57.1, hilt-navigation-compose 1.2.0. Fixtures: F06 cursor 22→23, F15 clientIds renamed (c-a→client-aa, c-b→client-bb, c-c→client-cc), F15 case_slot_taken rewritten (11th-device cap=10 scenario), F16 expected.medleySegments.json created, F18 transcript.json→transcript.jsonl.
 **Scope**: Android TV Host App (phone companion OOS)
-**Changelog since 1.5**: Consistency audit fixes. §2.1 / §2.3: GamePhase names aligned with §4.1 sealed class (`Idle`→`Open`, `Loading`→`Preparing`, `Playing`→`Live`). §B.2.9: SongEntry JSON Schema repaired (trailing comma removed; `additionalProperties: false` added). §3.1 Song Start Flow: `sendAssignSinger` correctly precedes `broadcastPlaybackState`. §2.3 T8.5.5: moved to inline; description corrected to match 10-device cap. §1.6: OS range opened to Android TV 11+ (was 11–14). §2.6.5.6: `BorderFocus` changed to `#FFFFFF` @ 60% alpha; §2.6.9 focus-indicator rule updated accordingly. §2.6.12: DPAD navigation table corrected — Random actions row added; playlist Up rule fixed; Play Medley Down fixed. §2.4: stale "internal = ×4" comments on `#BPM` removed (file beats used directly per §4.6). §2.2 / §3.2: `ScoringEngine.suspend()` renamed `pause()`. Appendix C: subsections renamed E.x→C.x. §2.6.16 / §2.6.17: medley `n=1` minimal-strip rule unified. §2.3 T8.3.11: conditional `countdownMs` documented. §2.4: `#DUETSINGERP1` / `#DUETSINGERP2` accepted as aliases of `#P1` / `#P2`. §2.5 / §2.6.10: `previewStartSec` cross-referenced. §2.6.5.4 / §2.6.12: SongList-specific compact tokens relocated to §2.6.12. Footer date stamp removed. F13 rewritten for range-query model: old single-frame-selection + 120ms staleness cases dropped; four sub-cases (case_lateness_drop, case_seq_drop, case_regression_large_drop, case_regression_small_accept) replace them; T5.2.3.4–7 warning removed; §2.2 Knowledge Gaps updated.
-**Changelog since 1.4**: Test and fixture audit. T5.2.3.1–3 fixture column added (inline). F13 rewrite required — note added to T5.2.3.4–7 and ScoringEngine Knowledge Gaps. T5.3.2 `currentBeatD` corrected 22→23. T6.1.2–4 frame-set attribution corrected to inline. T6.1.5 expected value corrected (10000 not 0). T6.4.2 subcase path corrected. T6.5.2/3 moved to inline (F11 does not cover forgiveness/empty-line cases). T6.5.5 moved to F16/T9.5.7.5 (not an F11 case). T6.6.2 moved to inline (F11 perfect case does not trigger ceil branch). T8.3.7 moved to inline (F15 has no >10-phone scenario). T3.1.1–5 fixture column added (F23). T3.3 table restructured with Fixture column; T3.3.1 references F04/valid_duet_interleaved; T3.3.2–5 inline. T9.5.7.1 filename corrected (expected.medleySegments.json). T9.5.7.3–6 moved to inline (F16 has no scoring data). T9.6.1 moved to F11/medley_aggregation. UsdxParser Knowledge Gaps: F03 parsedSong stale schema documented.
-**Changelog since 1.3**: §1.6 Performance Targets: removed song-grid FPS row. §2.6.3 SLAs: replaced FPS/memory table with degradation-policy reference. §2.6.5.4: added `ButtonCornerRadius` token. §2.6.5.9: added button corner-radius rule. §2.6.10: added preview-pane video specification. §2.6.12: added medley playlist overflow-scroll rule. §2.6.16: added `AndroidView` hosting note; added runtime gameplay-degradation monitor. §4.3: added scoring-coroutine responsibility for degradation monitor. §7.6 DOD: replaced FPS/memory bullets with degradation-gate verification item.
-**Changelog since 1.2**: Playback backend migrated from Media3/ExoPlayer to LibVLC. §1.1 Testability, §1.6 Minimal Footprint, §2.1 PlaybackCoordinator (songStartTvMs Capture, Playback error handling, new Audio Focus subsection), §2.6 UI Layer (new Playback Backend Seam), §2.6.16 SingingScreen (new SurfaceView z-order rule), §3.1/§3.2 flow diagrams, and §4.2 Medley Audio Prebuffering all updated. AV-sync and dual-track mixing resolved: §2.1 Audio/Video Asset Coupling added (two-MP model, audio master, #VIDEOGAP arithmetic). Phone prepares #INSTRUMENTAL/#VOCALS as a single effective audioUrl; TV always receives only that audioUrl. instrumentalUrl/vocalsUrl removed from all wire schemas.
-**Changelog since 1.1**: §2.6 Design Tokens and Visual System added; screen subsections updated with token references, revised song-card composition, interruption-overlay shell, winner-emphasis rule, and singing-screen motion budget. Source: `2026-04-21-tv-app-design.md` (merged and retired).
+**Earlier history (1.1–1.5)**: removed from header (preserved in git history); covered topics include UI design tokens merge, LibVLC migration from Media3, runtime degradation policy, fixture/test audit, and the §2.1 / §2.3 / §4.1 GamePhase rename audit.
 ---
 
 ## Table of Contents
@@ -1264,6 +1260,7 @@ All other tags (including `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#CALCMEDLEY`
 **Header tags**:
 - Header lines read while first character is `#`; any other line ends header parsing.
 - Tag names are case-insensitive; matching on `Uppercase(Trim(TagName))`.
+- Float-valued tag values (`#BPM`, `#GAP`, `#START`, `#VIDEOGAP`, `#PREVIEWSTART`) MUST accept both `.` and `,` as decimal separators (USDX authoring locale variance — official format example: `#PREVIEWSTART:12,34`). Parser MUST normalise `,` → `.` before numeric parse.
 - Duplicate known tags: last successfully parsed value wins.
 - Malformed required tag (TITLE/ARTIST/BPM): mark song **invalid**. Effective audio source: a valid base `#AUDIO`/`#MP3` asset or an accepted `#INSTRUMENTAL`+`#VOCALS` mix pair MUST resolve; if none resolves, mark song **invalid** (`ERROR_CORRUPT_SONG_MISSING_REQUIRED_HEADER`). Malformed optional tag: **warn**, treat as absent.
 - Unknown tags, empty-value tags (`#NAME:`), and no-separator tags (no `:`): **warn** and preserve in `customTags`.
@@ -3473,12 +3470,12 @@ This section captures supporting mechanics and implementation shape for behavior
 | Countdown | Open | Required singer disconnects during countdown | Iter 1 |
 | Preparing | Error | Playback setup error or audio URL unreachable | Iter 1 |
 | Countdown | Error | Audio or critical resource error during countdown | Iter 1 |
-| Live | Error | `LibVlcEvent.EncounteredError` on audio MP | Iter 1 |
+| Live | Error | `LibVlcEvent.EncounteredError` on audio MP, or permanent `AUDIOFOCUS_LOSS` (§2.6.16 Audio focus) | Iter 1 |
 | Error | Open | User dismisses error modal | Iter 1 |
-| Live | Paused | User presses Back | Iter 1 |
+| Live | Paused | User presses Back, or `AUDIOFOCUS_LOSS_TRANSIENT[_CAN_DUCK]` (§2.6.16 Audio focus) | Iter 1 |
 | Live | Stopped | Playback reaches `stopAtLyricsTimeMs` or final medley segment ends | Iter 2 |
 | Live | DisconnectPaused | Required singer WebSocket drops | Iter 3 |
-| Paused | Live | User selects Resume | Iter 1 |
+| Paused | Live | User selects Resume, or `AUDIOFOCUS_GAIN` after a transient loss (§2.6.16 Audio focus) | Iter 1 |
 | Paused | Preparing | User confirms Restart (new `songInstanceSeq`) | Iter 1 |
 | Paused | Open | User confirms Quit | Iter 1 |
 | DisconnectPaused | Live | Singer reconnects + Resume, or Continue Without Them | Iter 3 |
@@ -3848,7 +3845,7 @@ Two beat computations from the same `BPM_file` and `GAPms`:
 | Consumer | Formula | micDelayMs |
 |----------|---------|------------|
 | **Lyrics beat** (highlight, elapsed display) | `floor(timeSecToBeat(lyricsTimeSec - GAPms/1000.0))` | 0 |
-| **Lane beat** (pitch targets, scoring windows) | `songStartTvMs + beatToTimeSec(startBeat)*1000 + GAPms + micDelayMs` | Configured |
+| **Lane beat** (pitch targets, scoring windows) | `effectiveSongStartTvMs + beatToTimeSec(startBeat)*1000 + GAPms + micDelayMs` | Configured |
 
 - Lyrics beat tracks what audience hears from speakers.
 - Lane beat tracks where singer's voice should appear given mic/network delay.
@@ -3890,11 +3887,11 @@ Two beat computations from the same `BPM_file` and `GAPms`:
 For a note with `startBeat` and `durationBeats`, the scoring window in TV monotonic time is:
 
 ```
-noteStartTvMs = songStartTvMs + (startBeat × 15000 / BPM_file) + GAPms + micDelayMs
-noteEndTvMs   = songStartTvMs + ((startBeat + durationBeats) × 15000 / BPM_file) + GAPms + micDelayMs
+noteStartTvMs = effectiveSongStartTvMs + (startBeat × 15000 / BPM_file) + GAPms + micDelayMs
+noteEndTvMs   = effectiveSongStartTvMs + ((startBeat + durationBeats) × 15000 / BPM_file) + GAPms + micDelayMs
 ```
 
-Where `songStartTvMs` is captured per [§2.1](#21-playbackcoordinator) by the UI layer and delivered to the coordinator via `PlaybackEvent.Ready`, `BPM_file` is the raw `#BPM` from the file with no scaling, `GAPms` is `#GAP` in ms, and `micDelayMs` is the effective mic delay (shifts window later to account for audio pipeline latency).
+Where `effectiveSongStartTvMs = songStartTvMs + totalPausedDurationMs` per [§2.1](#21-playbackcoordinator) step 12 (equals `songStartTvMs` for a song with no pauses), `BPM_file` is the raw `#BPM` from the file with no scaling, `GAPms` is `#GAP` in ms, and `micDelayMs` is the effective mic delay (shifts window later to account for audio pipeline latency).
 
 A pitch frame falls within the window if: `noteStartTvMs <= frame.tvTimeMs < noteEndTvMs`.
 
@@ -4324,7 +4321,7 @@ This appendix is **normative**. Schemas use JSON Schema Draft 2020-12. `addition
 All messages MUST include:
 - `type` (string)
 - `protocolVersion` (int; MUST be `1` in MVP)
-- `tsTvMs` (optional; TV may include)
+- `tsTvMs` (optional; TV-originated messages may include this; phone-originated messages MUST NOT)
 
 ## B.2 Schemas
 
@@ -4441,7 +4438,6 @@ All messages MUST include:
       "properties": {
         "type": {"const": "pong"},
         "protocolVersion": {"type": "integer", "const": 1},
-        "tsTvMs": {"type": "number"},
         "pingId": {"type": "string", "minLength": 1},
         "tTvSendMs": {"type": "integer"},
         "tPhoneRecvMs": {"type": "integer"},
