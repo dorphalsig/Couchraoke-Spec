@@ -1,0 +1,4 @@
+{"playerId":"P1","midiNote":36,"tvTimeMs":0,"arrivalTvMs":10,"songInstanceSeq":1,"seq":1}
+{"playerId":"P1","midiNote":36,"tvTimeMs":250,"arrivalTvMs":260,"songInstanceSeq":1,"seq":2}
+{"playerId":"P1","midiNote":255,"tvTimeMs":500,"arrivalTvMs":510,"songInstanceSeq":1,"seq":3}
+{"playerId":"P1","midiNote":255,"tvTimeMs":750,"arrivalTvMs":760,"songInstanceSeq":1,"seq":4}

@@ -1,0 +1,12 @@
+{
+  "rootRel": "",
+  "songs": [
+    {
+      "songDirRel": "song_relative_duet_bpm_rel0",
+      "songTxtRel": "song_relative_duet_bpm_rel0/song.txt",
+      "isValid": false,
+      "invalidReasonCode": "ERROR_CORRUPT_SONG_UNSUPPORTED_RELATIVE",
+      "invalidLineNumber": 7
+    }
+  ]
+}

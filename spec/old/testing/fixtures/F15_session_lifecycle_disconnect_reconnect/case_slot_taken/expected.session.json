@@ -1,0 +1,6 @@
+{
+  "accepted": true,
+  "connectedDevices": 10,
+  "assignedSlots": ["P1", "P2"],
+  "description": "10 devices connected (P1, P2 assigned, 8 unassigned). 11th device attempts join → session_full"
+}

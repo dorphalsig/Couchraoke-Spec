@@ -1,0 +1,8 @@
+{
+  "type": "hello",
+  "protocolVersion": 2,
+  "clientId": "phone-a-uuid",
+  "deviceName": "Pixel 7",
+  "appVersion": "1.0.0",
+  "httpPort": 34781
+}

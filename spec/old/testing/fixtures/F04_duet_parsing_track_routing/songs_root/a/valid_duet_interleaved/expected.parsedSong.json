@@ -1,0 +1,97 @@
+{
+  "songId": "F04_valid_duet_interleaved",
+  "header": {
+    "title": "Valid Duet Interleaved",
+    "artist": "Fixture",
+    "bpmFile": 120.0,
+    "gapMs": 0,
+    "audio": "audio.ogg",
+    "startSec": null,
+    "endMs": null,
+    "videoGapSec": null,
+    "previewStartSec": null,
+    "video": null,
+    "cover": null,
+    "background": null,
+    "instrumental": null,
+    "vocals": null,
+    "version": "1.0.0",
+    "year": null,
+    "genre": null,
+    "album": null,
+    "isDuet": true,
+    "p1Name": "Alice",
+    "p2Name": "Bob",
+    "medleyStartBeat": null,
+    "medleyEndBeat": null,
+    "customTags": []
+  },
+  "timing": {
+    "bpmFile": 120.0
+  },
+  "tracks": [
+    {
+      "playerId": "P1",
+      "lines": [
+        {
+          "lineIndex": 0,
+          "notes": [
+            {
+              "noteType": "Normal",
+              "startBeatFile": 0,
+              "durationBeats": 4,
+              "toneSemitone": 0,
+              "lyric": "la",
+              "endBeatFileExclusive": 4
+            },
+            {
+              "noteType": "Normal",
+              "startBeatFile": 4,
+              "durationBeats": 4,
+              "toneSemitone": 0,
+              "lyric": "na",
+              "endBeatFileExclusive": 8
+            }
+          ],
+          "lineScoreValue": 8,
+          "startBeatFile": 0,
+          "endBeatFileExclusive": 8,
+          "isEmpty": false
+        }
+      ],
+      "trackScoreValue": 8
+    },
+    {
+      "playerId": "P2",
+      "lines": [
+        {
+          "lineIndex": 0,
+          "notes": [
+            {
+              "noteType": "Normal",
+              "startBeatFile": 2,
+              "durationBeats": 4,
+              "toneSemitone": 0,
+              "lyric": "lo",
+              "endBeatFileExclusive": 6
+            },
+            {
+              "noteType": "Normal",
+              "startBeatFile": 6,
+              "durationBeats": 4,
+              "toneSemitone": 0,
+              "lyric": "ni",
+              "endBeatFileExclusive": 10
+            }
+          ],
+          "lineScoreValue": 8,
+          "startBeatFile": 2,
+          "endBeatFileExclusive": 10,
+          "isEmpty": false
+        }
+      ],
+      "trackScoreValue": 8
+    }
+  ],
+  "diagnostics": []
+}

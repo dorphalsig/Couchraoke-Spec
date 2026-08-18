@@ -1,0 +1,11 @@
+[
+  { "playerId": "P1", "midiNote": 36, "tvTimeMs": 0, "arrivalTvMs": 10, "songInstanceSeq": 1, "seq": 1 },
+  { "playerId": "P1", "midiNote": 36, "tvTimeMs": 250, "arrivalTvMs": 260, "songInstanceSeq": 1, "seq": 2 },
+  { "playerId": "P1", "midiNote": 36, "tvTimeMs": 500, "arrivalTvMs": 510, "songInstanceSeq": 1, "seq": 3 },
+  { "playerId": "P1", "midiNote": 38, "tvTimeMs": 750, "arrivalTvMs": 760, "songInstanceSeq": 1, "seq": 4 },
+  { "playerId": "P1", "midiNote": 38, "tvTimeMs": 1000, "arrivalTvMs": 1010, "songInstanceSeq": 1, "seq": 5 },
+  { "playerId": "P1", "midiNote": 38, "tvTimeMs": 1250, "arrivalTvMs": 1260, "songInstanceSeq": 1, "seq": 6 },
+  { "playerId": "P1", "midiNote": 40, "tvTimeMs": 1500, "arrivalTvMs": 1510, "songInstanceSeq": 1, "seq": 7 },
+  { "playerId": "P1", "midiNote": 40, "tvTimeMs": 1750, "arrivalTvMs": 1760, "songInstanceSeq": 1, "seq": 8 },
+  { "playerId": "P1", "midiNote": 40, "tvTimeMs": 2000, "arrivalTvMs": 2010, "songInstanceSeq": 1, "seq": 9 }
+]

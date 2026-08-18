@@ -1,0 +1,75 @@
+{
+  "songId": "F03_freestyle_only",
+  "header": {
+    "title": "Freestyle Mixed",
+    "artist": "Fixture",
+    "bpmFile": 120.0,
+    "gapMs": 0,
+    "audio": "audio.ogg",
+    "startSec": null,
+    "endMs": null,
+    "videoGapSec": null,
+    "previewStartSec": null,
+    "video": null,
+    "cover": null,
+    "background": null,
+    "instrumental": null,
+    "vocals": null,
+    "version": "1.0.0",
+    "year": null,
+    "genre": null,
+    "album": null,
+    "isDuet": false,
+    "p1Name": null,
+    "p2Name": null,
+    "medleyStartBeat": null,
+    "medleyEndBeat": null,
+    "customTags": []
+  },
+  "timing": {
+    "bpmFile": 120.0
+  },
+  "tracks": [
+    {
+      "playerId": "P1",
+      "lines": [
+        {
+          "lineIndex": 0,
+          "notes": [
+            {
+              "noteType": "Normal",
+              "startBeatFile": 0,
+              "durationBeats": 2,
+              "toneSemitone": 0,
+              "lyric": "la",
+              "endBeatFileExclusive": 2
+            }
+          ],
+          "lineScoreValue": 2,
+          "startBeatFile": 0,
+          "endBeatFileExclusive": 2,
+          "isEmpty": false
+        },
+        {
+          "lineIndex": 1,
+          "notes": [
+            {
+              "noteType": "Freestyle",
+              "startBeatFile": 2,
+              "durationBeats": 2,
+              "toneSemitone": 0,
+              "lyric": "free",
+              "endBeatFileExclusive": 4
+            }
+          ],
+          "lineScoreValue": 0,
+          "startBeatFile": 2,
+          "endBeatFileExclusive": 4,
+          "isEmpty": true
+        }
+      ],
+      "trackScoreValue": 2
+    }
+  ],
+  "diagnostics": []
+}

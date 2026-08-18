@@ -1,0 +1,11 @@
+#VERSION:1.1.0
+#TITLE:Vocals Without Instrumental
+#ARTIST:Fixture
+#AUDIO:audio.ogg
+#VOCALS:vocals.wav
+#BPM:120
+#GAP:0
+
+: 0 2 0 la
+- 2
+E

@@ -1,0 +1,275 @@
+{
+  "specVersion": "tv_app.md v1.9 (2026-05-18) / phone_app.md v1.3 (2026-05-18)",
+  "fixtures": [
+    {
+      "id": "F01_song_discovery_validation_acceptance",
+      "covers": [
+        "UsdxParser",
+        "LibraryManager",
+        "T3.2.1",
+        "T3.2.2",
+        "T3.2.3",
+        "T3.2.4",
+        "T3.2.5",
+        "T3.2.6",
+        "T3.2.9",
+        "T3.2.10",
+        "T3.2.11",
+        "T3.2.12",
+        "T3.2.13",
+        "T4.2.7",
+        "T4.2.8",
+        "T4.2.9",
+        "T4.2.10",
+        "T8.7.10c",
+        "T8.7.12",
+        "T8.7.13",
+        "T8.7.14",
+        "T8.7.15",
+        "T8.7.16"
+      ]
+    },
+    {
+      "id": "F02_header_parsing_edge_cases",
+      "covers": [
+        "UsdxParser",
+        "T3.2.8"
+      ]
+    },
+    {
+      "id": "F03_body_grammar_token_recognition",
+      "covers": [
+        "UsdxParser",
+        "ScoringEngine",
+        "T4.3.1",
+        "T4.3.2",
+        "T4.3.3",
+        "T4.3.6",
+        "T4.3.7",
+        "T4.3.8",
+        "T6.1.5",
+        "T6.1.6a"
+      ]
+    },
+    {
+      "id": "F04_duet_parsing_track_routing",
+      "covers": [
+        "UsdxParser",
+        "T3.3.1"
+      ]
+    },
+    {
+      "id": "F05_legacy_relative_mode_semantics",
+      "covers": [
+        "UsdxParser",
+        "T4.3.9"
+      ]
+    },
+    {
+      "id": "F06_beat_time_conversion_static_bpm",
+      "covers": [
+        "ScoringEngine",
+        "T5.3.1",
+        "T5.3.2"
+      ]
+    },
+    {
+      "id": "F08_scoring_beat_stepping_interval_semantics",
+      "covers": [
+        "ScoringEngine",
+        "T6.1.1"
+      ]
+    },
+    {
+      "id": "F09_pitch_tolerance_octave_normalization",
+      "covers": [
+        "ScoringEngine",
+        "T6.4.1",
+        "T6.4.2",
+        "T6.4.3",
+        "T6.4.4"
+      ]
+    },
+    {
+      "id": "F10_rap_scoring_tonevalid_gate",
+      "covers": [
+        "ScoringEngine",
+        "T6.2.1",
+        "T6.2.2",
+        "T6.2.3"
+      ]
+    },
+    {
+      "id": "F11_line_bonus_and_rounding",
+      "covers": [
+        "ScoringEngine",
+        "T6.1.6",
+        "T6.5.1",
+        "T6.5.4",
+        "T6.6.1",
+        "T6.6.4",
+        "T6.6.5"
+      ]
+    },
+    {
+      "id": "F12v2_pitch_stream_validation_semantics",
+      "covers": [
+        "NetworkController",
+        "T8.6.1",
+        "T8.6.2",
+        "T8.6.4"
+      ]
+    },
+    {
+      "id": "F13_jitter_buffer_selection_staleness",
+      "covers": [
+        "ScoringEngine",
+        "T5.2.3.4",
+        "T5.2.3.5",
+        "T5.2.3.6",
+        "T5.2.3.7"
+      ]
+    },
+    {
+      "id": "F14v2_clock_sync_phone_side",
+      "covers": [
+        "phone:ClockSync"
+      ]
+    },
+    {
+      "id": "F15_session_lifecycle_disconnect_reconnect",
+      "covers": [
+        "NetworkController",
+        "PlaybackCoordinator",
+        "T8.3.1",
+        "T8.3.2",
+        "T8.3.3",
+        "T8.3.4",
+        "T8.3.5",
+        "T8.3.6",
+        "T8.3.8",
+        "T8.3.9",
+        "T8.3.10",
+        "T8.3.11",
+        "T8.3.12",
+        "T8.3.13",
+        "T8.5.1",
+        "T8.5.2",
+        "T8.5.3",
+        "T8.5.4"
+      ]
+    },
+    {
+      "id": "F16_medley_sequencer",
+      "covers": [
+        "PlaybackCoordinator",
+        "T9.5.7.1",
+        "T9.5.7.7"
+      ]
+    },
+    {
+      "id": "F17_yin_dsp_pipeline_accuracy",
+      "covers": [
+        "phone:PitchDetector"
+      ]
+    },
+    {
+      "id": "F18_http_server_range_coordination",
+      "covers": [
+        "NetworkController"
+      ]
+    },
+    {
+      "id": "F19_icloud_eviction_ios",
+      "covers": [
+        "phone:HttpFileServer"
+      ]
+    },
+    {
+      "id": "F20_websocket_message_validation",
+      "covers": [
+        "NetworkController",
+        "T8.3.1",
+        "T8.3.2",
+        "T8.3.4",
+        "T8.3.5"
+      ]
+    },
+    {
+      "id": "F21_clock_sync_tv_side",
+      "covers": [
+        "PlaybackCoordinator",
+        "\u00a74.5"
+      ]
+    },
+    {
+      "id": "F22_gamephase_fsm_transitions",
+      "covers": [
+        "PlaybackCoordinator",
+        "\u00a74.1"
+      ]
+    },
+    {
+      "id": "F23_library_multiphone",
+      "covers": [
+        "LibraryManager",
+        "T3.1.1",
+        "T3.1.2",
+        "T3.1.3",
+        "T3.1.4",
+        "T3.1.5"
+      ]
+    },
+    {
+      "id": "F24_scoring_integration",
+      "covers": [
+        "ScoringEngine"
+      ]
+    }
+  ],
+  "adrs": [
+    {
+      "id": "ADR-001",
+      "file": "adr/ADR-001-tv-spec-clarifications-and-render-contracts.md"
+    },
+    {
+      "id": "ADR-002",
+      "file": "adr/ADR-002-framework-native-kotlin-swift-over-flutter.md"
+    },
+    {
+      "id": "ADR-003",
+      "file": "adr/ADR-003-song-delivery-phone-http-server.md"
+    },
+    {
+      "id": "ADR-004",
+      "file": "adr/ADR-004-udp-pitch-frame-wire-protocol.md"
+    },
+    {
+      "id": "ADR-005",
+      "file": "adr/ADR-005-pitch-detection-native-fft-yin.md"
+    },
+    {
+      "id": "ADR-006",
+      "file": "adr/ADR-006-spec-organisation-three-self-contained-specs.md"
+    },
+    {
+      "id": "ADR-007",
+      "file": "adr/ADR-007-libvlc-for-usdx-video-format-parity.md"
+    },
+    {
+      "id": "ADR-008",
+      "file": "adr/ADR-008-lazy-audio-mixing-on-first-request.md",
+      "scope": "phone"
+    },
+    {
+      "id": "ADR-009",
+      "file": "adr/ADR-009-in-memory-lru-cache-for-mixed-audio.md",
+      "scope": "phone"
+    },
+    {
+      "id": "ADR-010",
+      "file": "adr/ADR-010-platform-native-audio-decoding.md",
+      "scope": "phone"
+    }
+  ]
+}

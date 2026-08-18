@@ -1,0 +1,16 @@
+{"seq":1,"direction":"phone_to_tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-a","deviceName":"Phone A","appVersion":"1.0.0","httpPort":8080},"clientId":"c-a"}
+{"seq":2,"direction":"tv_to_phone","message":{"type":"sessionState","protocolVersion":1,"sessionId":"S1","connectionId":1,"slots":{"P1":{"connected":true,"deviceName":"Phone A"},"P2":{"connected":false,"deviceName":""}},"inSong":false,"songTimeSec":null},"clientId":"c-a"}
+{"seq":3,"direction":"tv_internal","action":"fetch_manifest","from":"c-a","url":"http://192.168.1.10:8080/manifest.json"}
+{"seq":4,"direction":"phone_to_tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-b","deviceName":"Phone B","appVersion":"1.0.0","httpPort":8081},"clientId":"c-b"}
+{"seq":5,"direction":"tv_to_phone","message":{"type":"sessionState","protocolVersion":1,"sessionId":"S1","connectionId":2,"slots":{"P1":{"connected":true,"deviceName":"Phone A"},"P2":{"connected":true,"deviceName":"Phone B"}},"inSong":false,"songTimeSec":null},"clientId":"c-b"}
+{"seq":6,"direction":"tv_internal","action":"fetch_manifest","from":"c-b","url":"http://192.168.1.11:8081/manifest.json"}
+{"seq":7,"direction":"tv_to_phone","message":{"type":"assignSinger","protocolVersion":1,"sessionId":"S1","songInstanceSeq":1,"playerId":"P1","difficulty":"Medium","startMode":"countdown","countdownMs":2000,"stopAtLyricsTimeMs":180000,"udpPort":5005,"songTitle":"Fixture Song","songArtist":"Fixture Artist"},"clientId":"c-a"}
+{"seq":8,"direction":"tv_to_phone","message":{"type":"assignSinger","protocolVersion":1,"sessionId":"S1","songInstanceSeq":1,"playerId":"P2","difficulty":"Medium","startMode":"countdown","countdownMs":2000,"stopAtLyricsTimeMs":180000,"udpPort":5005,"songTitle":"Fixture Song","songArtist":"Fixture Artist"},"clientId":"c-b"}
+{"seq":9,"direction":"tv_to_phone","message":{"type":"playbackState","protocolVersion":1,"sessionId":"S1","songInstanceSeq":1,"revision":0,"state":"playing","lyricsTimeMs":10000,"stopAtLyricsTimeMs":180000,"countdownRemainingMs":null,"reason":"","tsTvMs":null},"clientId":"broadcast"}
+{"seq":10,"direction":"tv_internal","action":"disconnect_detected","clientId":"c-a"}
+{"seq":11,"direction":"tv_internal","action":"host_kick","clientId":"c-a","reason":"host_removed_disconnected_player"}
+{"seq":12,"direction":"phone_to_tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-c","deviceName":"Phone C","appVersion":"1.0.0","httpPort":8082},"clientId":"c-c"}
+{"seq":13,"direction":"tv_to_phone","message":{"type":"sessionState","protocolVersion":1,"sessionId":"S1","connectionId":3,"slots":{"P1":{"connected":false,"deviceName":""},"P2":{"connected":true,"deviceName":"Phone B"}},"inSong":true,"songTimeSec":10.0},"clientId":"c-c"}
+{"seq":14,"direction":"tv_internal","action":"catalog_stale","from":"c-c","reason":"join_during_gameplay"}
+{"seq":15,"direction":"phone_to_tv","message":{"type":"hello","protocolVersion":1,"clientId":"c-a","deviceName":"Phone A","appVersion":"1.0.0","httpPort":8080},"clientId":"c-a"}
+{"seq":16,"direction":"tv_to_phone","message":{"type":"error","protocolVersion":1,"code":"session_full","message":"Session roster is full."},"clientId":"c-a"}

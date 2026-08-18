@@ -1,0 +1,6 @@
+{"direction": "tv_to_phone", "request": {"method": "GET", "path": "/songs/test/audio.ogg", "headers": {}}}
+{"direction": "phone_to_tv", "response": {"status": 200, "headers": {"Content-Length": "10000", "Accept-Ranges": "bytes"}}}
+{"direction": "tv_to_phone", "request": {"method": "GET", "path": "/songs/test/audio.ogg", "headers": {"Range": "bytes=0-99"}}}
+{"direction": "phone_to_tv", "response": {"status": 206, "headers": {"Content-Range": "bytes 0-99/10000", "Content-Length": "100"}}}
+{"direction": "tv_to_phone", "request": {"method": "GET", "path": "/songs/test/audio.ogg", "headers": {"Range": "bytes=9500-"}}}
+{"direction": "phone_to_tv", "response": {"status": 206, "headers": {"Content-Range": "bytes 9500-9999/10000", "Content-Length": "500"}}}

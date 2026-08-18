@@ -1,0 +1,18 @@
+{
+  "rootRel": "songs_root",
+  "songs": [
+    {
+      "songDirRel": "Queen - Bohemian Rhapsody",
+      "songTxtRel": "Queen - Bohemian Rhapsody/bohemian.txt",
+      "isValid": false,
+      "invalidReasonCode": "ERROR_CORRUPT_SONG_FILE_NOT_FOUND",
+      "invalidLineNumber": 3,
+      "artist": "Queen",
+      "title": "Bohemian Rhapsody",
+      "manifestEntry": null,
+      "meta": {
+        "description": "audio.ogg is evicted (status != .current), so the required playback resource is unavailable locally and no manifest entry is published"
+      }
+    }
+  ]
+}

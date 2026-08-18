@@ -1,0 +1,39 @@
+{
+  "description": "Deadline-driven note finalization uses jitter-buffer range query over noteStartTvMs <= tvTimeMs < noteEndTvMs (Appendix C.3).",
+  "assumptions": {
+    "playerId": "P1",
+    "difficulty": "Medium",
+    "LineBonusEnabled": true
+  },
+  "derived": {
+    "MaxSongPoints": 9000,
+    "MaxLineBonusPool": 1000,
+    "TrackScoreValue": 2,
+    "CurBeatPoints_Normal": 4500
+  },
+  "lineBonus": {
+    "NonEmptyLines": 1,
+    "LineBonusPerLine": 1000,
+    "expectedScoreLine": 1000
+  },
+  "expectedTotals": {
+    "score": 9000,
+    "scoreGolden": 0,
+    "scoreLine": 1000,
+    "scoreInt": 9000,
+    "scoreGoldenInt": 0,
+    "scoreLineInt": 1000,
+    "scoreTotalInt": 10000
+  },
+  "noteWindow": {
+    "startBeat": 0,
+    "endBeatExclusive": 2,
+    "qualifyingFrameSeq": [
+      1,
+      2
+    ],
+    "hits": 2,
+    "samplesInNote": 2,
+    "expectedNoteScore": 9000
+  }
+}

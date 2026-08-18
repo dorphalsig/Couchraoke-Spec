@@ -1,0 +1,8 @@
+{"playerId":"P1","midiNote":36,"tvTimeMs":0,"arrivalTvMs":10,"songInstanceSeq":1,"seq":1}
+{"playerId":"P1","midiNote":36,"tvTimeMs":500,"arrivalTvMs":510,"songInstanceSeq":1,"seq":2}
+{"playerId":"P1","midiNote":36,"tvTimeMs":1000,"arrivalTvMs":1010,"songInstanceSeq":1,"seq":3}
+{"playerId":"P1","midiNote":36,"tvTimeMs":1500,"arrivalTvMs":1510,"songInstanceSeq":1,"seq":4}
+{"playerId":"P1","midiNote":36,"tvTimeMs":2000,"arrivalTvMs":2010,"songInstanceSeq":1,"seq":5}
+{"playerId":"P1","midiNote":36,"tvTimeMs":2500,"arrivalTvMs":2510,"songInstanceSeq":1,"seq":6}
+{"playerId":"P1","midiNote":36,"tvTimeMs":3000,"arrivalTvMs":3010,"songInstanceSeq":1,"seq":7}
+{"playerId":"P1","midiNote":36,"tvTimeMs":3500,"arrivalTvMs":3510,"songInstanceSeq":1,"seq":8}
