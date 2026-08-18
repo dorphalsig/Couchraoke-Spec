@@ -1,0 +1,8 @@
+{
+  "description": "All-Freestyle chart: every note has ScoreFactor=0, so scoreTotalInt=0 regardless of pitch frames.",
+  "playerScores": {
+    "P1": {
+      "scoreTotalInt": 0
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "valid": [
+    "Open->Preparing",
+    "Preparing->Countdown",
+    "Preparing->Live",
+    "Preparing->Error",
+    "Countdown->Live",
+    "Countdown->Open",
+    "Countdown->Error",
+    "Live->Error",
+    "Error->Open",
+    "Live->Paused",
+    "Live->DisconnectPaused",
+    "Live->Stopped",
+    "Paused->Live",
+    "Paused->Preparing",
+    "Paused->Open",
+    "DisconnectPaused->Live:singer_reconnected_and_resume",
+    "DisconnectPaused->Live:continue_without_singer",
+    "DisconnectPaused->Open",
+    "Stopped->Results",
+    "Results->Open"
+  ],
+  "invalid": [
+    "Open->Paused",
+    "Open->Live",
+    "Preparing->Results",
+    "Preparing->Open",
+    "Countdown->Paused",
+    "Live->Preparing",
+    "Stopped->Live",
+    "Results->Live"
+  ]
+}

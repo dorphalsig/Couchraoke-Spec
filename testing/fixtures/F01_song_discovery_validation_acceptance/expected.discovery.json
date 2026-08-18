@@ -1,0 +1,142 @@
+{
+  "rootRel": "songs_root",
+  "songs": [
+    {
+      "songDirRel": "a/valid_minimal",
+      "songTxtRel": "a/valid_minimal/song.txt",
+      "isValid": true,
+      "invalidReasonCode": null,
+      "invalidLineNumber": null,
+      "artist": "Fixture",
+      "title": "Valid Minimal"
+    },
+    {
+      "songDirRel": "a/invalid_missing_required_header",
+      "songTxtRel": "a/invalid_missing_required_header/song.txt",
+      "isValid": false,
+      "invalidReasonCode": "ERROR_CORRUPT_SONG_MISSING_REQUIRED_HEADER",
+      "invalidLineNumber": null,
+      "artist": null,
+      "title": "Missing Artist"
+    },
+    {
+      "songDirRel": "b/invalid_missing_audio",
+      "songTxtRel": "b/invalid_missing_audio/song.txt",
+      "isValid": false,
+      "invalidReasonCode": "ERROR_CORRUPT_SONG_FILE_NOT_FOUND",
+      "invalidLineNumber": 4,
+      "artist": "Fixture",
+      "title": "Missing Audio File"
+    },
+    {
+      "songDirRel": "b/invalid_malformed_body",
+      "songTxtRel": "b/invalid_malformed_body/song.txt",
+      "isValid": false,
+      "invalidReasonCode": "ERROR_CORRUPT_SONG_MALFORMED_BODY",
+      "invalidLineNumber": 7,
+      "artist": "Fixture",
+      "title": "Malformed Body"
+    },
+    {
+      "songDirRel": "c/v1_audio_precedence",
+      "songTxtRel": "c/v1_audio_precedence/song.txt",
+      "isValid": true,
+      "invalidReasonCode": null,
+      "invalidLineNumber": null,
+      "artist": "Fixture",
+      "title": "V1 Audio Precedence",
+      "resolvedAudioRel": "audio.ogg"
+    },
+    {
+      "songDirRel": "c/legacy_missing_mp3_invalid",
+      "songTxtRel": "c/legacy_missing_mp3_invalid/song.txt",
+      "isValid": false,
+      "invalidReasonCode": "ERROR_CORRUPT_SONG_MISSING_REQUIRED_HEADER",
+      "invalidLineNumber": null,
+      "artist": "Fixture",
+      "title": "Legacy Missing MP3"
+    },
+    {
+      "songDirRel": "c/legacy_mp3_preferred",
+      "songTxtRel": "c/legacy_mp3_preferred/song.txt",
+      "isValid": true,
+      "invalidReasonCode": null,
+      "invalidLineNumber": null,
+      "artist": "Fixture",
+      "title": "Legacy MP3 Preferred",
+      "resolvedAudioRel": "audio.mp3"
+    },
+    {
+      "songDirRel": "c/v1_missing_optional_video",
+      "songTxtRel": "c/v1_missing_optional_video/song.txt",
+      "isValid": true,
+      "invalidReasonCode": null,
+      "invalidLineNumber": null,
+      "artist": "Fixture",
+      "title": "V1 Missing Optional Video",
+      "hasVideo": false
+    },
+    {
+      "songDirRel": "d/vocals_without_instrumental",
+      "songTxtRel": "d/vocals_without_instrumental/song.txt",
+      "isValid": true,
+      "invalidReasonCode": null,
+      "invalidLineNumber": null,
+      "artist": "Fixture",
+      "title": "Vocals Without Instrumental",
+      "resolvedAudioRel": "audio.ogg",
+      "hasInstrumental": false,
+      "mixMode": "base_audio",
+      "expectedWarnCodes": [
+        "WARN_VOCALS_WITHOUT_INSTRUMENTAL"
+      ]
+    },
+    {
+      "songDirRel": "d/mix_pair_same_rate_channels",
+      "songTxtRel": "d/mix_pair_same_rate_channels/song.txt",
+      "isValid": true,
+      "invalidReasonCode": null,
+      "invalidLineNumber": null,
+      "artist": "Fixture",
+      "title": "Mix Pair Same Rate Channels",
+      "hasInstrumental": true,
+      "mixMode": "generated_wav",
+      "generatedAudioPathPrefix": "/songs/generated/",
+      "generatedAudioExtension": ".wav",
+      "manifestExcludes": [
+        "instrumentalUrl",
+        "vocalsUrl"
+      ]
+    },
+    {
+      "songDirRel": "d/mix_pair_mismatched_sample_rate",
+      "songTxtRel": "d/mix_pair_mismatched_sample_rate/song.txt",
+      "isValid": true,
+      "invalidReasonCode": null,
+      "invalidLineNumber": null,
+      "artist": "Fixture",
+      "title": "Mix Pair Mismatched Sample Rate",
+      "resolvedAudioRel": "audio.ogg",
+      "hasInstrumental": true,
+      "mixMode": "base_audio",
+      "expectedWarnCodes": [
+        "WARN_MIX_PAIR_INELIGIBLE_SAMPLE_RATE"
+      ]
+    },
+    {
+      "songDirRel": "d/mix_pair_mismatched_channels",
+      "songTxtRel": "d/mix_pair_mismatched_channels/song.txt",
+      "isValid": true,
+      "invalidReasonCode": null,
+      "invalidLineNumber": null,
+      "artist": "Fixture",
+      "title": "Mix Pair Mismatched Channels",
+      "resolvedAudioRel": "audio.ogg",
+      "hasInstrumental": true,
+      "mixMode": "base_audio",
+      "expectedWarnCodes": [
+        "WARN_MIX_PAIR_INELIGIBLE_CHANNELS"
+      ]
+    }
+  ]
+}

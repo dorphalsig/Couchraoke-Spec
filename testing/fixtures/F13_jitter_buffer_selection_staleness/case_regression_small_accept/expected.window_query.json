@@ -1,0 +1,9 @@
+{
+  "description": "seq=2 has tvTimeMs=1000; lastAcceptedTvTimeMs=1100; regression=100ms ≤ 200ms threshold → accepted. Both frames fall in [1000,1200) and appear in the query result.",
+  "inserts": [
+    {"seq": 1, "tvTimeMs": 1100, "disposition": "accepted"},
+    {"seq": 2, "tvTimeMs": 1000, "regressionMs": 100, "disposition": "accepted"}
+  ],
+  "noteWindow": {"startTvMs": 1000, "endTvMs": 1200},
+  "expectedFrameSeqs": [1, 2]
+}

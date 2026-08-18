@@ -1,0 +1,6 @@
+.worktrees/
+.pytest_cache/
+.claude/
+.serena/cache/
+*.bundle
+*:Zone.Identifier

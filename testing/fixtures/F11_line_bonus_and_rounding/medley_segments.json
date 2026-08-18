@@ -1,0 +1,8 @@
+{
+  "description": "Medley TOTAL aggregation input: three per-segment integer score breakdowns (ScoreInt/ScoreGoldenInt/ScoreLineInt/ScoreTotalInt) to be averaged.",
+  "segments": [
+    {"scoreInt": 3000, "scoreGoldenInt": 6000, "scoreLineInt": 1000, "scoreTotalInt": 10000},
+    {"scoreInt": 2990, "scoreGoldenInt": 6000, "scoreLineInt": 1000, "scoreTotalInt": 9990},
+    {"scoreInt": 3000, "scoreGoldenInt": 5990, "scoreLineInt": 980,  "scoreTotalInt": 9970}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "songCount": 3,
+  "remainingPhoneClientIds": ["phone-b"],
+  "sortedSongIds": [
+    "phone-b::songs/delta/delta.txt",
+    "phone-b::songs/echo/echo.txt",
+    "phone-b::songs/foxtrot/foxtrot.txt"
+  ]
+}

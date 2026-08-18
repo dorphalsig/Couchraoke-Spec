@@ -1,0 +1,102 @@
+[
+  {
+    "from": "Open",
+    "to": "Preparing",
+    "trigger": "start_song"
+  },
+  {
+    "from": "Preparing",
+    "to": "Countdown",
+    "trigger": "ready_with_countdown"
+  },
+  {
+    "from": "Preparing",
+    "to": "Live",
+    "trigger": "ready_without_countdown"
+  },
+  {
+    "from": "Preparing",
+    "to": "Error",
+    "trigger": "prepare_error"
+  },
+  {
+    "from": "Countdown",
+    "to": "Live",
+    "trigger": "countdown_complete"
+  },
+  {
+    "from": "Countdown",
+    "to": "Open",
+    "trigger": "required_singer_disconnect"
+  },
+  {
+    "from": "Countdown",
+    "to": "Error",
+    "trigger": "countdown_error"
+  },
+  {
+    "from": "Live",
+    "to": "Error",
+    "trigger": "playback_error"
+  },
+  {
+    "from": "Error",
+    "to": "Open",
+    "trigger": "user_dismiss_error"
+  },
+  {
+    "from": "Live",
+    "to": "Paused",
+    "trigger": "user_back"
+  },
+  {
+    "from": "Live",
+    "to": "DisconnectPaused",
+    "trigger": "required_singer_disconnect"
+  },
+  {
+    "from": "Live",
+    "to": "Stopped",
+    "trigger": "song_end"
+  },
+  {
+    "from": "Paused",
+    "to": "Live",
+    "trigger": "resume"
+  },
+  {
+    "from": "Paused",
+    "to": "Preparing",
+    "trigger": "restart"
+  },
+  {
+    "from": "Paused",
+    "to": "Open",
+    "trigger": "quit"
+  },
+  {
+    "from": "DisconnectPaused",
+    "to": "Live",
+    "trigger": "singer_reconnected_and_resume"
+  },
+  {
+    "from": "DisconnectPaused",
+    "to": "Live",
+    "trigger": "continue_without_singer"
+  },
+  {
+    "from": "DisconnectPaused",
+    "to": "Open",
+    "trigger": "quit"
+  },
+  {
+    "from": "Stopped",
+    "to": "Results",
+    "trigger": "finalization_complete"
+  },
+  {
+    "from": "Results",
+    "to": "Open",
+    "trigger": "back_to_song_list"
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "description": "Frame with latenessMs=460 (>450) dropped at insert; only the on-time frame appears in the window query.",
+  "inserts": [
+    {"seq": 1, "latenessMs": 50,  "disposition": "accepted"},
+    {"seq": 2, "latenessMs": 460, "disposition": "dropped_lateness"}
+  ],
+  "noteWindow": {"startTvMs": 1000, "endTvMs": 1200},
+  "expectedFrameSeqs": [1]
+}

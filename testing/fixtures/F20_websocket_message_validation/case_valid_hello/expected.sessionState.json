@@ -1,0 +1,21 @@
+{
+  "accepted": true,
+  "payload": {
+    "type": "sessionState",
+    "protocolVersion": 1,
+    "sessionId": "sess-001",
+    "slots": {
+      "P1": {
+        "connected": true,
+        "deviceName": "Pixel 7"
+      },
+      "P2": {
+        "connected": false,
+        "deviceName": ""
+      }
+    },
+    "inSong": false,
+    "songTimeSec": null,
+    "connectionId": 1
+  }
+}

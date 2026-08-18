@@ -1,0 +1,10 @@
+{
+  "samples": [
+    { "pingId": "d1", "rttMs": 50, "clockOffsetMs": 510.0 },
+    { "pingId": "d2", "rttMs": 34, "clockOffsetMs": 503.0 },
+    { "pingId": "d3", "rttMs": 70, "clockOffsetMs": 520.0 },
+    { "pingId": "d4", "rttMs": 49, "clockOffsetMs": 510.5 },
+    { "pingId": "d5", "rttMs": 60, "clockOffsetMs": 515.0 }
+  ],
+  "chosen": { "pingId": "d2", "rttMs": 34, "clockOffsetMs": 503.0 }
+}
