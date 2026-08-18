@@ -61,7 +61,7 @@ Ordered by priority. These describe *how* the system should be built.
 | Timing-sensitive logic accepts injected clocks | `FakeClock` / `TestCoroutineScheduler` |
 | All I/O behind interfaces | Network, playback (LibVLC via `LibVlcPlayerHandle`), filesystem mockable |
 | Scoring testable with fixture pitch streams | No real UDP required |
-| Coverage gates | 80% overall / 60% per-file (see testing/testing_policy.md) |
+| Coverage gates | 80% overall / 60% per-file |
 
 ## 1.2 Modularity
 
