@@ -1,9 +1,0 @@
-{
-  "accepted": false,
-  "payload": {
-    "type": "error",
-    "protocolVersion": 1,
-    "code": "invalid_message",
-    "message": "Missing required field: clientId"
-  }
-}

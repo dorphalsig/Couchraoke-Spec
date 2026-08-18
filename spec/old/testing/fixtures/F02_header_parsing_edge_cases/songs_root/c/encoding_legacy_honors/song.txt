@@ -1,8 +1,0 @@
-#VERSION:0.3.0
-#ENCODING:ISO-8859-1
-#TITLE:Café ISO-8859-1
-#ARTIST:Fixture
-#MP3:audio.mp3
-#BPM:120
-#GAP:0
-E

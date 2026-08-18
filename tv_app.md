@@ -1,11 +1,11 @@
 # Couchraoke TV App — Specification
 
-**Version**: 1.9
+**Version**: 2.0
 **Date**: 2026-05-18
-**Changelog since 1.8**: USDX pitch base corrected to C4/MIDI 60; effective audio-source validity aligned with accepted `#INSTRUMENTAL`+`#VOCALS` mix pairs; TV-facing audio wording clarified to a single effective `audioUrl`; fixture catalog/README alignment refreshed; Settings > About license attribution added.
-**Changelog since 1.7**: §4.6 BeatCalculator: purged `bpmInternal`, renamed `timeSecToMidBeatInternal`→`timeSecToBeat`, `beatInternalToTimeSec`→`beatToTimeSec`, corrected `/60.0`→`/15.0` per Appendix C. Appendix B.2.2: added `connectedDevices[]` to `sessionState` schema (max 10 devices). §2.6.17/§4.2: deleted txtUrl-fail skip clause; prefetch-all-or-fail normative. ScoringEngine: added `healthEvents: SharedFlow<GameplayHealthEvent>`. Dependencies pinned: navigation-compose 2.9.5, hilt-android 2.57.1, hilt-navigation-compose 1.2.0. Fixtures: F06 cursor 22→23, F15 clientIds renamed (c-a→client-aa, c-b→client-bb, c-c→client-cc), F15 case_slot_taken rewritten (11th-device cap=10 scenario), F16 expected.medleySegments.json created, F18 transcript.json→transcript.jsonl.
-**Scope**: Android TV Host App (phone companion OOS)
-**Earlier history (1.1–1.5)**: removed from header (preserved in git history); covered topics include UI design tokens merge, LibVLC migration from Media3, runtime degradation policy, fixture/test audit, and the §2.1 / §2.3 / §4.1 GamePhase rename audit.
+**Scope**: Android TV host app. The phone companion is specified in `phone_app.md`.
+**Delivery**: slice sequence, gates, and definition of done live in `plan.md`. This file states what the app must do, not the order it gets built in.
+**History**: changelogs for 1.1-1.9 are in git.
+
 ---
 
 ## Table of Contents
@@ -32,8 +32,6 @@
   - [4.6 Beat-Time Conversion](#46-beat-time-conversion)
 - [5. Resolved Blockers](#5-resolved-blockers)
 - [6. Test Fixtures](#6-test-fixtures)
-- [7. Project Plan](#7-project-plan)
-- [Appendix A: Peer-Boundary Test Utilities](#appendix-a-peer-boundary-test-utilities)
 - [Appendix B: Protocol JSON Schemas](#appendix-b-protocol-json-schemas)
 - [Appendix C: Worked Examples](#appendix-c-worked-examples)
 
@@ -65,7 +63,7 @@ Ordered by priority. These describe *how* the system should be built.
 
 ## 1.2 Modularity
 
-**Why**: Iteration plan builds features incrementally. Iter 0 has no network. Iter 1 has no scoring.
+**Why**: the app is delivered one slice at a time (see `plan.md`). Early slices run with no network and no scoring, so each subsystem must stand alone.
 
 | Requirement | Implementation |
 |-------------|----------------|
@@ -126,6 +124,7 @@ Higher-spec devices (4GB RAM) must work without degradation; lower-spec (1GB RAM
 ### Memory Budgets
 
 | Resource | Budget | Notes |
+
 |----------|--------|-------|
 | App total | ≤512MB | Heap + native + LibVLC. System overhead ~800MB–1GB on 2GB devices. |
 | LibVLC caching | `--file-caching=2000`, `--network-caching=3000`, `--live-caching=300` (all ms). Passed at `LibVLC` construction. | Caching is time-based, not byte-based; LibVLC does not expose a hard byte budget. Empirically yields ≤80MB combined audio+video on the target SoC. |
@@ -135,13 +134,15 @@ Higher-spec devices (4GB RAM) must work without degradation; lower-spec (1GB RAM
 ### Performance Targets
 
 | Screen | Target |
+
 |--------|--------|
 | Singing screen | ≥30fps sustained with 1–2 active pitch lanes |
 | Library index | ≥1000 songs in memory without UI jank |
 
-### Implementation Requirements
+### Minimal footprint requirements
 
 | Requirement | Implementation |
+
 |-------------|----------------|
 | No per-frame allocation in hot paths | Pre-allocated buffers |
 | Single-activity architecture | No fragment transaction overhead; `navigation-compose` `NavHost` manages the screen back stack |
@@ -182,10 +183,20 @@ Six L1 components directly under the TV app.
 
 **Lifecycle**: Scoped to app lifetime.
 
-### Responsibilities (Normative)
+### 2.1.1 Responsibilities (Normative)
 
 1. Own and increment `songInstanceSeq` (`UInt`) on every song start, including Restart.
-2. Drive song start: fetch and parse chart, configure scoring, set active song for pitch ingestion, prepare playback, wait for UI-reported effective playback-plan duration, lock session, obtain at least one valid clock-sync sample for every assigned singer before entering countdown or live playback, compute `stopAtLyricsTimeMs`, send `assignSinger`, then start countdown or playback; capture `songStartTvMs` when playback begins and push into scoring.
+
+2. Drive song start, in order:
+   1. Fetch and parse the chart.
+   2. Configure scoring and set the active song for pitch ingestion.
+   3. Prepare playback and wait for the UI-reported effective playback-plan duration.
+   4. Lock the session.
+   5. Obtain at least one valid clock-sync sample for every assigned singer, before countdown or live playback.
+   6. Compute `stopAtLyricsTimeMs`.
+   7. Send `assignSinger`.
+   8. Start countdown or playback.
+   9. Capture `songStartTvMs` when playback begins and push it into scoring.
 3. Construct `PlaybackStateMessage` on each playback-bearing game-phase transition and push to network layer.
 4. Coordinate pause, resume, restart, and quit across playback, scoring, and phone state.
 5. Handle required-singer disconnects by auto-pausing and presenting wait / continue / quit options.
@@ -195,7 +206,7 @@ Six L1 components directly under the TV app.
 9. Transition session FSM between Open and Locked at song start/end.
 10. Interact with subsystems only through narrow interfaces (`ScoringEngine`, `NetworkController`, etc.). No direct references to implementation classes.
 
-### songStartTvMs Capture (Normative)
+### 2.1.2 songStartTvMs Capture (Normative)
 
 `songStartTvMs` is the TV monotonic ms value corresponding to audio position 0 (before any `#START` offset). The coordinator MUST gate scoring on this value. LibVLC timing capture belongs to the UI/playback layer because it owns the playback controller and its `LibVlcPlayerHandle` instances (§2.6.1 Public API — Playback Backend Seam).
 
@@ -215,20 +226,25 @@ The TV's monotonic clock for all `*TvMs` values throughout this spec is `System.
 12. All note-window and finalization-time calculations that use `songStartTvMs` MUST instead use `effectiveSongStartTvMs = songStartTvMs + totalPausedDurationMs`.
 13. `totalPausedDurationMs` resets to `0` on every new song start and Restart.
 
-### START/END Playback Behavior (Normative)
+### 2.1.3 START/END Playback Behavior (Normative)
 
 - `#START` (seconds): if present, audio MP seeks to `startSec`. Video MP target position is `(videoGapSec ?? 0) + startSec`, applied per the Audio/Video Asset Coupling rules below.
+
 - `#END` (milliseconds): if present and > 0, playback MUST end when `songTimeSec >= endMs / 1000.0`.
 - If `#END` is absent or ≤ 0, song duration is determined by audio track length.
 - **Restart**: resets per-player scores/state and seeks audio MP back to `startSec`; video MP restarted per Audio/Video Asset Coupling rules.
 
-### Audio/Video Asset Coupling (Normative)
+### 2.1.4 Audio/Video Asset Coupling (Normative)
 
 The TV uses **two independent LibVLC `MediaPlayer` instances** for songs that carry a video asset: an audio MP (master) and a video MP (decoration). For audio-only songs a single audio MP is used. The video MP is an optional decoration; its failure MUST NOT affect audio, scoring, or session state.
 
-**Phone-side audio preparation (normative)**: the phone's HTTP server MUST serve exactly one playable audio resource at `audioUrl` for every song entry. If the song has an accepted `#INSTRUMENTAL`+`#VOCALS` mix pair, the phone MUST mix them into that single resource before or during the first request. The TV MUST NOT attempt to fetch or mix `#INSTRUMENTAL`/`#VOCALS` URLs directly; those URLs MUST NOT appear in any TV-facing wire message.
+#### Phone-side audio preparation
 
-**Two-MP start sequence (normative)**: when `videoUrl` is non-null and video is enabled (§2.6.15.6):
+Normative. The phone's HTTP server MUST serve exactly one playable audio resource at `audioUrl` for every song entry. If the song has an accepted `#INSTRUMENTAL`+`#VOCALS` mix pair, the phone MUST mix them into that single resource before or during the first request. The TV MUST NOT attempt to fetch or mix `#INSTRUMENTAL`/`#VOCALS` URLs directly; those URLs MUST NOT appear in any TV-facing wire message.
+
+#### Two-MP start sequence
+
+Normative. When `videoUrl` is non-null and video is enabled (§2.6.15.6):
 
 ```kotlin
 val gapMs = ((parsedSong.videoGapSec ?: 0f) * 1000L).toLong()
@@ -255,15 +271,23 @@ when {
 
 **`songStartTvMs` is always captured from the audio MP's `LibVlcEvent.Playing`**, regardless of whether a video MP is present. The video MP's event stream MUST NOT influence scoring timing.
 
-**Video MP configuration**: the video MP MUST be constructed with `:no-audio` to disable its audio decoder and prevent audio-focus contention with the audio MP.
+#### Video MP configuration
 
-**Drift (normative)**: no active drift correction is required for MVP. The two MPs share the same device system clock; observed drift over a 3–5 minute song on the target hardware is expected to be imperceptible for a decorative music-video backdrop. If QA on the reference device (Amlogic S905X4) shows drift > 300 ms, add a single resync at medley segment boundaries only.
+The video MP MUST be constructed with `:no-audio` to disable its audio decoder and prevent audio-focus contention with the audio MP.
 
-**Video MP failure handling**: if the video MP encounters `LibVlcEvent.EncounteredError`, the TV MUST release it and fall back to `#BACKGROUND` image (§2.6.15.6 fallback path). Audio MP continues unaffected. The error MUST be logged but MUST NOT surface an error modal.
+#### Drift
 
-**Multi-MP stability note**: running two LibVLC `MediaPlayer` instances in-process is not an officially documented use case for libvlc-android. The risk is assessed as low (Android's plugin set differs from desktop vlcj where warnings originate) but is a known yellow flag. If sustained QA on the reference device reveals instability, fall back to single-MP with `addSlave(Type.Audio, audioUri, true)` for audio, accepting that non-zero `#VIDEOGAP` values will produce a visually offset video.
+Normative. No active drift correction is required for MVP. The two MPs share the same device system clock; observed drift over a 3–5 minute song on the target hardware is expected to be imperceptible for a decorative music-video backdrop. If QA on the reference device (Amlogic S905X4) shows drift > 300 ms, add a single resync at medley segment boundaries only.
 
-### Public API
+#### Video MP failure handling
+
+If the video MP encounters `LibVlcEvent.EncounteredError`, the TV MUST release it and fall back to `#BACKGROUND` image (§2.6.15.6 fallback path). Audio MP continues unaffected. The error MUST be logged but MUST NOT surface an error modal.
+
+#### Multi-MP stability note
+
+Running two LibVLC `MediaPlayer` instances in-process is not an officially documented use case for libvlc-android. The risk is assessed as low (Android's plugin set differs from desktop vlcj where warnings originate) but is a known yellow flag. If sustained QA on the reference device reveals instability, fall back to single-MP with `addSlave(Type.Audio, audioUri, true)` for audio, accepting that non-zero `#VIDEOGAP` values will produce a visually offset video.
+
+### 2.1.5 Public API
 
 ```kotlin
 interface PlaybackCoordinator {
@@ -290,30 +314,33 @@ interface PlaybackCoordinator {
 }
 ```
 
-### NFRs Applied
+### 2.1.6 NFRs Applied
 
 - **Testability**: All subsystem interactions via injected interfaces
+
 - **Modularity**: Knows nothing about UI rendering
 - **Debuggability**: Logs every phase transition with timestamp
 
-### SLAs
+### 2.1.7 SLAs
 
 | Metric | Target | Test |
+
 |--------|--------|------|
 | Phase transition latency | <50ms | Unit test, measure emission time |
 | Clock sync completes | <3s for 5 samples | F21 fixture |
 
-### L2 Visible Shapes
+### 2.1.8 L2 Visible Shapes
 
 - **GamePhaseFSM**: 9 states, validates transitions (see [§4.1](#41-gamephase-fsm))
+
 - **MedleySequencer**: Segment index, prebuffer trigger, transition coroutine
 - **ClockSyncLogic**: Offset computation, best-of-N selection, RTT filtering
 
-### Acceptance Criteria
+### 2.1.9 Acceptance Criteria
 
 - F14v2, F15, F16, F21, F22 pass
 
-### Knowledge Gaps
+### 2.1.10 Knowledge Gaps
 
 None.
 
@@ -325,11 +352,14 @@ None.
 
 **Lifecycle**: Active during song. Reset on restart.
 
-**Buffering invariant (normative)**: After `reset()` + `loadChart()` and before `setSongStart(songStartTvMs)`, the ScoringEngine is in a buffering state. Frames received for the active `songInstanceSeq` during this window MUST be stored in the jitter buffer. Finalization and note evaluation remain gated on `setSongStart(songStartTvMs)`. When `setSongStart(songStartTvMs)` is called, the ScoringEngine MUST discard any buffered frames with `tvTimeMs < songStartTvMs` before finalization begins.
+### Buffering invariant
 
-### Scoring Overview
+Normative. After `reset()` + `loadChart()` and before `setSongStart(songStartTvMs)`, the ScoringEngine is in a buffering state. Frames received for the active `songInstanceSeq` during this window MUST be stored in the jitter buffer. Finalization and note evaluation remain gated on `setSongStart(songStartTvMs)`. When `setSongStart(songStartTvMs)` is called, the ScoringEngine MUST discard any buffered frames with `tvTimeMs < songStartTvMs` before finalization begins.
+
+### 2.2.1 Scoring Overview
 
 Use this section as the primary home for scoring semantics:
+
 - core scoring rules and score budgets: **Scoring Algorithm**
 - per-player tolerance and defaults: **Player Level / Tolerance**
 - octave handling: **Octave Normalization**
@@ -338,7 +368,7 @@ Use this section as the primary home for scoring semantics:
 
 Supporting mechanics live in [§3.2](#32-interaction-contracts), [§4.3](#43-scoring-coroutine), [§4.4](#44-jitter-buffer), and [§4.6](#46-beat-time-conversion). Worked numeric examples live in [Appendix C](#appendix-c-worked-examples).
 
-### Public API
+### 2.2.2 Public API
 
 ```kotlin
 interface ScoringEngine {
@@ -385,23 +415,28 @@ sealed class GameplayHealthEvent {
 }
 ```
 
-### NFRs Applied
+### 2.2.3 NFRs Applied
 
 - **Testability**: Subscribes to `NetworkController.pitchFrames`, injectable
+
 - **Modularity**: Pure math, no network/UI knowledge
 - **Minimal Footprint**: Jitter buffer pre-allocated, no per-frame allocation
 
-### SLAs
+### 2.2.4 SLAs
 
 | Metric | Target | Test |
+
 |--------|--------|------|
 | Note finalization latency | ≤ 50ms after ideal eligibility time on target hardware | Instrumented test |
 | Jitter buffer capacity | 500ms × 50fps × 2 players (50ms safety margin over 450ms drop threshold) | Unit test, verify no overflow |
 | Perfect score | `scoreTotalInt == 10000` | F08 with perfect input |
 
-### Scoring Algorithm (Normative)
+### 2.2.5 Scoring Algorithm (Normative)
 
-**Scoring coroutine (normative)**: scoring evaluation MUST run on a **dedicated coroutine**, independent of the UI render loop. The coroutine MUST:
+#### Scoring coroutine
+
+Normative. Scoring evaluation MUST run on a **dedicated coroutine**, independent of the UI render loop. The coroutine MUST:
+
 1. Poll `System.nanoTime() / 1_000_000` (TV monotonic clock) often enough to finalize due notes within the latency SLA. (`LibVLC player position` is used separately for lyrics beat position, not for note-window comparisons.)
 2. Maintain the jitter buffer of incoming pitch frames.
 3. Keep pending note finalizations in chronological order by `noteEndTvMs + NOTE_FINALIZATION_DELAY_MS`.
@@ -411,12 +446,16 @@ sealed class GameplayHealthEvent {
 
 This decouples scoring accuracy from UI frame rate — render load, frame drops, or display Hz differences MUST NOT affect scoring. Score state MUST be exposed via `StateFlow<PlayerScore>` and observed by the Compose UI.
 
-**Normalization check**: for a perfect performance (all frames are hits for every note), total across all notes equals `sum(max_note_score) = MaxSongPoints` ✓
+#### Normalization check
+
+For a perfect performance (all frames are hits for every note), total across all notes equals `sum(max_note_score) = MaxSongPoints` ✓
 
 Score is normalized to **10000 total**. Line bonus ON reserves 1000 for line bonus and distributes the remaining 9000 via note value normalization.
 
-**Score budgets**:
+#### Score budgets
+
 - If `LineBonusEnabled = ON`: `MaxSongPoints = 9000`, `MaxLineBonusPool = 1000`.
+
 - If `LineBonusEnabled = OFF`: `MaxSongPoints = 10000`, `MaxLineBonusPool = 0`.
 
 **Per-note scoring** — when a note is finalized:
@@ -430,12 +469,14 @@ If `N > 0`:
 - `max_note_score = (MaxSongPoints / TrackScoreValue) × ScoreFactor[noteType] × durationBeats`
 - `note_score = max_note_score × (hits / N)` — `hits / N` MUST use IEEE 754 double-precision float division.
 
-**Score accumulation**:
+#### Score accumulation
+
 - Normal (`:`) or Rap (`R`): add `note_score` to `Player.Score`.
+
 - Golden (`*`) or RapGolden (`G`): add `note_score` to `Player.ScoreGolden`.
 - Freestyle (`F`): `ScoreFactor = 0`, so `max_note_score = 0`; no accumulation occurs.
 
-**ScoreFactor constants**:
+#### ScoreFactor constants
 
 | Token | Type | ScoreFactor |
 |-------|------|-------------|
@@ -445,37 +486,50 @@ If `N > 0`:
 | `R` | Rap | 1 |
 | `G` | RapGolden | 2 |
 
-**`TrackScoreValue`**: `sum(note.durationBeats × ScoreFactor[note.noteType])` over all notes in the track — equivalently, the pre-computed `track.trackScoreValue`. Medley exception: only notes within `[medleyStartBeat, medleyEndBeat)` are included; notes outside the window are treated as Freestyle (ScoreFactor=0).
+#### `TrackScoreValue`
 
-**`toneValid` is implicit** (normative): `toneValid = (midiNote != 255)`. There is no separate boolean field in the wire format. Frames with `midiNote = 255` are always unvoiced.
+`sum(note.durationBeats × ScoreFactor[note.noteType])` over all notes in the track — equivalently, the pre-computed `track.trackScoreValue`. Medley exception: only notes within `[medleyStartBeat, medleyEndBeat)` are included; notes outside the window are treated as Freestyle (ScoreFactor=0).
 
-**Per-sample hit detection (`isPitchMatch`)**:
+#### `toneValid` is implicit in scoring
+
+Normative. `toneValid = (midiNote != 255)`. There is no separate boolean field in the wire format. Frames with `midiNote = 255` are always unvoiced.
+
+#### Per-sample hit detection (`isPitchMatch`)
+
 - **Freestyle** (`F`): never evaluated (ScoreFactor = 0).
+
 - **Normal** (`:`) and **Golden** (`*`): `s.toneValid = true` AND `abs(octaveNormalized(s.tone, note.toneSemitone) − note.toneSemitone) <= Range`.
 - **Rap** (`R`) and **RapGolden** (`G`): `s.toneValid = true` (presence-only; pitch difference ignored).
 
 Where `s.tone = s.midiNote − 60` (C4/MIDI 60 → Tone=0, matching the USDX pitch base).
 
-**Scoring configuration contract (normative)**:
+#### Scoring configuration contract
+
+Normative.
+
 - `ScoringEngine.loadChart(...)` MUST receive all gameplay inputs that affect scoring through `ScoringConfig`.
 - `playerDifficulties` comes from Select Players and MUST include one entry for each assigned singer.
 - `lineBonusEnabled` comes from Settings > Gameplay.
 - `ScoringEngine` MUST NOT read these values implicitly from UI state, global settings, or any source outside the explicit `ScoringConfig` passed for the current song/segment.
 
-### Player Level / Tolerance (Normative)
+### 2.2.6 Player Level / Tolerance (Normative)
 
 Each player has a Difficulty setting. The pitch tolerance `Range` (in semitones):
+
 - **Easy**: Range = 2
 - **Medium**: Range = 1 (default for newly assigned singers)
 - **Hard**: Range = 0
 
 Range is applied only for Normal and Golden notes. Rap notes ignore pitch difference.
 
-**Parity requirement**: implement the exact Range mapping above (Easy=2, Medium=1, Hard=0) per player. Default difficulty is **Medium** for each newly assigned singer.
+#### Parity requirement
 
-### Octave Normalization (Normative)
+Implement the exact Range mapping above (Easy=2, Medium=1, Hard=0) per player. Default difficulty is **Medium** for each newly assigned singer.
+
+### 2.2.7 Octave Normalization (Normative)
 
 Before comparing to the target note, normalize the detected pitch to the closest octave of the target:
+
 ```
 while (Tone - TargetTone > 6) Tone := Tone - 12
 while (Tone - TargetTone < -6) Tone := Tone + 12
@@ -483,47 +537,64 @@ while (Tone - TargetTone < -6) Tone := Tone + 12
 
 Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on the full semitone value and shifts by 12 until distance to `TargetTone` is within ±6.
 
-### Line Bonus (Normative)
+### 2.2.8 Line Bonus (Normative)
 
-**Sentence finalization**: a sentence is complete when its last scorable note has been finalized. At that point, line bonus evaluation runs.
+#### Sentence finalization
 
-**Per-line max score**: `MaxLineScore = MaxSongPoints × (LineScoreValue / TrackScoreValue)`, where `LineScoreValue = line.lineScoreValue` (pre-computed by the parser as `Σ(note.durationBeats × ScoreFactor[note.noteType])` over notes in the line) and `TrackScoreValue = track.trackScoreValue`.
+A sentence is complete when its last scorable note has been finalized. At that point, line bonus evaluation runs.
 
-**Line perfection**:
+#### Per-line max score
+
+`MaxLineScore = MaxSongPoints × (LineScoreValue / TrackScoreValue)`, where `LineScoreValue = line.lineScoreValue` (pre-computed by the parser as `Σ(note.durationBeats × ScoreFactor[note.noteType])` over notes in the line) and `TrackScoreValue = track.trackScoreValue`.
+
+#### Line perfection
+
 - `LineScore = (Player.Score + Player.ScoreGolden) − Player.ScoreLast`
+
 - If `MaxLineScore <= 2` then `LinePerfection = 1` (forgiveness term)
 - Else `LinePerfection = clamp(LineScore / (MaxLineScore − 2), 0, 1)`
 
-**Distribution** (when LineBonusEnabled=ON):
+#### Distribution
+
+When LineBonusEnabled=ON
+
 - Empty lines (`LineScoreValue = 0`) do not receive line bonus.
 - `NonEmptyLines = NumLines − NumEmptyLines`
 - `LineBonusPerLine = MaxLineBonusPool / NonEmptyLines` (float division; not integer-divide)
 - `Player.ScoreLine += LineBonusPerLine × LinePerfection`
 - `Player.ScoreLast` MUST be updated after each sentence's line bonus is applied.
 
-### Rounding and Display (Normative)
+### 2.2.9 Rounding and Display (Normative)
 
-**Line score rounding**: `Player.ScoreLineInt = floor(round(Player.ScoreLine) / 10) × 10`
+#### Line score rounding
 
-**Tens rounding**:
+`Player.ScoreLineInt = floor(round(Player.ScoreLine) / 10) × 10`
+
+#### Tens rounding
+
 - `ScoreInt = round(Player.Score / 10) × 10`
+
 - `ScoreGoldenInt` rounds in the **opposite direction** to prevent sum exceeding 10000:
   - If `ScoreInt < Player.Score` then `ScoreGoldenInt = ceil(Player.ScoreGolden / 10) × 10`
   - Else `ScoreGoldenInt = floor(Player.ScoreGolden / 10) × 10`
 - `ScoreTotalInt = ScoreInt + ScoreGoldenInt + Player.ScoreLineInt`
 
-**Intentional rounding asymmetry**: `ScoreLineInt` uses `floor(round(x)/10)*10` while `ScoreInt`/`ScoreGoldenInt` use `round(x/10)*10`. This matches USDX behavior and MUST NOT be normalized.
+#### Intentional rounding asymmetry
 
-### L2 Visible Shapes
+`ScoreLineInt` uses `floor(round(x)/10)*10` while `ScoreInt`/`ScoreGoldenInt` use `round(x/10)*10`. This matches USDX behavior and MUST NOT be normalized.
+
+### 2.2.10 L2 Visible Shapes
 
 - **JitterBuffer**: Ring buffer keyed by `tvTimeMs`, range query for note windows (see [§4.4](#44-jitter-buffer))
+
 - **ScoringCoroutine**: deadline-driven loop, uses `System.nanoTime()`, triggers finalization (see [§4.3](#43-scoring-coroutine))
 - **NoteEvaluator**: Hit detection, octave normalization, tolerance
 - **LineBonusCalculator**: Sentence completion, -2 forgiveness
 
-### Acceptance Tests (Jitter Buffer — 5.2.3)
+### 2.2.11 Acceptance Tests (Jitter Buffer — 5.2.3)
 
 | ID | What | Expected | Fixture |
+
 |----|------|---------|---------|
 | T5.2.3.1 | Note not finalized before `noteEndTvMs + 450` | No scoring result before finalization time | inline |
 | T5.2.3.2 | At finalization, all qualifying frames collected | `samplesInNote` contains every frame with `noteStartTvMs <= tvTimeMs < noteEndTvMs` and `latenessMs <= 450` | inline |
@@ -534,9 +605,10 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | T5.2.3.7 | `tvTimeMs` regression ≤ 200ms → accept | Frame retained and eligible | F13/`case_regression_small_accept` |
 | T5.2.3.8 | No qualifying frames for a note | `samplesInNote` empty; `N=0` → `note_score=0` | inline |
 
-### Acceptance Tests (Beat-Time — 5.3)
+### 2.2.12 Acceptance Tests (Beat-Time — 5.3)
 
 | ID | What | Fixture | Expected |
+
 |----|------|---------|---------|
 | T5.3.1 | Highlight cursor: `lyricsTimeSec=5.0`, `GAP=2000`, `BPM_file=120` | F06/`expected.beat_cursors.json` | `currentBeat=24` |
 | T5.3.2 | Scoring cursor: same + `micDelayMs=100` | F06 | `currentBeatD=23` |
@@ -544,9 +616,11 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | T5.3.4 | Note window: `startBeat=11`, `duration=2` | inline | Active at b=11,12; NOT at b=13 |
 | T5.3.5 | Medley: notes outside `[medleyStartBeat, medleyEndBeat)` treated as Freestyle | inline | ScoreFactor=0 at scoring time |
 
-### Acceptance Tests (Scoring — 6.1 / 6.2 / 6.4 / 6.5 / 6.6)
+### 2.2.13 Acceptance Tests (Scoring — 6.1 / 6.2 / 6.4 / 6.5 / 6.6)
 
-**[Scoring Algorithm](#scoring-algorithm-normative) Scoring Overview**
+#### Scoring Overview
+
+Covers [§2.2.5 Scoring Algorithm](#225-scoring-algorithm-normative).
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -558,7 +632,7 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | T6.1.6a | All-freestyle chart: every note has `ScoreFactor=0` | F03/`scoring/all_freestyle` | `scoreTotalInt=0` |
 | T6.1.6 | Sentence finalization triggers line bonus | F11 | Line bonus applied at sentence boundary |
 
-**Note Types**
+#### Note Types
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -566,7 +640,9 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | T6.2.2 | Rap: `toneValid=false` → miss | F10 | Hit not counted |
 | T6.2.3 | Rap scoring end-to-end | F10/`expected.score.json` | `scoreTotalInt` matches fixture |
 
-**[Octave Normalization](#octave-normalization-normative) Octave Normalization**
+#### Octave Normalization Tests
+
+Covers [§2.2.7 Octave Normalization](#227-octave-normalization-normative).
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -578,7 +654,9 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | T6.4.6 | Octave norm: `Tone - Target < -6` → add 12 | inline | Tone shifted up |
 | T6.4.7 | Do NOT reduce to pitch class (mod 12) before loop | inline | Full semitone value preserved |
 
-**[Line Bonus](#line-bonus-normative) Line Bonus**
+#### Line Bonus Tests
+
+Covers [§2.2.8 Line Bonus](#228-line-bonus-normative).
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -588,7 +666,9 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | T6.5.4 | `LineBonusPerLine` uses float division (not integer) | F11 | Precision matches fixture |
 | T6.5.5 | Medley: `TrackScoreValue` only sums notes in `[medleyStartBeat, medleyEndBeat)` | F16 / T9.5.7.5 | Only in-window notes summed |
 
-**[Rounding and Display](#rounding-and-display-normative) Rounding and Display**
+#### Rounding and Display Tests
+
+Covers [§2.2.9 Rounding and Display](#229-rounding-and-display-normative).
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -598,11 +678,11 @@ Do NOT reduce to pitch class (`mod 12`) before the loop. The loop operates on th
 | T6.6.4 | `ScoreLineInt = floor(round(ScoreLine)/10)*10` (intentional asymmetry) | F11 | Asymmetric formula used |
 | T6.6.5 | `ScoreTotalInt` never exceeds 10000 | F11 | Verified |
 
-### Acceptance Criteria
+### 2.2.14 Acceptance Criteria
 
 - F06, F08, F09, F10, F11, F13, F24 pass
 
-### Knowledge Gaps
+### 2.2.15 Knowledge Gaps
 
 None.
 
@@ -614,9 +694,10 @@ None.
 
 **Lifecycle**: Active for app lifetime. Sockets bound at startup.
 
-### Network Overview
+### 2.3.1 Network Overview
 
 Use this section as the primary home for network protocol and session semantics:
+
 - session entry and transport bindings: **Transport Bindings**, **Session Lifecycle**, **Session Token / Join Code**
 - runtime control semantics: **`assignSinger` Semantics** and **`playbackState` Emission Rules**
 - wire-level protocol shape: **Pitch Frame Wire Format**, **Control Message Schemas**, and [Appendix B](#appendix-b-protocol-json-schemas)
@@ -625,7 +706,7 @@ Use this section as the primary home for network protocol and session semantics:
 
 [§3.2 Interaction Contracts](#32-interaction-contracts) summarizes call boundaries, but this section remains the authoritative home for network behavior.
 
-### Public API
+### 2.3.2 Public API
 
 ```kotlin
 interface NetworkController {
@@ -679,57 +760,71 @@ sealed class PhoneEvent {
 }
 ```
 
-### NFRs Applied
+### 2.3.3 NFRs Applied
 
 - **Testability**: Interface-based, mock for unit tests
+
 - **Graceful Degradation**: Emits events on disconnect, doesn't crash
 - **Debuggability**: Logs all messages with timestamps
 
-### SLAs
+### 2.3.4 SLAs
 
 | Metric | Target | Test |
+
 |--------|--------|------|
 | UDP frame validation | <1ms per frame | Microbenchmark |
 | Manifest fetch | <2s on LAN | Instrumented with real HTTP |
 | WebSocket message latency | <50ms | Round-trip test |
 
-### Transport Bindings (Normative)
+### 2.3.5 Transport Bindings (Normative)
 
 - **WebSocket URL**: `ws://<tv-ip>:<wsPort>/?token=<sessionToken>`. The `token` query parameter is validated on every new connection; missing or incorrect token → `error(code="invalid_token")` then close.
+
 - **UDP port**: The TV MUST bind its `DatagramSocket` on `udpPort` at session start, **before any phone connects**, so the port is stable for the session lifetime. This port is included in `assignSinger.udpPort`. Frames MUST NOT be batched; each datagram is exactly one frame.
 
-### `assignSinger` Semantics (Normative)
+### 2.3.6 `assignSinger` Semantics (Normative)
 
 The TV sends `assignSinger` to instruct the phone as follows:
+
 - `startMode = "countdown"`: the phone MUST delay sending `pitchFrame` datagrams until the countdown completes (after `countdownMs`). The phone MAY warm up pitch detection locally during the countdown, but MUST NOT transmit frames.
 - `startMode = "live"`: begin sending frames immediately.
 - `assignSinger` provides initial pre-roll configuration, including the active-song metadata shown on the phone. Once a `playbackState` for the same `songInstanceSeq` arrives, `playbackState` is authoritative for countdown/playing/paused/stopped phone UI state.
 - Authority split: `playbackState` governs in-song runtime substate; `sessionState.inSong` governs whether the phone is in singing mode at all.
 - `sessionState.inSong=false` is the authoritative session-level exit signal. On receiving it, the phone MUST leave singing mode and clear active song UI/state even if the last `playbackState` was `countdown`, `playing`, `paused`, or `stopped`.
 
-### `playbackState` Emission Rules (Normative)
+### 2.3.7 `playbackState` Emission Rules (Normative)
 
-**Emission responsibility**: The `PlaybackCoordinator` MUST construct every `PlaybackStateMessage` and push it to `NetworkController.broadcastPlaybackState()`. Emission is triggered by: (a) each playback-bearing game-phase transition, or (b) the medley-source pre-run notification (§2.6.17) sent to non-singer phones before a medley starts. The `NetworkController` MUST NOT autonomously construct `playbackState` messages.
+#### Emission responsibility
+
+The `PlaybackCoordinator` MUST construct every `PlaybackStateMessage` and push it to `NetworkController.broadcastPlaybackState()`. Emission is triggered by: (a) each playback-bearing game-phase transition, or (b) the medley-source pre-run notification (§2.6.17) sent to non-singer phones before a medley starts. The `NetworkController` MUST NOT autonomously construct `playbackState` messages.
 
 **Phases that do NOT emit** `playbackState`: `Open`, `Preparing`, `Results`.
 
-**Phase → `state` field mapping**:
+#### Phase → `state` field mapping
+
 | GamePhase | `state` field |
+
 |-----------|--------------|
 | `Countdown` | `"countdown"` |
 | `Live` | `"playing"` |
 | `Paused` or `DisconnectPaused` | `"paused"` |
 | `Stopped` | `"stopped"` |
 
-**`revision` semantics**: increments monotonically per `songInstanceSeq` on every emission; resets when `songInstanceSeq` changes. Phones MUST ignore any `playbackState` with a lower `revision` than the last accepted message for the same `songInstanceSeq`.
+#### `revision` semantics
 
-**`reason` value enum**: `""`, `"user_pause"`, `"singer_disconnected"`, `"song_end"`, `"user_quit"`, `"restart"`, `"segment_transition"`, `"medley_source"`, `"medley_end"`.
+Increments monotonically per `songInstanceSeq` on every emission; resets when `songInstanceSeq` changes. Phones MUST ignore any `playbackState` with a lower `revision` than the last accepted message for the same `songInstanceSeq`.
 
-**`lyricsTimeMs`**: current LibVLC playback position at message construction time.
+#### `reason` value enum
+
+`""`, `"user_pause"`, `"singer_disconnected"`, `"song_end"`, `"user_quit"`, `"restart"`, `"segment_transition"`, `"medley_source"`, `"medley_end"`.
+
+#### `lyricsTimeMs`
+
+Current LibVLC playback position at message construction time.
 
 The TV MUST send `playbackState` whenever playback enters countdown, starts, pauses, resumes, seeks, or stops. On reconnect during an active song, after `sessionState` and any required `assignSinger`, the TV MUST send the current `playbackState` immediately.
 
-### Session Lifecycle (Normative)
+### 2.3.8 Session Lifecycle (Normative)
 
 Session state is owned by the TV host app.
 
@@ -743,7 +838,7 @@ Session state is owned by the TV host app.
 - On song start: transition to **Locked**. New `hello` attempts receive `error(code="session_locked")`.
 - On song end (Results reached): transition to **Open**.
 
-### Session Token / Join Code (Normative)
+### 2.3.9 Session Token / Join Code (Normative)
 
 > ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
@@ -759,7 +854,7 @@ val code = "${adjectives.random()}-${nouns.random()}".uppercase()  // e.g. "SWIF
 - Generated per session start; invalidated when session ends. Reuse across sessions NOT allowed.
 - TV MUST reject WebSocket connections with missing or incorrect token: `error(code="invalid_token")`.
 
-### Pitch Frame Wire Format (Normative)
+### 2.3.10 Pitch Frame Wire Format (Normative)
 
 > ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
@@ -777,26 +872,39 @@ Offset  Size  Type    Field
 
 Struct format: `<IqIBBH` (little-endian). Frames MUST NOT be batched. Each datagram is exactly one frame.
 
-**`toneValid` is implicit**: `toneValid = (midiNote != 255)`. A `midiNote` of `0` is a valid MIDI note (not silence). Only `255` signals unvoiced/silence.
+#### `toneValid` is implicit in the pitch frame
 
-### Control Message Schemas (Normative)
+`toneValid = (midiNote != 255)`. A `midiNote` of `0` is a valid MIDI note (not silence). Only `255` signals unvoiced/silence.
+
+### 2.3.11 Control Message Schemas (Normative)
 
 > ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
 All messages are JSON objects with common envelope: `type` (string), `protocolVersion` (int, MUST be `1`), `tsTvMs` (optional).
 
-**`hello`** (Phone → TV): `clientId`, `deviceName`, `appVersion`, `httpPort`.
+#### `hello`
+
+Phone → TV `clientId`, `deviceName`, `appVersion`, `httpPort`.
+
 - `deviceName` is a persisted human-friendly phone label used for TV display. It MUST NOT default to a raw hardware model string if a friendlier label is available.
 
-**`sessionState`** (TV → Phone): `sessionId`, `slots { P1: { connected, deviceName }, P2: { connected, deviceName } }` (singer assignment slots), `connectedDevices` (array of all connected phones up to 10), `inSong`, `songTimeSec`, `connectionId` (present only in initial response to hello; null in broadcasts).
+#### `sessionState`
 
-**`assignSinger`** (TV → Phone): `sessionId`, `songInstanceSeq` (uint32), `playerId` (`"P1"` / `"P2"`), `difficulty` (`"Easy"` / `"Medium"` / `"Hard"`), `startMode` (`"countdown"` or `"live"`), `countdownMs` (int; if countdown), `stopAtLyricsTimeMs` (int), `udpPort` (int), `songTitle`, `songArtist`.
+TV → Phone `sessionId`, `slots { P1: { connected, deviceName }, P2: { connected, deviceName } }` (singer assignment slots), `connectedDevices` (array of all connected phones up to 10), `inSong`, `songTimeSec`, `connectionId` (present only in initial response to hello; null in broadcasts).
+
+#### `assignSinger`
+
+TV → Phone `sessionId`, `songInstanceSeq` (uint32), `playerId` (`"P1"` / `"P2"`), `difficulty` (`"Easy"` / `"Medium"` / `"Hard"`), `startMode` (`"countdown"` or `"live"`), `countdownMs` (int; if countdown), `stopAtLyricsTimeMs` (int), `udpPort` (int), `songTitle`, `songArtist`.
 
 Before the TV sends `assignSinger`, it MUST already have at least one valid clock-sync sample for that singer. If `startMode="countdown"`, this requirement applies before countdown begins.
 
-**`stopAtLyricsTimeMs` computation (normative)**: for a normal song, if `#END` present and > 0, use `endMs` (already in lyrics-time); otherwise `stopAtLyricsTimeMs = effectivePlaybackDurationMs - gapMs`, where `effectivePlaybackDurationMs` is the total audio file duration reported by `PlaybackEvent.Prepared` and `gapMs` is `#GAP` in ms (default 0). This converts audio end position to lyrics-time: at audio EOF, `lyricsTimeMs = playerHandle.timeMs − gapMs`. `#START` shifts the playback seek position but does not affect `effectivePlaybackDurationMs` or this formula. For medley: lyrics-time ms at the end of the final segment's fade-out. MUST be recomputed on Restart or reconnect.
+#### `stopAtLyricsTimeMs` computation
 
-**`playbackState`** (TV → Phone): required fields per Appendix B [§B.2.7](#b27-playbackstate):
+Normative. For a normal song, if `#END` present and > 0, use `endMs` (already in lyrics-time); otherwise `stopAtLyricsTimeMs = effectivePlaybackDurationMs - gapMs`, where `effectivePlaybackDurationMs` is the total audio file duration reported by `PlaybackEvent.Prepared` and `gapMs` is `#GAP` in ms (default 0). This converts audio end position to lyrics-time: at audio EOF, `lyricsTimeMs = playerHandle.timeMs − gapMs`. `#START` shifts the playback seek position but does not affect `effectivePlaybackDurationMs` or this formula. For medley: lyrics-time ms at the end of the final segment's fade-out. MUST be recomputed on Restart or reconnect.
+
+#### `playbackState`
+
+TV → Phone Required fields per Appendix B [§B.2.7](#b27-playbackstate):
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -812,22 +920,32 @@ Before the TV sends `assignSinger`, it MUST already have at least one valid cloc
 | `reason` | string | enum: `""`, `"user_pause"`, `"singer_disconnected"`, `"song_end"`, `"user_quit"`, `"restart"`, `"segment_transition"`, `"medley_source"`, `"medley_end"` |
 | `tsTvMs` | number\|null | optional TV wall-clock timestamp |
 
-**`error`** (TV → Phone): `code` (e.g., `"session_full"`, `"session_locked"`, `"protocol_mismatch"`, `"invalid_token"`), `message`.
+#### `error`
+
+TV → Phone `code` (e.g., `"session_full"`, `"session_locked"`, `"protocol_mismatch"`, `"invalid_token"`), `message`.
 
 TV MUST reject clients whose `hello.protocolVersion != 1` with `error(code="protocol_mismatch")` and close.
 
-**Unknown message type (normative)**: an unknown `type` field MUST be ignored with a warning. **Exception**: during the handshake sequence, an unexpected message type is a fatal error — close the connection.
+#### Unknown message type
 
-**Versioning / backward compatibility**: `protocolVersion = 1` for MVP. Backward/forward compatibility is **out of scope** for MVP; future versions MUST increment `protocolVersion` and maintain a compatibility table.
+Normative. An unknown `type` field MUST be ignored with a warning. **Exception**: during the handshake sequence, an unexpected message type is a fatal error — close the connection.
 
-### Disconnect/Reconnect Mechanics (Normative)
+#### Versioning / backward compatibility
 
-**Mid-song disconnect**:
+`protocolVersion = 1` for MVP. Backward/forward compatibility is **out of scope** for MVP; future versions MUST increment `protocolVersion` and maintain a compatibility table.
+
+### 2.3.12 Disconnect/Reconnect Mechanics (Normative)
+
+#### Mid-song disconnect
+
 - **Required singer** disconnects: TV auto-pauses (`DisconnectPaused`) and shows disconnect overlay.
+
 - **Spectator / song-source-only** disconnects: no pause. Songs removed from library. If active song was streaming from that phone, stream breaks and playback-error handling applies.
 
-**Reconnect behavior**:
+#### Reconnect behavior
+
 - **Transport disconnect** (network drop, backgrounded): phone auto-reconnects with same `clientId`. No QR/code rescan.
+
 - **User-initiated leave**: return to Join screen, clear cached endpoint. No auto-reconnect.
 - **Host kick**: phone returns to Join screen, clears endpoint.
 - On reconnect within same session: phone sends same `clientId` in `hello` to reclaim identity. **Reconnect admission MUST be based on `clientId` already present in the current session roster** — not only on a currently-live socket registry entry.
@@ -838,16 +956,17 @@ TV MUST reject clients whose `hello.protocolVersion != 1` with `error(code="prot
 - **Socket cleanup**: when a new socket replaces an old one for the same `clientId`, cleanup of the closing socket MUST only remove connection/session state if that closing socket is still the active socket for that client.
 - If roster full and reconnect does not match existing `clientId`: reject with `code="session_full"`.
 
-### L2 Visible Shapes
+### 2.3.13 L2 Visible Shapes
 
 - **WebSocketServer**: Ktor, handles control channel
+
 - **UdpListener**: DatagramSocket, validates frames, emits to SharedFlow
 - **HttpClient**: Ktor client, fetches manifests and txt files
 - **ConnectionRegistry**: Tracks clientId → connectionId mapping
 - **JoinCodeValidator**: Checks token on WebSocket connect
 - **MdnsAdvertiser**: jmDNS-based service advertisement (see below)
 
-### mDNS Service Advertisement (Normative)
+### 2.3.14 mDNS Service Advertisement (Normative)
 
 > ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
@@ -861,9 +980,14 @@ TV MUST advertise via mDNS for session duration:
 | TXT `code` | Full join code, uppercase with hyphen (e.g., `code=SWIFT-PANDA`) |
 | TXT `v` | `1` (protocol version) |
 
-**Library**: Use jmDNS (not NsdManager — unreliable on some OEM firmware).
+#### Library
 
-**Multicast Lock (Required)**:
+Use jmDNS (not NsdManager — unreliable on some OEM firmware).
+
+#### Multicast Lock
+
+Normative.
+
 1. Declare permissions in `AndroidManifest.xml`:
    - `android.permission.CHANGE_WIFI_MULTICAST_STATE`
    - `android.permission.ACCESS_LOCAL_NETWORK`
@@ -872,9 +996,11 @@ TV MUST advertise via mDNS for session duration:
 
 Without lock, multicast packets silently dropped on many Android TV devices.
 
-**Android 17+**: Request local-network permission before starting mDNS, WebSocket server, UDP listener, or HTTP fetches to peers.
+#### Android 17+
 
-### connectionId Assignment (Normative)
+Request local-network permission before starting mDNS, WebSocket server, UDP listener, or HTTP fetches to peers.
+
+### 2.3.15 connectionId Assignment (Normative)
 
 > ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
@@ -882,9 +1008,10 @@ Without lock, multicast packets silently dropped on many Android TV devices.
 - Deliver in `sessionState` response to `hello`.
 - On reconnect: assign **new** `connectionId` (not reuse old one).
 
-### UDP Frame Validation (Normative)
+### 2.3.16 UDP Frame Validation (Normative)
 
 On receipt of UDP datagram:
+
 1. Datagram must be exactly 20 bytes (else silently drop).
 2. Look up `connectionId` (bytes 18–19) in active connection table.
 3. Verify it matches expected connection for `playerId` (byte 16).
@@ -893,22 +1020,28 @@ On receipt of UDP datagram:
 
 This is best-effort routing, not a security control.
 
-### Pitch Frame Processing
+### 2.3.17 Pitch Frame Processing
 
-**Pitch frame rate (normative)**:
+#### Pitch frame rate
+
+Normative.
+
 - Phones MUST send pitch frames at **50 fps** (20ms interval).
 - Missing or invalid frames MUST be treated as `toneValid=false`.
 - **Countdown rule**: when `startMode="countdown"`, the phone MUST NOT send frames until the countdown completes. The TV MUST NOT score any frames received before the countdown ends.
 
-**MIDI-to-scoring conversion**:
+#### MIDI-to-scoring conversion
+
 ```
 Tone = midiNote - 60    (C4/MIDI 60 → Tone=0)
 ```
 This value is input to octave normalization in scoring.
 
-**Live pitch stream**: After validation and jitter buffer insert, emit `PitchEvent` on `SharedFlow` for UI pitch cursor. `SharedFlow` config: `replay=0`, `extraBufferCapacity=64`, `onBufferOverflow=DROP_OLDEST`. UI stream does not affect scoring; jitter buffer is scoring source of truth.
+#### Live pitch stream
 
-### HTTP Cleartext Configuration (Required)
+After validation and jitter buffer insert, emit `PitchEvent` on `SharedFlow` for UI pitch cursor. `SharedFlow` config: `replay=0`, `extraBufferCapacity=64`, `onBufferOverflow=DROP_OLDEST`. UI stream does not affect scoring; jitter buffer is scoring source of truth.
+
+### 2.3.18 HTTP Cleartext Configuration (Required)
 
 TV fetches HTTP assets from LAN phones. Include in `res/xml/network_security_config.xml` and reference via `android:networkSecurityConfig` in manifest:
 
@@ -924,13 +1057,17 @@ TV fetches HTTP assets from LAN phones. Include in `res/xml/network_security_con
 
 Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED` on API 28+.
 
-### Asset Streaming
+### 2.3.19 Asset Streaming
 
 > ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
-**Song source policy (normative)**: after a successful `hello` handshake, the TV MUST fetch `/manifest.json` from the phone's HTTP server to populate the library with that phone's songs. No separate pairing, trust list, or approval step is required — the current join code already gates who can join.
+#### Song source policy
 
-**`/manifest.json` serving (normative)**: the phone MUST serve `/manifest.json` from an **in-memory JSON byte array** rebuilt on each scan. It MUST NOT read from disk on each HTTP request. The scan populates the byte array; the HTTP handler serves it directly. This ensures low-latency manifest responses and avoids I/O during playback.
+Normative. After a successful `hello` handshake, the TV MUST fetch `/manifest.json` from the phone's HTTP server to populate the library with that phone's songs. No separate pairing, trust list, or approval step is required — the current join code already gates who can join.
+
+#### `/manifest.json` serving
+
+Normative. The phone MUST serve `/manifest.json` from an **in-memory JSON byte array** rebuilt on each scan. It MUST NOT read from disk on each HTTP request. The scan populates the byte array; the HTTP handler serves it directly. This ensures low-latency manifest responses and avoids I/O during playback.
 
 - Pass song URLs directly to LibVLC or Coil (images). No intermediate storage.
 - LibVLC begins playback after buffering (file-caching default 2000ms). MUST NOT wait for full download.
@@ -941,9 +1078,9 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 - `Content-Length`: MUST be set on all responses.
 - `/manifest.json`: server MUST set `Cache-Control: no-cache` to ensure the TV always receives the latest catalog.
 
-### Acceptance Tests (Protocol — 8.3 / 8.5 / 8.6)
+### 2.3.20 Acceptance Tests (Protocol — 8.3 / 8.5 / 8.6)
 
-**Control Messages**
+#### Control Messages
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -961,7 +1098,7 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 | T8.3.12 | `playbackState` carries playback authority fields | F15 | `sessionId`, `songInstanceSeq`, `revision`, `state`, `lyricsTimeMs`, `stopAtLyricsTimeMs`, conditional `countdownRemainingMs`, enum-constrained `reason`, optional `tsTvMs` |
 | T8.3.13 | `connectionId` NOT in `assignSinger` | F15 | Field absent; delivered only via `sessionState` |
 
-**Sender Identification**
+#### Sender Identification
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -971,7 +1108,7 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 | T8.5.4 | PitchFrames with old `connectionId=1` → dropped | F15/`case_reconnect_reclaim` | Silently dropped |
 | T8.5.5 | Roster at cap (10 devices); new `hello` with unknown `clientId` → rejected | inline | `error(code="session_full")` |
 
-**Frame Ingestion and Validation**
+#### Frame Ingestion and Validation
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -984,11 +1121,11 @@ Without this, `http://` requests to phone IPs fail with `CLEARTEXT_NOT_PERMITTED
 | T8.6.7 | `songInstanceSeq` mismatch → silently dropped | inline | Dropped |
 | T8.6.8 | Unknown `playerId` (not P1/P2) → silently dropped | inline | Dropped |
 
-### Acceptance Criteria
+### 2.3.21 Acceptance Criteria
 
 - F12v2, F15, F18, F20 pass
 
-### Knowledge Gaps
+### 2.3.22 Knowledge Gaps
 
 None.
 
@@ -1000,7 +1137,7 @@ None.
 
 **Lifecycle**: Stateless. Called on demand.
 
-### Public API
+### 2.4.1 Public API
 
 ```kotlin
 interface UsdxParser {
@@ -1137,7 +1274,7 @@ enum class Severity { Info, Warn, Invalid }
 
 **Parser boundary**: `UsdxParser` is pure and performs no file, URI, network, or asset-existence resolution. `SongHeader` contains only values derivable from `txtBytes` plus the caller-supplied `songId`. `LibraryManager` / phone scanning owns song-root paths, canonical URIs, source-file availability, and effective `audioUrl` selection.
 
-**Invariants**:
+#### Invariants
 
 - All `NoteEvent` in all tracks MUST satisfy `durationBeats >= 0`. `durationBeats == 0` is parser-converted to `Freestyle` (warn) and contributes 0 score.
 - `tracks.size` MUST be **2** iff `header.isDuet` is true; otherwise MUST be **1**.
@@ -1146,7 +1283,7 @@ enum class Severity { Info, Warn, Invalid }
 
 **Beat convention**: `noteActive if startBeatFile <= beat < endBeatFileExclusive`.
 
-### Supporting Types
+### 2.4.2 Supporting Types
 
 ```kotlin
 // Shared across components — defined here as the canonical TV-side model
@@ -1184,21 +1321,24 @@ data class PlayerAssignment(
 enum class Difficulty { Easy, Medium, Hard }
 ```
 
-### NFRs Applied
+### 2.4.3 NFRs Applied
 
 - **Testability**: Pure function, no I/O
+
 - **Modularity**: Zero knowledge of network, playback, scoring
 
-### SLAs
+### 2.4.4 SLAs
 
 | Metric | Target | Test |
+
 |--------|--------|------|
 | Parse time | <50ms for 10KB txt | Benchmark with F03 fixtures |
 | Memory | No allocation beyond result | Verify with profiler |
 
-### Supported Note Tokens (Normative)
+### 2.4.5 Supported Note Tokens (Normative)
 
 | Token | Type | Scoring |
+
 |-------|------|---------|
 | `:` | Normal note | ScoreFactor=1 |
 | `*` | Golden note | ScoreFactor=2 |
@@ -1216,9 +1356,10 @@ enum class Difficulty { Easy, Medium, Hard }
 
 **Duet structure**: if the first non-empty body line begins with `P`, the song is duet (`isDuet = true`) with two tracks. `P1`/`P2` markers set the active track (0/1). Notes and `-` breaks are assigned to the current active track. A single `E` ends the file.
 
-### Supported Header Tags (Normative)
+### 2.4.6 Supported Header Tags (Normative)
 
 | Tag | Required | Type | Semantics |
+
 |-----|----------|------|-----------|
 | `#TITLE` | yes | string | Song title |
 | `#ARTIST` | yes | string | Song artist |
@@ -1255,9 +1396,10 @@ All other tags (including `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#CALCMEDLEY`
 - `#VIDEOGAP` is in **seconds** (float). Same v2 divergence as `#START`.
 - Medley bounds use `#MEDLEYSTARTBEAT` / `#MEDLEYENDBEAT` in **file beats**. UltraStar v2 uses `#MEDLEYSTART` / `#MEDLEYEND` in milliseconds; the `-BEAT` tag variants are the real-world standard and are what this spec supports.
 
-### Error Handling (Normative)
+### 2.4.7 Error Handling (Normative)
 
-**Header tags**:
+#### Header tags
+
 - Header lines read while first character is `#`; any other line ends header parsing.
 - Tag names are case-insensitive; matching on `Uppercase(Trim(TagName))`.
 - Float-valued tag values (`#BPM`, `#GAP`, `#START`, `#VIDEOGAP`, `#PREVIEWSTART`) MUST accept both `.` and `,` as decimal separators (USDX authoring locale variance — official format example: `#PREVIEWSTART:12,34`). Parser MUST normalise `,` → `.` before numeric parse.
@@ -1271,13 +1413,15 @@ All other tags (including `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#CALCMEDLEY`
 - Unknown header tags MUST be collected as `CustomHeaderTag` entries, not rejected.
 - Unknown body tokens MUST be silently skipped (warn, don't reject).
 
-**Version/encoding rules**:
+#### Version/encoding rules
+
 - `#VERSION` absent → treat as legacy `0.3.0`.
 - `#VERSION` present but fails to parse as dotted numeric → **invalid**.
 - Supported versions are `< 2.0.0`; if `>= 2.0.0` → **invalid** (`ERROR_CORRUPT_SONG_INVALID_VERSION`).
 - `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#CALCMEDLEY` MUST be treated as **unknown tags** regardless of version — preserved in `customTags`, no semantic processing.
 
-**Body grammar**:
+#### Body grammar
+
 - `duration = 0` on any note token: **warn** with line number ("found note with length zero -> converted to FreeStyle") and convert the note to `F` (Freestyle); `duration` stays 0.
 - `#RELATIVE` as a **header tag**: treated as unknown custom tag (no semantic effect); does NOT trigger an error. Songs authored with `#RELATIVE` are parsed as absolute-beat format, which may produce incorrect note timing.
 - **RELATIVE body format** (`- <startBeat> <extraDelta>`): any sentence line with an extra numeric beat-delta parameter → **invalid** (`ERROR_CORRUPT_SONG_UNSUPPORTED_RELATIVE`).
@@ -1286,7 +1430,10 @@ All other tags (including `#ENCODING`, `#RESOLUTION`, `#NOTESGAP`, `#CALCMEDLEY`
 - After body parsing, empty sentences (zero note events after parsing) MUST be removed. After cleanup, each track MUST have at least one remaining sentence; if not → **invalid** (`ERROR_CORRUPT_SONG_NO_NOTES`).
 - Hardcoded: `RapToFreestyle = false`, `OutOfBoundsToFreestyle = false`.
 
-**Diagnostics record schema** (normative):
+#### Diagnostics record schema
+
+Normative.
+
 Each parse attempt MUST produce a structured diagnostics list. Each entry has:
 - `severity`: `"info"` | `"warn"` | `"invalid"`
 - `code`: short stable string (see codes below)
@@ -1296,7 +1443,8 @@ Each parse attempt MUST produce a structured diagnostics list. Each entry has:
 
 Invalid songs remain local scan results on the phone and are NOT published in `/manifest.json`.
 
-**Minimum invalidation codes**:
+#### Minimum invalidation codes
+
 | Code | Meaning |
 |------|---------|
 | `ERROR_CORRUPT_SONG_FILE_NOT_FOUND` | Required audio file missing or unresolvable |
@@ -1310,25 +1458,28 @@ Invalid songs remain local scan results on the phone and are NOT published in `/
 | `ERROR_CORRUPT_SONG_INVALID_VERSION` | VERSION fails to parse or VERSION >= 2.0.0 |
 | `ERROR_CORRUPT_SONG_INVALID_DUET_MARKER` | `P` token with value other than P1/P2 |
 
-**Minimum warning codes**:
+#### Minimum warning codes
+
 | Code | Meaning |
 |------|---------|
 | `WARN_VOCALS_WITHOUT_INSTRUMENTAL` | `#VOCALS` is present without a valid `#INSTRUMENTAL`; vocals are ignored and base audio is used |
 | `WARN_MIX_PAIR_INELIGIBLE_SAMPLE_RATE` | Instrumental/vocals pair has differing decoded sample rates; base audio is used |
 | `WARN_MIX_PAIR_INELIGIBLE_CHANNELS` | Instrumental/vocals pair has differing channel counts; base audio is used |
 
-### Parsed Song Model (Normative)
+### 2.4.8 Parsed Song Model (Normative)
 
 The canonical definitions of `ParsedSong`, `SongHeader`, `SongTiming`, `Track`, `Line`, `NoteEvent`, `NoteType`, `DiagnosticEntry`, and `Severity` are the Kotlin data classes in **§2.4 Public API** above. See that block for fields, types, nullability, and derived-property contracts. Invariants and the beat convention are stated immediately after the code block.
 
-### L2 Visible Shapes
+### 2.4.9 L2 Visible Shapes
+
 - **BodyTokenizer**: Tokenizes note lines (`:`, `*`, `F`, `R`, `G`, `-`, `E`, `P`)
 - **BeatCalculator**: Converts between time (ms) and beat units for static-BPM charts
 - **ErrorCollector**: Accumulates warnings, decides accept/reject
 
-### Acceptance Tests (Error Handling)
+### 2.4.10 Acceptance Tests (Error Handling)
 
 | ID | What | Fixture | Expected |
+
 |----|------|---------|---------|
 | T4.3.1 | Unknown body token ignored | F03/`a/unknown_token_ignored` | `isValid=true` |
 | T4.3.2 | Malformed numeric in body | F03/`b/invalid_malformed_numeric` | `isValid=false`, `ERROR_CORRUPT_SONG_MALFORMED_BODY`, `invalidLineNumber=7` |
@@ -1340,11 +1491,11 @@ The canonical definitions of `ParsedSong`, `SongHeader`, `SongTiming`, `Track`, 
 | T4.3.8 | RELATIVE body format (`- 16 4`) rejected | F03/`f/relative_body_rejected` | `isValid=false`, `ERROR_CORRUPT_SONG_UNSUPPORTED_RELATIVE` |
 | T4.3.9 | Legacy RELATIVE fixture rejected | F05 | `isValid=false`, `ERROR_CORRUPT_SONG_UNSUPPORTED_RELATIVE` |
 
-### Acceptance Criteria
+### 2.4.11 Acceptance Criteria
 
 - F01, F02, F03, F04, F05 pass
 
-### Knowledge Gaps
+### 2.4.12 Knowledge Gaps
 
 None known.
 
@@ -1356,7 +1507,7 @@ None known.
 
 **Lifecycle**: Active for app lifetime. Index rebuilt on phone connect/disconnect.
 
-### Public API
+### 2.5.1 Public API
 
 ```kotlin
 interface LibraryManager {
@@ -1408,25 +1559,28 @@ data class IndexedSong(
 )
 ```
 
-### NFRs Applied
+### 2.5.2 NFRs Applied
 
 - **Testability**: NetworkController injected for fetches
+
 - **Graceful Degradation**: Fetch failure retains previous catalog, shows toast
 
-### SLAs
+### 2.5.3 SLAs
 
 | Metric | Target | Test |
+
 |--------|--------|------|
 | Index capacity | ≥1000 songs without jank | Load test with synthetic manifest |
 | Rebuild time | <500ms for 500 songs | Benchmark |
 
-### L2 Visible Shapes
+### 2.5.4 L2 Visible Shapes
 
 - **ManifestFetcher**: Uses NetworkController.fetchManifest()
+
 - **SongIndex**: In-memory map, keyed by songId
 - **SortComparator**: Artist → Album → Title ordering
 
-### Discovery and Validation Rules (Normative)
+### 2.5.5 Discovery and Validation Rules (Normative)
 
 Songs are discovered on the phone side. The phone scans its songs folder, validates each song, and serves only valid song metadata from `/manifest.json`. Invalid songs remain as local diagnostics on the phone.
 
@@ -1440,7 +1594,7 @@ A song is **valid** if:
 - The selected playback source MUST be available: base audio must exist on disk, or both accepted mix-source files must exist on disk. Missing source file → invalid.
 - At least one valid note line exists in the body (after empty-sentence cleanup).
 
-### Index Fields (Normative)
+### 2.5.6 Index Fields (Normative)
 
 The `IndexedSong` fields are defined by the data class in §2.5 Public API above. Additional constraints:
 
@@ -1455,26 +1609,30 @@ The `IndexedSong` fields are defined by the data class in §2.5 Public API above
 - `previewStartSec` derivation: `#PREVIEWSTART` if present and > 0; else if `medleySource != null` use `timeFromBeat(medleyStartBeat)`; else `0.0`. This is the canonical scan-time derivation; §2.6.10 consumes the manifest-provided value and applies a runtime fallback only when it resolves to 0.
 - `startSec`: from `#START` if present; else `0.0`.
 
-### Medley Eligibility: `canMedley` (Normative)
+### 2.5.7 Medley Eligibility: `canMedley` (Normative)
 
 A song is medley-eligible iff ALL are true:
+
 - `isDuet = false`, AND
 - Valid medley tags exist (`medleySource = "tag"`)
 
 Valid medley tags: `#MEDLEYSTARTBEAT` and `#MEDLEYENDBEAT` are both present, both parse as integers, and `startBeat < endBeat`. If valid tags exist, `medleySource = "tag"`; otherwise `medleySource = null` and `canMedley = false`.
 
-**Medley auto-calc deferred**: USDX's refrain-finding algorithm (`#CALCMEDLEY`) is not specified for MVP. Only songs with explicit medley beat tags are eligible.
+#### Medley auto-calc deferred
 
-### Song Grid Tag Overlays
+USDX's refrain-finding algorithm (`#CALCMEDLEY`) is not specified for MVP. Only songs with explicit medley beat tags are eligible.
+
+### 2.5.8 Song Grid Tag Overlays
 
 Each song tile shows single-letter chips:
+
 - `D` = duet (`isDuet=true`)
 - `R` = rap (`hasRap=true`)
 - `V` = video (`hasVideo=true`)
 - `I` = instrumental (`hasInstrumental=true`)
 - `M` = medley-eligible (`canMedley=true`)
 
-### Catalog Fetch Triggers (Normative)
+### 2.5.9 Catalog Fetch Triggers (Normative)
 
 TV rebuilds library by fetching `GET /manifest.json` from each phone at exactly these points:
 
@@ -1484,9 +1642,11 @@ TV rebuilds library by fetching `GET /manifest.json` from each phone at exactly 
 
 Fetch replaces all songs for that `clientId` (not append). On failure: retain previous catalog, show error toast.
 
-**Phone disconnect**: Immediately remove all songs for that `clientId` from library.
+#### Phone disconnect
 
-### SongEntry Manifest Schema (Normative)
+Immediately remove all songs for that `clientId` from library.
+
+### 2.5.10 SongEntry Manifest Schema (Normative)
 
 > ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
 
@@ -1521,9 +1681,9 @@ The `/manifest.json` response is a JSON array of `SongEntry` objects. Each entry
 
 Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet`, `hasRap`, `hasVideo`, `hasInstrumental`, `canMedley`, `startSec`, `previewStartSec`, `txtUrl`, `audioUrl`. Optional URL fields (`videoUrl`, `coverUrl`, `backgroundUrl`) are `null` when the corresponding file is absent. `instrumentalUrl` and `vocalsUrl` are NOT included in the manifest; the phone serves a single effective `audioUrl`.
 
-### Acceptance Tests (Library, Discovery, Index)
+### 2.5.11 Acceptance Tests (Library, Discovery, Index)
 
-**T3.1 — TV-Side Library**
+#### T3.1 — TV-Side Library
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -1533,7 +1693,7 @@ Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet
 | T3.1.4 | Phone disconnects → songs removed immediately | F23 | Immediate removal |
 | T3.1.5 | Manifest fetch replaces, not appends, for that `clientId` | F23 | Old entries gone |
 
-**T3.2 — Validation**
+#### T3.2 — Validation
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -1547,7 +1707,7 @@ Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet
 | T3.2.8 | Non-numeric `#BPM` | F02/`b/invalid_malformed_bpm` | `isValid=false`, `ERROR_CORRUPT_SONG_MALFORMED_HEADER`, `invalidLineNumber=5` |
 | T3.2.9 | Recursive scan finds all `.txt` | F01/`songs_root/` | All entries discovered, validity matches `expected.discovery.json` |
 
-**T3.3 — Index Fields**
+#### T3.3 — Index Fields
 
 | ID | What | Fixture | Expected |
 |----|------|---------|---------|
@@ -1557,11 +1717,11 @@ Required fields: `relativeTxtPath`, `modifiedTimeMs`, `title`, `artist`, `isDuet
 | T3.3.4 | `canMedley=true` via medley tags | inline | `canMedley=true`, `medleySource="tag"` |
 | T3.3.5 | `canMedley=false` when no medley tags | inline | `canMedley=false`, `medleySource=null` |
 
-### Acceptance Criteria
+### 2.5.12 Acceptance Criteria
 
 - F01, F23 pass
 
-### Knowledge Gaps
+### 2.5.13 Knowledge Gaps
 
 None.
 
@@ -1576,6 +1736,7 @@ None.
 ### UI Overview
 
 Use this section as the primary home for UI behavior and screen-level requirements:
+
 - entry point, theme, navigation, and DI wiring: **Entry Point and Wiring** (below)
 - API/render contracts and ownership boundaries: **2.6.1–2.6.4**
 - shared visual foundations: **2.6.5 Design Tokens and Visual System** and **2.6.11 Interruption Overlay Shell**
@@ -1776,7 +1937,10 @@ data class VerticalPitchMapping(
 )
 ```
 
-**Render-model contract (normative)**:
+#### Render-model contract
+
+Normative.
+
 - `SingingRenderModel` is the authoritative chart-derived render contract for SingingScreen.
 - SingingScreen MUST receive `SingingRenderModel` before entering countdown or active singing.
 - `ParsedSong` MAY be used internally to build `SingingRenderModel`, but `ParsedSong` is not the required UI boundary.
@@ -1790,6 +1954,7 @@ data class VerticalPitchMapping(
 ### 2.6.2 NFRs Applied
 
 - **Testability**: ViewModels testable with fake data sources
+
 - **Minimal Footprint**: Flat rendering, no shaders, pre-baked effects
 
 ### 2.6.3 SLAs
@@ -1799,6 +1964,7 @@ Performance is governed by the runtime degradation policy in [§2.6.16](#2616-si
 ### 2.6.4 L2 Visible Shapes
 
 - **App-wide UI shell**: `MainActivity`, `CouchraokeTheme`, `AppNavHost`, route definitions, DI entry points
+
 - **SongListScreen**: Grid, preview, medley playlist, search
 - **SingingScreen**: Lyrics, pitch lane, score overlay, UI/playback controller with `LibVlcPlayerHandle` audio/video handles
 - **ResultsScreen**: Final scores, per-segment breakdown for medley
@@ -1846,6 +2012,7 @@ This rule extends the Mali-G31 constraint in [§1.6](#16-minimal-footprint) from
 #### 2.6.5.4 Spacing, radius, border, layout tokens
 
 | Token | Value | Notes |
+
 |---|---:|---|
 | Space8 | 8dp |  |
 | Space12 | 12dp |  |
@@ -1883,9 +2050,25 @@ This rule extends the Mali-G31 constraint in [§1.6](#16-minimal-footprint) from
 | InterruptionActionRowHeight | 72dp |  |
 | SelectPlayersActionButtonWidth | 176dp |  |
 
+##### 2.6.5.4.1 Design viewport (Normative)
+
+All layout is authored against a **960dp x 540dp** viewport. This is a 1080p Android TV at density
+2.0 (xhdpi), the reference device in §1.6. `TvPreviewWidth` and `TvPreviewHeight` above are that
+viewport, and every `@Preview` for a fullscreen surface MUST use them.
+
+The screenshot test harness MUST render at the same viewport. The Robolectric qualifier MUST be
+`w960dp-h540dp-land-television-xhdpi-notouch`. Authoring or rendering at `w1920dp-h1080dp` treats
+the pixel dimensions as dp, producing four times the target area; text and controls then appear
+correct in every screenshot while being unreadably large on the TV.
+
+Screenshot gates MUST verify against a committed baseline. A record-only run regenerates the
+baseline it is checked against and can never fail, so it MUST NOT be accepted as evidence that a
+layout matches this spec.
+
 #### 2.6.5.5 Typography
 
 Two faces only:
+
 - **Display face**: decorative squared face. Used for hero numerals, hero titles, accent titles, and focused-song preview titles. Not used for body or UI chrome.
 - **Operational sans**: high-legibility sans-serif used for all other text (readability at TV viewing distance is the primary constraint).
 
@@ -1965,13 +2148,14 @@ Typography tokens are grouped into three scale tiers; screen subsections below i
 
 #### 2.6.5.8 Motion and VFX budget
 
-**Motion language:**
+##### Motion language
+
 - Short directional motion for structural transitions.
 - Fades for overlays and interruption states.
 - No looping decorative motion as a default screen treatment.
 - During active singing, layout MUST NOT animate except where the product state already changes layout (e.g., single→dual lane state change is a mode change, not an animation).
 
-**VFX budget scale:**
+##### VFX budget scale
 
 | Level | Meaning |
 |---|---|
@@ -1980,7 +2164,9 @@ Typography tokens are grouped into three scale tiers; screen subsections below i
 | V2 | one hero motion or two local motions |
 | V3 | not allowed |
 
-**Per-screen budgets (normative):**
+##### Per-screen budgets
+
+Normative.
 
 | Screen / state | Budget | Allowed pattern |
 |---|---|---|
@@ -2010,7 +2196,9 @@ Typography tokens are grouped into three scale tiers; screen subsections below i
 
 Buttons MUST use `ButtonCornerRadius` (8dp, `RadiusSmall`). Full pill shape (corner radius = height/2) is not permitted.
 
-**Tag chips** (Song List cards):
+##### Tag chips
+
+Song List cards.
 
 | Chip | Meaning |
 |---|---|
@@ -2052,13 +2240,17 @@ Singing screen MUST separate real-time pitch lane rendering from Compose UI:
 
 **Compose / SurfaceView separation (normative)**: the singing screen MAY use Jetpack Compose for non-real-time screen structure only. Real-time lane rendering MUST follow the `SurfaceView` architecture; Compose MUST NOT own pitch-lane frame rendering.
 
-**Implementation Requirements**:
+#### Pitch lane implementation requirements
+
 - Render thread decoupled from Compose recomposition.
 - Drawing logic as pure function: `drawPitchLane(canvas: Canvas, viewport: Rect, state: LaneRenderState)` where `LaneRenderState` is immutable.
 - No references to Views, Contexts, or lifecycle-scoped objects in drawing function.
 - Enables JVM-based screenshot testing via `Bitmap`-backed `Canvas` in Robolectric `@GraphicsMode(Mode.NATIVE)`.
 
-**Renderer contract (normative)**:
+#### Renderer contract
+
+Normative.
+
 - `LaneRenderState` is the frame-by-frame dynamic state consumed by `drawPitchLane(...)`.
 - `LaneRenderState` MUST be derived from:
   1. the immutable `SingingRenderModel`
@@ -2068,7 +2260,8 @@ Singing screen MUST separate real-time pitch lane rendering from Compose UI:
 - `LaneRenderState` MUST NOT require direct access to `ParsedSong`.
 - For medley, `SingingRenderModel` MUST already contain the chart-derived data for all medley segments needed by SingingScreen before countdown begins.
 
-**Performance Guidelines**:
+#### Performance Guidelines
+
 - Each singer lane as single drawing surface (not one UI element per note).
 - Reuse cached geometry/primitives across frames.
 - No per-frame object allocation in lane rendering.
@@ -2101,7 +2294,8 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 
 **Navigation model**: simple navigation stack. Entering a full-screen screen pushes it; Back pops and returns to previous. Overlays/modals do not affect the stack; Back closes them.
 
-**Back behavior**:
+#### Back behavior
+
 - From Song List: if filter active, clear filter; otherwise exit app.
 - From Settings (root): return to previous screen (Song List or Select Players depending on entry context).
 - From Settings sub-screens: return to Settings root.
@@ -2110,7 +2304,10 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 - From Results: return to Song List.
 - **Special case**: Settings entered from Select Players "No phones connected" action — Back on Settings root returns to Select Players modal, not Song List.
 
-**Focus indicator (normative)**:
+#### Focus indicator
+
+Normative.
+
 - Focused element: draw a `FocusBorderWidth` (3dp) solid border in `BorderFocus` at 60% alpha, inset `FocusBorderInset` (2dp) from the component edge, plus a subtle filled plate on the component body for additional contrast against video/background content.
 - Unfocused enabled element: draw a `BorderThin` (1dp) border using `BorderSubtle` at `UnfocusedBorderOpacity` (20%) so grid/list structure remains legible at TV distance.
 - Border corner radius MUST follow the component shape (buttons and cards use `RadiusSmall`–`RadiusMedium` rounded, square-edged fields may use 0dp).
@@ -2118,7 +2315,8 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 - Focus MUST use the `BorderFocus` token (`#FFFFFF` @ 60% alpha) — MUST NOT use `Player1Accent`, `Player2Accent`, or `RewardAccent`.
 - Disabled elements MUST NOT be focusable.
 
-**Focus animation (optional)**:
+#### Focus animation (optional)
+
 - If the target hardware sustains it without visible frame drops, focus arrival MAY fade in over `FocusInDuration` (150ms ease-out) and departure MAY fade out over `FocusOutDuration` (100ms ease-out).
 - If focus animation causes jank on target devices, implementations MUST fall back to an instant state change.
 - Forbidden focus treatments: scale transforms, blur, background pulse, and dynamic drop shadows.
@@ -2127,25 +2325,32 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 
 ### 2.6.10 Song Preview Playback
 
-**When preview plays**:
-- Song tile is focused AND focus remains on same song for **500ms** (debounce).
-- Iteration 1 implements preview before Settings > Audio exists, so preview audibility follows TV/system media volume only. There is no app-level preview preamp or Settings volume gate in the current implementation.
+#### When preview plays
 
-**Preview stops immediately when**:
+- Song tile is focused AND focus remains on same song for **500ms** (debounce).
+- Preview audibility follows TV/system media volume. The TV MUST NOT apply an app-level preview preamp or a Settings volume gate.
+
+#### Preview stops immediately when
+
 - Focus moves to a different song tile, leaves grid, or overlay/modal/settings/singing opens.
 
-**What plays**:
+#### What plays
+
 - Uses `audioUrl` from cached manifest, seeks to `previewStartSec`.
-- If `previewStartSec > 0.0` (derived by the phone per §2.5 Index Fields, carried in the manifest), use it; otherwise fall back to 0 seconds (Iteration 1). Iteration 2 replaces the 0-second fallback with `min(audioLengthSec / 4, 60s)` when `audioLengthSec > 120s`.
+- If `previewStartSec > 0.0` (derived by the phone per §2.5 Index Fields, carried in the manifest), use it. Otherwise seek to `min(audioLengthSec / 4, 60s)` when `audioLengthSec > 120s`, and to 0 seconds when it is not.
 - Plays from start position until stopped (no fixed 10s limit).
 - If HTTP fails, suppress silently.
 
-**Preview pane visual content**:
+#### Preview pane visual content
+
 - The preview pane renders: `#VIDEO` (muted, `:no-audio`, same 500ms focus dwell, stops immediately on focus departure) → `#COVER` → `#BACKGROUND` → app default placeholder.
 - Video fills the 16:9 pane. Decode failure falls back silently to `#COVER`.
 - The preview audio player and preview video player are independent; video failure MUST NOT affect audio preview.
 
-**Media player lifetime (normative)**:
+#### Media player lifetime
+
+Normative.
+
 - Media players are screen-scoped.
 - A preview player belongs only to SongListScreen and MUST be torn down when SongListScreen exits.
 - Any media player created for SingingScreen, including medley transition players, MUST be torn down when SingingScreen exits.
@@ -2155,7 +2360,7 @@ Primary input is TV remote (DPAD + OK/Enter + Back).
 
 Pause, Disconnect auto-pause, Restart/Quit confirm dialogs, the Countdown-disconnect modal, the Start-failure / Playback error modal, the Song-Library refresh errors, the Select-Players "No phones connected" state, and any similar interruption surfaces all reuse the same centered elevated shell.
 
-**Shell tokens:**
+#### Shell tokens
 
 | Token | Value |
 |---|---:|
@@ -2164,13 +2369,17 @@ Pause, Disconnect auto-pause, Restart/Quit confirm dialogs, the Countdown-discon
 | InterruptionModalBodyBottomGap | 24dp |
 | InterruptionActionRowHeight | 72dp |
 
-**Visual rules (normative)**:
+#### Interruption overlay visual rules
+
+Normative.
+
 - Use `SurfaceLevel2` with `PrimaryModalPadding` (32dp).
 - Dim the underlying scene with a dark scrim. MUST NOT use runtime blur on the frozen background.
 - Operational sans only. Balanced tier typography.
 - No large entrance sequences, no cinematic wipes.
 
-**Motion (V1 budget)**:
+#### Interruption overlay motion (V1 budget)
+
 - One short modal entrance: fade or scale-fade of the modal shell only.
 - Focus movement happens only after entry completes.
 - When a reconnect is in progress on the Disconnect auto-pause overlay, a single small reconnect spinner MAY be rendered on that modal; other interruption overlays MUST NOT add spinners.
@@ -2181,11 +2390,15 @@ Pause, Disconnect auto-pause, Restart/Quit confirm dialogs, the Countdown-discon
 
 ### 2.6.12 SongListScreen Behavior
 
-**Purpose**: always the landing screen. Displays songs sorted by Artist → Album → Title. Maintains a transient Medley playlist (initialized empty each time shown, cleared on leaving for non-modal screen).
+#### Purpose
 
-**Layout**: two-column. Left rail: preview pane (16:9, display-only, non-focusable), focused-song metadata, Medley playlist, Play Medley. Right body: Search field, Random actions row (Random Song / Random Duet / Random Medley), song grid. Standard layout uses `AppMarginHorizontal` / `AppMarginVertical`; compact layout uses `SongListCompactMarginHorizontal` / `SongListCompactMarginVertical`.
+Always the landing screen. Displays songs sorted by Artist → Album → Title. Maintains a transient Medley playlist (initialized empty each time shown, cleared on leaving for non-modal screen).
 
-**Layout proportions and tokens:**
+#### Layout
+
+Two-column. Left rail: preview pane (16:9, display-only, non-focusable), focused-song metadata, Medley playlist, Play Medley. Right body: Search field, Random actions row (Random Song / Random Duet / Random Medley), song grid. Standard layout uses `AppMarginHorizontal` / `AppMarginVertical`; compact layout uses `SongListCompactMarginHorizontal` / `SongListCompactMarginVertical`.
+
+#### Layout proportions and tokens
 
 | Token | Value |
 |---|---:|
@@ -2231,33 +2444,45 @@ Pause, Disconnect auto-pause, Restart/Quit confirm dialogs, the Countdown-discon
 | SongListCompactMarginVertical | 20dp |
 | SongListCompactHeaderHeight | 56dp |
 
-**Header composition:**
+#### Header composition
+
 - Contents: Search field, Join button, Settings gear button. Standard header uses `HeaderHeight` (76dp); compact header uses `SongListCompactHeaderHeight` (56dp).
+
 - Emphasis: Search is the visually strongest control. Join and Settings are equal secondary controls. Settings remains visible but inert until Settings is wired.
 
 **Tier:** preview metadata uses balanced tier (`PreviewTitle`, `PreviewArtist`). Grid cards use compact-balanced tier (see card rules below).
 
-**Empty states**:
+#### Empty states
+
 - No phones connected: `No phones connected.` / `Connect a phone to see songs. Open the karaoke app on your phone and scan the QR code.`
+
 - Phones connected but no valid songs: `No songs found.` / `Open the karaoke app on your phone and make sure the songs folder is set.`
 
-**Search**: case-insensitive substring match across {artist, album, title}. Debounce 150ms. OK on Search field invokes a presentation/platform-facing Android TV text input launcher or uses native IME focus behavior; the ViewModel remains framework-free.
+#### Search
 
-**Primary actions**: OK on song tile → Select Players. Long-press OK / Add to Medley remains out of Iteration 1 and is deferred with medley execution wiring.
+Case-insensitive substring match across {artist, album, title}. Debounce 150ms. OK on Search field invokes a presentation/platform-facing Android TV text input launcher or uses native IME focus behavior; the ViewModel remains framework-free.
 
-**Random actions row:**
+#### Primary actions
+
+OK on song tile → Select Players. Long-press OK / Add to Medley activates with medley execution wiring.
+
+#### Random actions row
+
 - Contents: Random Song, Random Duet, Random Medley. All three use equal visual weight (equal sizing, equal emphasis). Standard row uses `SongListRandomRowHeight`; compact row uses `SongListCompactRandomRowHeight`.
+
 - Random Song MAY choose a random valid song from the filtered set → Select Players.
 - Random Duet and Random Medley are visible but disabled/no-op until their later iterations wire execution.
 - Disabled controls are visible but non-focusable.
 - **Random Medley lives in this row, not in the left rail.**
 
-**Left rail:**
+#### Left rail
+
 - Preview pane uses 16:9 in both standard and compact layouts, is display-only and non-focusable.
+
 - Focused-song preview metadata always shows full title (`PreviewTitle`) and artist (`PreviewArtist`) — no truncation of the preview metadata block.
 - Metadata, Medley playlist, and Play Medley sit directly under the preview using explicit gap tokens. Do not use weighted spacers to push Medley content to the bottom edge.
 - Standard medley shows `SongListPlaylistVisibleRows` (5) visible rows at `SongListPlaylistRowHeight` (52dp). Compact medley shows `SongListCompactPlaylistVisibleRows` (3) rows at `SongListCompactPlaylistRowHeight` (36dp). Rows: `<Artist>  <Title>` in operational sans. When the playlist contains more than the visible-row count, the list scrolls vertically as D-pad Up/Down moves focus through it; no scroll indicator is required.
-- `Play Medley` sits directly below the playlist at the matching Play Medley top-gap token and remains visible-disabled/non-focusable until Iteration 4.
+- `Play Medley` sits directly below the playlist at the matching Play Medley top-gap token. It is visible-disabled and non-focusable until medley execution is wired.
 - Medley row reorder/delete behavior is deferred with medley execution wiring.
 
 **Song grid:** Standard layouts use `SongListGridColumns1080` (3) at 1080p and `SongListGridColumns4K` (4) at 4K. Compact TV viewports are `maxWidth < SongListCompactMaxWidth`; use 4 columns only when each card column is at least `SongListCompactWideColumnMinWidth` (160dp), otherwise use 3 columns. Gaps use the matching standard or compact grid gap tokens.
@@ -2295,9 +2520,13 @@ Tag placement and priority:
 - Maximum visible chips: `SongCardMaxVisibleTags` (3).
 - Priority order when more than three apply: `D`, `M`, `R`, `I`, `V`. `V` is always the first chip omitted.
 
-**Initial focus**: first grid tile (top-left); if empty, Search field.
+#### Song List initial focus
 
-**DPAD navigation** (normative):
+First grid tile (top-left); if empty, Search field.
+
+#### DPAD navigation
+
+Normative.
 
 | Current focus | DPAD Up | DPAD Down | DPAD Left | DPAD Right |
 |---|---|---|---|---|
@@ -2308,18 +2537,24 @@ Tag placement and priority:
 | Medley playlist row | Previous row (no wrap) | Next row (or Play Medley if at last row) | — | Search field |
 | Play Medley | Last playlist row | — (no movement) | — | Search field |
 
-**Left-panel entry target** (from leftmost grid column): 1) first Medley playlist row if present, 2) Play Medley if empty, 3) no movement.
+#### Left-panel entry target
 
-**Back from grid/left panel**: move focus to Search field. Back from top controls: clear filter if active; else exit app.
+From leftmost grid column 1) first Medley playlist row if present, 2) Play Medley if empty, 3) no movement.
 
-**Motion and focus behavior on Song List:**
+#### Back from grid/left panel
+
+Move focus to Search field. Back from top controls: clear filter if active; else exit app.
+
+#### Motion and focus behavior on Song List
+
 - Settled state (V2): local preview crossfade and restrained chip or border fade.
+
 - Active navigation (V1): focus transition only.
 - No per-card ambient animation.
 - No animated background behind the grid.
 - No card scale on focus (card stays at fixed `SongCardHeight`; focus is border + plate only).
 
-**Compact Song List constraint priority:**
+#### Compact Song List constraint priority
 
 1. Safe margins and header controls are always preserved.
 2. Card internal structure, including image height, title region, and artist slot, is never violated.
@@ -2327,9 +2562,13 @@ Tag placement and priority:
 4. Column count follows the compact card-width rule: use 4 columns only when each card column is at least 160dp wide; otherwise use 3.
 5. Visible row count is a consequence, not a requirement.
 
-**Join button**: opens the Join and QR overlay — see [Join Overlay Behavior](#2613-join-overlay-behavior) for visual and interaction rules.
+#### Join button
 
-**QR payload (normative)**: The QR code MUST encode the full WebSocket endpoint URL including the `token` query parameter (e.g., `ws://192.168.1.10:8080/?token=SWIFT-PANDA`). It MUST NOT encode an NSD/mDNS service-discovery identifier. Phones that scan the QR code connect directly to the encoded URL without any additional discovery step.
+Opens the Join and QR overlay — see [Join Overlay Behavior](#2613-join-overlay-behavior) for visual and interaction rules.
+
+#### QR payload
+
+Normative. The QR code MUST encode the full WebSocket endpoint URL including the `token` query parameter (e.g., `ws://192.168.1.10:8080/?token=SWIFT-PANDA`). It MUST NOT encode an NSD/mDNS service-discovery identifier. Phones that scan the QR code connect directly to the encoded URL without any additional discovery step.
 
 #### Song List Wireframe
 
@@ -2366,7 +2605,7 @@ Song Grid: 4 cards / row at 4K, 3 at 1080p. Compact TV viewports use 3 or 4 colu
 
 ### 2.6.13 Join Overlay Behavior
 
-**Purpose**: show the QR code and short join code so a phone can connect to the session. Opened from the Song List header's Join button. In Iteration 1, the Select Players no-phone state also opens this same overlay; Settings is not reachable.
+**Purpose**: show the QR code and short join code so a phone can connect to the session. Opened from the Song List header's Join button. The Select Players no-phone state opens the same overlay.
 
 **Presentation**: modal over Song List. Uses `SurfaceLevel2` shell at `PrimaryModalWidth` (960dp) with `PrimaryModalPadding` (32dp). Balanced tier typography, operational sans only. The modal width and QR size are constrained to the runtime viewport.
 
@@ -2379,7 +2618,10 @@ Song Grid: 4 cards / row at 4K, 3 at 1080p. Compact TV viewports use 3 or 4 colu
 | JoinCodeTopGap | 24dp |
 | JoinQrMaxViewportHeightFraction | 0.55 |
 
-**Visual rules (normative)**:
+#### Join overlay visual rules
+
+Normative.
+
 - QR is the dominant object on the overlay. It uses `JoinQRCodeSize` (400dp) when the viewport allows, preserves at least a 4-module quiet zone, uses high-contrast dark-on-light rendering, and remains centered.
 - The short join code sits directly below the QR at `JoinCodeTopGap` using `PanelTitle` or `DisplayAccentTitle` weight.
 - The QR MUST remain static. No animation or overlay element may intrude into the QR or its quiet zone.
@@ -2393,7 +2635,7 @@ Song Grid: 4 cards / row at 4K, 3 at 1080p. Compact TV viewports use 3 or 4 colu
 
 **Presentation**: modal overlay on `SurfaceLevel2`. Title: `SELECT PLAYERS`. Subtitle: `<Artist> — <Title>` (single-song) or `Medley — <n> songs` (medley).
 
-**Layout tokens:**
+#### Select Players layout tokens
 
 | Token | Value |
 |---|---:|
@@ -2402,19 +2644,24 @@ Song Grid: 4 cards / row at 4K, 3 at 1080p. Compact TV viewports use 3 or 4 colu
 | SelectPlayersFieldRowHeight | 76dp |
 | SelectPlayersActionRowGap | 24dp |
 
-**Visual rules (normative)**:
+#### Select Players visual rules
+
+Normative.
+
 - Balanced tier typography. Operational sans only.
 - `Start` is emphasized through placement (primary action position), size, and surface contrast — not color. `Start` MUST NOT use `RewardAccent` (gold is reserved for post-song winner treatment).
 - Background posters or modal backdrops MUST NOT animate beyond the initial modal entrance (V1 budget).
 
 **Fields**: Player 1 device (required, dropdown of connected phones), Player 2 device (may be disabled/hidden), Difficulty per player (Easy / Medium / Hard). Field rows use `SelectPlayersFieldRowHeight`.
 
-**State-specific presentation:**
+#### State-specific presentation
+
 - **Non-duet**: Player 1 block is active and visually primary. Player 2 block remains visible but disabled.
 - **Duet**: two player blocks remain symmetric. `Swap Parts` is secondary to `Start`.
 - **Medley**: single-flow version only. No Player 2 section. Subtitle remains `Medley — <n> songs`.
 
-**Gating rules**:
+#### Gating rules
+
 - **Duet**: P1 required, P2 optional. Two players → P1 sings track 1, P2 sings track 2; provide Swap Parts. One player → select which duet part.
 - **Non-duet**: P1 required. P2 selector visible but disabled. P2 Difficulty hidden when P2 is `(none)`.
 - **Medley**: P2 section hidden entirely (all medley songs are non-duet).
@@ -2429,7 +2676,8 @@ Song Grid: 4 cards / row at 4K, 3 at 1080p. Compact TV viewports use 3 or 4 colu
 
 **Start failure**: abort, return to Song List, show blocking error: title `ERROR`, body `This song can't be played.` / `Check Settings > Song Library — the song's phone may be disconnected.`, single `OK` action.
 
-**Protocol side effects on Start**:
+#### Protocol side effects on Start
+
 - TV sends `assignSinger` to each selected singer phone with `playerId`, `songInstanceSeq`, `startMode`, `countdownMs`, `udpPort`, `stopAtLyricsTimeMs`.
 - Non-duet: P1 → `P1`. Duet with two players: P1 → `P1`, P2 → `P2` (swapped if Swap Parts). One player duet: `P1` or `P2` per selection.
 - TV MUST NOT send `assignSinger` to non-selected devices.
@@ -2489,7 +2737,7 @@ No phones connected
 
 Root Settings is a list routing to sub-screens: Connect Phones, Song Library, Audio, Scoring Timing, Gameplay, Video, About.
 
-**Layout tokens:**
+#### Settings layout tokens
 
 | Token | Value |
 |---|---:|
@@ -2498,14 +2746,22 @@ Root Settings is a list routing to sub-screens: Connect Phones, Song Library, Au
 | SettingsRowGap | 8dp |
 | SettingsSectionTopGap | 24dp |
 
-**Visual rules (normative)**:
+#### Settings visual rules
+
+Normative.
+
 - Balanced tier typography. Operational sans only.
 - Use broad, readable rows at `SettingsRowHeight` for DPAD reachability.
 - Reuse the app-wide surface, focus, and spacing system. No screen-specific decorative treatments.
 
-**Initial focus**: first settings row on entry.
+#### Player Card initial focus
 
-**Root navigation (normative)**:
+First settings row on entry.
+
+#### Root navigation
+
+Normative.
+
 - Each settings row is a single primary focus target.
 - OK on the row or its trailing navigation affordance opens the selected sub-screen.
 - DPAD Up/Down moves between rows.
@@ -2513,12 +2769,17 @@ Root Settings is a list routing to sub-screens: Connect Phones, Song Library, Au
 - DPAD Left from the trailing affordance returns focus to the parent row.
 - Back on Settings root returns to the caller per the global navigation rules above.
 
-**Sub-screen navigation (normative)**:
+#### Sub-screen navigation
+
+Normative.
+
 - DPAD Up/Down moves between rows within the current settings sub-screen.
 - Back from any settings sub-screen returns to Settings root.
 - Dialogs opened from Settings are overlays; dismissing them returns focus to the control that launched them.
 
-**Numeric setting edit**: OK on boolean toggles immediately. OK on numeric opens modal numeric keypad. First digit replaces entire value (replace-on-first-digit), subsequent append. Del deletes last digit, long-press Del clears all. Default focus on Cancel. **On validation failure, the dialog MUST remain open and show an error** — it MUST NOT close and apply an invalid value.
+#### Numeric setting edit
+
+OK on boolean toggles immediately. OK on numeric opens modal numeric keypad. First digit replaces entire value (replace-on-first-digit), subsequent append. Del deletes last digit, long-press Del clears all. Default focus on Cancel. **On validation failure, the dialog MUST remain open and show an error** — it MUST NOT close and apply an invalid value.
 
 #### Settings Root Wireframe
 
@@ -2556,22 +2817,33 @@ Root Settings is a list routing to sub-screens: Connect Phones, Song Library, Au
 ```
 
 #### 2.6.15.1 Settings > Connect Phones
+
 QR code + short join code for pairing. Connected device list with Kick action (confirm dialog, default focus Cancel).
 
-**Initial focus**: first connected-device row if any devices are present; otherwise the first available pairing/join affordance.
+##### Connect Phones initial focus
 
-**Connect Phones navigation (normative)**:
+First connected-device row if any devices are present; otherwise the first available pairing/join affordance.
+
+##### Connect Phones navigation
+
+Normative.
+
 - DPAD Up/Down moves through the connected-device roster and then to the action row.
 - The selected device row owns the Kick action shown for that row.
 - DPAD Up from the action row returns to the selected device row.
 - Back returns to Settings root.
 
-**Join admission (normative)**:
+##### Join admission
+
+Normative.
+
 - Phones MAY join while the session is **Open** until the roster reaches **10 devices**.
 - Additional phones beyond 10 MUST be rejected with `error(code="session_full")`.
 - During **Locked** state (song in progress), new joins MUST be rejected with `error(code="session_locked")`.
 
-**Kick**: disconnects the phone (closes WebSocket), removes its `clientId` from the current session roster, removes that phone's songs from the in-memory library/song list, and revokes reconnect entitlement for the current session. Phone returns to Join screen. If the session remains **Open**, the phone MAY join again as a fresh spectator.
+##### Kick
+
+Disconnects the phone (closes WebSocket), removes its `clientId` from the current session roster, removes that phone's songs from the in-memory library/song list, and revokes reconnect entitlement for the current session. Phone returns to Join screen. If the session remains **Open**, the phone MAY join again as a fresh spectator.
 
 ##### Connect Phones Wireframe
 
@@ -2606,6 +2878,7 @@ QR code + short join code for pairing. Connected device list with Kick action (c
 ```
 
 #### 2.6.15.2 Settings > Song Library
+
 Shows song contribution status per connected phone: device name and song count. Per-row Refresh action. Refresh All button.
 
 ##### Song Library Wireframe
@@ -2628,7 +2901,8 @@ Shows song contribution status per connected phone: device name and song count. 
 <a id="26153-settings--audio"></a>
 
 #### 2.6.15.3 Settings > Audio
-- **Preview Volume**: reserved for future Settings work. Iteration 1 has no Settings screen and no app-level preview preamp; Song List preview audibility follows TV/system media volume only.
+
+- **Preview Volume**: reserved for a future release. There is no app-level preview preamp; Song List preview audibility follows TV/system media volume only.
 - **Vocals Volume**: slider 0–100 (default 50). Reserved for a future release; the phone will expose a mix-parameter endpoint. For MVP this control MUST be rendered as a **disabled slider** with a `Coming soon` sub-label beneath it when Settings is implemented. It MUST NOT affect current playback.
 - **Mic sensitivity**: configured on each phone in phone Settings. The TV MUST NOT own or override this setting in MVP.
 
@@ -2646,6 +2920,7 @@ Shows song contribution status per connected phone: device name and song count. 
 ```
 
 #### 2.6.15.4 Settings > Scoring Timing
+
 Manual mic delay (ms): integer 0–400.
 ##### Scoring Timing Wireframe
 
@@ -2660,6 +2935,7 @@ Manual mic delay (ms): integer 0–400.
 ```
 
 #### 2.6.15.5 Settings > Gameplay
+
 - Line bonus ON/OFF (default ON).
 - Ready countdown ON/OFF (default ON).
 - Countdown seconds: integer 1–10 (default 3). Displays at 1 Hz: N, N-1, ..., 1. After `1`, playback starts.
@@ -2681,6 +2957,7 @@ Manual mic delay (ms): integer 0–400.
 ```
 
 #### 2.6.15.6 Settings > Video
+
 Video enabled ON/OFF. When disabled or unavailable, background fallback: 1) `#BACKGROUND` image if available, 2) app-shipped default background image.
 
 ##### Video Wireframe
@@ -2719,11 +2996,19 @@ Shows app version and third-party license attribution. The screen MUST include L
 
 ### 2.6.16 SingingScreen Behavior
 
-**Overall layout**: top metadata strip, lane region, full-width bottom lyrics band. The screen is designed for video backgrounds; overlay surfaces remain readable over moving footage via `SurfaceLaneBand` / `SurfaceLyricsBand` at `LaneBandAlpha` / `LyricsBandAlpha`.
+#### 2.6.16.1 Layout and Background
 
-**Video surface z-order (normative)**: the video surface MUST be a `SurfaceView` with `setZOrderMediaOverlay(true)`. With this flag set, Compose lane bands, lyrics, score boxes, badges, and the pause/quit interruption overlay all composite **above** the video without routing through Compose's GPU composition pipeline. `TextureView` MUST NOT be used for fullscreen video on the singing screen — the additional GL composition cost on the Mali-G31 reference GPU is incompatible with the §1.6 30fps singing-screen target. The video `SurfaceView` MUST be hosted via `AndroidView` in the Compose tree for placement; Compose MUST NOT drive or control its frame output.
+##### Overall layout
 
-**Singing screen background fallback chain (normative)**: the singing screen MUST render a visible background at all times using the following priority chain:
+Top metadata strip, lane region, full-width bottom lyrics band. The screen is designed for video backgrounds; overlay surfaces remain readable over moving footage via `SurfaceLaneBand` / `SurfaceLyricsBand` at `LaneBandAlpha` / `LyricsBandAlpha`.
+
+##### Video surface z-order
+
+Normative. The video surface MUST be a `SurfaceView` with `setZOrderMediaOverlay(true)`. With this flag set, Compose lane bands, lyrics, score boxes, badges, and the pause/quit interruption overlay all composite **above** the video without routing through Compose's GPU composition pipeline. `TextureView` MUST NOT be used for fullscreen video on the singing screen — the additional GL composition cost on the Mali-G31 reference GPU is incompatible with the §1.6 30fps singing-screen target. The video `SurfaceView` MUST be hosted via `AndroidView` in the Compose tree for placement; Compose MUST NOT drive or control its frame output.
+
+##### Singing screen background fallback chain
+
+Normative. The singing screen MUST render a visible background at all times using the following priority chain:
 
 1. **Video** — `videoUrl` present, passes the static admission gate, and has not been disabled by runtime gameplay-degradation: render full-screen via the `SurfaceView` described above.
 2. **Song static background** — `IndexedSong.backgroundUrl` present and reachable (sourced from the USDX `#BACKGROUND` tag): render as full-screen still image.
@@ -2731,15 +3016,20 @@ Shows app version and third-party license attribution. The screen MUST include L
 
 A video failure at runtime MUST silently fall back to step 2 or step 3. A step-2 load failure MUST silently proceed to step 3. A plain black base MUST NOT be the final visible background when none of the above is active. The `SingingBackground.Static(imageUrl = null)` case MUST render the bundled asset.
 
-> **Known gap (Iter 3)**: The `SingingBackground` render model currently carries `imageUrl` for step 2 and `fallbackImageUrl` inside `Video` for step 2 fallback, but has no explicit contract field for the step-3 bundled asset. Iteration 3 MUST add a `BuiltInBackground` sentinel or equivalent so the screen implementation can resolve `R.drawable.singing` without hard-coding it in the renderer.
+> **Known gap**: The `SingingBackground` render model carries `imageUrl` for step 2 and `fallbackImageUrl` inside `Video` for step 2 fallback, but has no contract field for the step-3 bundled asset. The contract MUST gain a `BuiltInBackground` sentinel or equivalent so the screen implementation can resolve `R.drawable.singing` without hard-coding it in the renderer.
 
-**Runtime gameplay-degradation monitor (normative)**: the scoring coroutine MUST track pitch frame arrival count in a sliding window during active note windows (see §4.3). Constants:
+##### Runtime gameplay-degradation monitor
+
+Normative. The scoring coroutine MUST track pitch frame arrival count in a sliding window during active note windows (see §4.3). Constants:
+
 - `VIDEO_DEGRADATION_FRAME_THRESHOLD = 5`
 - `VIDEO_DEGRADATION_WINDOW_MS = 2000`
 
 If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` pitch frames arrive in any `VIDEO_DEGRADATION_WINDOW_MS` window while at least one note window is open for any active singer, the coroutine MUST emit `GameplayHealthEvent.LowPitchFrameRate`. On receiving this event, the UI layer MUST release the video MP and fall back to the background chain (step 2 or 3 above). Audio and scoring continue unaffected. Video is not re-admitted for the remainder of the current song or medley run.
 
-**Layout tokens (global):**
+#### 2.6.16.2 Layout Tokens
+
+##### Layout tokens (global)
 
 | Token | Value |
 |---|---:|
@@ -2748,21 +3038,21 @@ If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` pitch frames arrive in any `VI
 | SingingBottomLyricsBandHeight | 160dp |
 | SingingBodyToLyricsGap | 16dp |
 
-**Lane tokens — single-singer state:**
+##### Lane tokens — single-singer state
 
 | Token | Value |
 |---|---:|
 | SingingSingleLaneHeight | 192dp |
 | SingingSingleLaneVerticalPosition | centered |
 
-**Lane tokens — two-singer state:**
+##### Lane tokens — two-singer state
 
 | Token | Value |
 |---|---:|
 | SingingDualLaneHeight | 144dp |
 | SingingDualLaneGap | 24dp |
 
-**Lane internals:**
+##### Lane internals
 
 | Token | Value |
 |---|---:|
@@ -2775,7 +3065,7 @@ If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` pitch frames arrive in any `VI
 | SingingBadgeHeight | 40dp |
 | SingingBadgeTopInset | 8dp |
 
-**Lyrics band internals:**
+##### Lyrics band internals
 
 | Token | Value |
 |---|---:|
@@ -2783,14 +3073,24 @@ If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` pitch frames arrive in any `VI
 | LyricsBandPaddingTop | 20dp |
 | LyricsBandLineGap | 8dp |
 
-**Minimum content**: progressive-highlight lyrics, pitch bars per active singer, live score per singer (normative: display format `XXXXX` using `LiveScore`), elapsed time, song title/artist. Oversized tier typography throughout.
+#### 2.6.16.3 Lyrics, Metadata, and Lane Content
 
-**Top metadata rules (normative)**:
+##### Minimum content
+
+Progressive-highlight lyrics, pitch bars per active singer, live score per singer (normative: display format `XXXXX` using `LiveScore`), elapsed time, song title/artist. Oversized tier typography throughout.
+
+##### Top metadata rules
+
+Normative.
+
 - On song start and on medley segment change, render the top metadata in the intro strip at `SingingTopIntroStripHeight` (title + artist, oversized tier).
 - During active singing, collapse metadata to the minimal strip at `SingingTopMinimalStripHeight` using `TopMetadataMinimal`.
 - In medley with more than one segment in total (n > 1), the minimal strip renders as `<i>/<n>: <Artist> — <Title>`. For a single-segment medley run (n = 1), render artist/title only, identical to a normal song.
 
-**Singer lane layout rules (normative)**:
+##### Singer lane layout rules
+
+Normative.
+
 - **Single singer**: exactly one centered lane band at `SingingSingleLaneHeight` (192dp), full width, vertically centered on screen.
 - **Two singers**: exactly two stacked lane bands at `SingingDualLaneHeight` (144dp) separated by `SingingDualLaneGap`.
 - Lane bands are long horizontal plates with `RadiusMedium` corners.
@@ -2798,14 +3098,22 @@ If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` pitch frames arrive in any `VI
 - Lane bodies remain **neutral**. Player color appears only in accents (singer badge, score-box accents, pitch cursor, note markers). MUST NOT tint the full lane body with `Player1Accent` / `Player2Accent`.
 - P1 uses `Player1Accent` (cyan); P2 uses `Player2Accent` (magenta).
 
-**Score and sentence rating (normative)**:
+##### Score and sentence rating
+
+Normative.
+
 - Each lane has exactly one score box anchored on the right edge at `SingingScoreBoxWidth` × `SingingScoreBoxHeight`, inset by `SingingScoreBoxRightInset` from the lane's right edge.
 - Sentence rating is rendered directly under the score box at `SingingScoreBoxToRatingGap`.
 - Score text uses `LiveScore`. Sentence rating uses `SentenceRating`.
 
-**Elapsed time**: displayed bottom-right using `Timer` typography, formatted as `MM:SS` (always two digits each, zero-padded; e.g., `00:35`, `01:23`). This is elapsed time from song start.
+##### Elapsed time
 
-**Lyrics rendering (normative)**:
+Displayed bottom-right using `Timer` typography, formatted as `MM:SS` (always two digits each, zero-padded; e.g., `00:35`, `01:23`). This is elapsed time from song start.
+
+##### Lyrics rendering
+
+Normative.
+
 - Lyrics render in the bottom lyrics band only, at `SingingBottomLyricsBandHeight` using `SurfaceLyricsBand` with `LyricsBandAlpha`. Band uses `LyricsBandPaddingHorizontal` / `LyricsBandPaddingTop` / `LyricsBandLineGap`.
 - The band always shows **exactly two lines**: current line and next line. MUST NOT render a third line.
 - Current line uses `LyricsCurrent` and is stronger in contrast/emphasis; next line uses `LyricsNext` and is muted.
@@ -2816,7 +3124,9 @@ If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` pitch frames arrive in any `VI
 - Implementations MAY render the active highlight as a **clipped reveal** over an inactive base text pass.
 - Typography uses operational sans (`LyricsCurrent` / `LyricsNext`), prioritizing readability at TV viewing distance.
 
-**Sentence rating** (USDX parity): after each sentence ends, display rating label for ~800ms then fade:
+##### Sentence rating
+
+USDX parity After each sentence ends, display rating label for ~800ms then fade:
 
 | LinePerfection | Label |
 |---|---|
@@ -2827,7 +3137,9 @@ If fewer than `VIDEO_DEGRADATION_FRAME_THRESHOLD` pitch frames arrive in any `VI
 | ≥ 0.20 | `Okay` |
 | < 0.20 | `Poor` |
 
-**Singing motion budget (normative — V0 per [§VFX table](#2658-motion-and-vfx-budget))**:
+##### Singing motion budget
+
+Normative. V0 per the [motion and VFX budget](#2658-motion-and-vfx-budget).
 
 Allowed during active singing:
 - lyric highlight progression (the clipped reveal)
@@ -2845,14 +3157,19 @@ Not allowed during active singing:
 
 This supersedes the prior single-line "Sentence rating animation" rule with a complete allow/deny enumeration.
 
-**Countdown**: if Ready countdown ON, show an N-second countdown at 1 Hz then begin playback + scoring. If OFF, begin immediately. Visual rules:
+#### 2.6.16.4 Countdown
+
+##### Countdown
+
+If Ready countdown ON, show an N-second countdown at 1 Hz then begin playback + scoring. If OFF, begin immediately. Visual rules:
+
 - The numeral is centered and rendered in `DisplayHeroNumber`.
 - Background remains dimmed and static (no video motion during countdown).
 - Only the numeral animates: one scale-pop per count. MUST NOT add secondary full-screen pulses, flashes, or particle effects.
 
 If a required singer disconnects during countdown: cancel, return to Select Players with blocking error modal (title `DISCONNECTED`, body `A required singer disconnected during countdown. Please reconnect and start again.`, single `OK`). **Default focus on `OK`**. On `OK`, modal closes and user remains on Select Players.
 
-#### Countdown Disconnect Modal Wireframe
+##### Countdown Disconnect Modal Wireframe
 
 ```wireframe
 +--------------------------------------+
@@ -2865,7 +3182,12 @@ If a required singer disconnects during countdown: cancel, return to Select Play
 +--------------------------------------+
 ```
 
-**Pause** (Back key):
+#### 2.6.16.5 Pause and Disconnect
+
+##### Pause
+
+Back key
+
 ```wireframe
 +--------------------------------------+
 | PAUSED                               |
@@ -2878,7 +3200,8 @@ If a required singer disconnects during countdown: cancel, return to Select Play
 - Restart Song: confirm dialog (default Cancel). On OK: reset all per-player scores, new `songInstanceSeq`, re-send `assignSinger`. **Normal song**: seek audio to `startSec` (and video to `videoGapSec + startSec`). **Medley**: restart full medley from segment 1, seeking to segment 1's `medleyStartSec`.
 - Quit: confirm dialog (default Cancel). Returns to Song List.
 
-**Disconnect auto-pause**:
+##### Disconnect auto-pause
+
 ```wireframe
 +--------------------------------------+
 | PAUSED — PLAYER DISCONNECTED         |
@@ -2895,7 +3218,12 @@ If a required singer disconnects during countdown: cancel, return to Select Play
 
 Spectator disconnects (phones not assigned as singers) MUST NOT trigger auto-pause.
 
-**Song end (normative)**:
+#### 2.6.16.6 Song End, Errors, and Audio Focus
+
+##### Song end
+
+Normative.
+
 - `stopAtLyricsTimeMs` is the authoritative stop point, expressed in lyrics-time milliseconds.
   - Normal song: if `#END > 0`, `stopAtLyricsTimeMs = endMs`; otherwise `stopAtLyricsTimeMs = effectivePlaybackDurationMs − gapMs`, where `effectivePlaybackDurationMs` is the total audio file duration from `PlaybackEvent.Prepared` and `gapMs` is `#GAP` in ms. `#START` shifts the seek position but does not affect this formula.
   - Medley: `stopAtLyricsTimeMs` is lyrics-time ms at the end of the final segment's `medleyEndSec`.
@@ -2903,7 +3231,9 @@ Spectator disconnects (phones not assigned as singers) MUST NOT trigger auto-pau
 - When UI reaches `stopAtLyricsTimeMs`, it MUST call `LibVlcPlayerHandle.stop()` and emit `PlaybackEvent.Ended`; the coordinator treats that event as the authoritative trigger for `Stopped` → scoring finalization → `Results`, unless an explicit error or quit path overrides it.
 - The TV MUST **ignore** any `pitchFrame` whose corresponding note lies at or beyond `stopAtLyricsTimeMs`.
 
-**Playback error handling (normative)**:
+##### Playback error handling
+
+Normative.
 LibVLC's error model is coarse: a single `LibVlcEvent.EncounteredError` with no granular code. To preserve diagnostic value the TV MUST register a `LibVLC.OnLogListener` at LibVLC construction and maintain a single-slot ring buffer of the most recent log line at level `WARNING` or `ERROR`:
 
 ```kotlin
@@ -2924,9 +3254,13 @@ On `LibVlcEvent.EncounteredError` during singing, the TV MUST:
 
 The error MUST NOT crash the app, corrupt session state, or leave the session Locked. Session returns to Open on error exit.
 
-**Codec support (normative)**: supported audio and video formats are determined by the device's hardware and software decoders at runtime, surfaced through LibVLC. No compile-time format whitelist is maintained. Songs with unsupported formats fail at playback time and are handled by this error path.
+##### Codec support
 
-**Audio focus (normative)**: LibVLC does not interact with `AudioManager` automatically. The UI layer MUST request audio focus before playback and respond to focus changes:
+Normative. Supported audio and video formats are determined by the device's hardware and software decoders at runtime, surfaced through LibVLC. No compile-time format whitelist is maintained. Songs with unsupported formats fail at playback time and are handled by this error path.
+
+##### Audio focus
+
+Normative. LibVLC does not interact with `AudioManager` automatically. The UI layer MUST request audio focus before playback and respond to focus changes:
 
 1. Before `LibVlcPlayerHandle.play()`, request `AUDIOFOCUS_GAIN` on `STREAM_MUSIC` via `AudioManager.requestAudioFocus(AudioFocusRequest)`. If the request is not granted, the UI layer MUST emit `PlaybackEvent.Error` and follow the Playback error handling path above.
 2. Register an `OnAudioFocusChangeListener` for the lifetime of playback:
@@ -2936,7 +3270,9 @@ The error MUST NOT crash the app, corrupt session state, or leave the session Lo
 3. The listener fires on a binder thread; the UI layer MUST dispatch onto the ViewModel's main scope before emitting any `PlaybackEvent`.
 4. On song end, error exit, or Restart, the UI layer MUST call `AudioManager.abandonAudioFocusRequest`.
 
-#### Singing Screen Wireframe
+#### 2.6.16.7 Wireframe
+
+##### Singing Screen Wireframe
 
 ```wireframe
 Active singing screen — two singers
@@ -3038,7 +3374,10 @@ Quit confirm (default focus Cancel)
 **Video positioning**: if video present and enabled, position to `videoGapSec + medleyStartSec`.
 - `MedleySegment` and `PlaybackIntent.PrebufferNext` MUST carry the per-segment media assets needed for medley playback: `audioUrl` (effective phone-served audio, non-null for playable segments), optional `videoUrl`, and optional `videoGapSec`.
 
-**Segment failure handling (normative)**:
+#### Segment failure handling
+
+Normative.
+
 - If the full medley `SingingRenderModel` cannot be built before countdown (e.g., any required segment `txtUrl` fetch or parse fails), the medley MUST fail before start and return to Song List with an error modal.
 - Invalid manifest entries missing `audioUrl` MUST be rejected before they can enter the medley playlist or produce a `MedleySegment`.
 - Audio URL becomes unreachable during playback (e.g., source phone disconnected): abort medley, follow playback-error exit path (return to Song List, show error modal).
@@ -3064,9 +3403,9 @@ Results is a terminal full-screen route reached after scoring finalization compl
 
 #### 2.6.18.1 Post-song results
 
-Show per singer: Notes score, Golden score, Line bonus, Song Total (tens-rounded per [Rounding and Display](#rounding-and-display-normative)). Only action: Back to Song List.
+Show per singer: Notes score, Golden score, Line bonus, Song Total (tens-rounded per [Rounding and Display](#229-rounding-and-display-normative)). Only action: Back to Song List.
 
-**Layout tokens (single-song):**
+##### Layout tokens (single-song)
 
 | Token | Value |
 |---|---:|
@@ -3078,7 +3417,10 @@ Show per singer: Notes score, Golden score, Line bonus, Song Total (tens-rounded
 | ResultsTotalTopGap | 24dp |
 | ResultsBackButtonTopGap | 32dp |
 
-**Presentation rules (normative)**:
+##### Post-song presentation rules
+
+Normative.
+
 - Oversized tier typography. Operational sans for labels and body; display face reserved for `ResultTotalValue`.
 - Header shows screen title and song title line.
 - Each player column shows Notes, Golden, Line Bonus, Song Total.
@@ -3088,14 +3430,18 @@ Show per singer: Notes score, Golden score, Line bonus, Song Total (tens-rounded
 
 **Initial focus**: first singer result card when result cards are individually focusable; otherwise the sole **Back to Song List** action.
 
-**Song results navigation (normative)**:
+##### Song results navigation
+
+Normative.
+
 - If individual singer result cards are focusable, DPAD Up/Down moves between result cards and the final action.
 - The final action is **Back to Song List**.
 - DPAD Left/Right does not move focus unless the implementation adds a horizontally arranged comparison affordance.
 - Pressing OK on **Back to Song List** returns to Song List.
 - Pressing TV remote Back on the Results screen MUST behave identically to selecting **Back to Song List**.
 
-**Motion (V2 budget)**:
+##### Motion (V2 budget)
+
 - One entry payoff sequence (e.g., panels slide or fade into place).
 - One count-up sequence on the Song Total values.
 - One winner-emphasis pass on the winning marker when the result is not a tie.
@@ -3126,7 +3472,7 @@ Show per singer: Notes score, Golden score, Line bonus, Song Total (tens-rounded
 
 Single results screen with static table: per-segment scores + Medley Total (mean of `scoreTotalInt` values).
 
-**Layout tokens (medley):**
+##### Layout tokens (medley)
 
 | Token | Value |
 |---|---:|
@@ -3140,7 +3486,10 @@ Single results screen with static table: per-segment scores + Medley Total (mean
 
 **Row display format**: `<i>. <Artist> — <Title>   <P1 scoreTotalInt>   <P2 scoreTotalInt>` (omit P2 column if no P2 assigned).
 
-**Presentation rules (normative)**:
+##### Post-medley presentation rules
+
+Normative.
+
 - Operational sans only. Normal rows use `MedleyRowText`; Medley Total values use `MedleyTotalValue`.
 - The score table is informational and non-focusable.
 - Render the Back to Song List button as the only focusable control.
@@ -3150,13 +3499,17 @@ Single results screen with static table: per-segment scores + Medley Total (mean
 
 **Initial focus**: the sole **Back to Song List** action.
 
-**Medley results navigation (normative)**:
+##### Medley results navigation
+
+Normative.
+
 - The score table itself is informational and non-focusable.
 - The only focusable control is **Back to Song List**.
 - Pressing OK on **Back to Song List** returns to Song List.
 - Pressing TV remote Back MUST return to Song List.
 
-**Motion (V1 budget)**:
+##### Post-medley motion (V1 budget)
+
 - A single 180ms opacity fade on entry.
 - No celebratory background treatment.
 - No continuous animation after entry.
@@ -3185,13 +3538,14 @@ Single results screen with static table: per-segment scores + Medley Total (mean
 ### 2.6.19 Acceptance Tests (Medley — 9.5.7)
 
 | ID | What | Fixture | Expected |
+
 |----|------|---------|---------|
 | T9.5.7.1 | `medleyStartSec` and `medleyEndSec` computation | F16/`expected.medleySegments.json` | All 3 songs match fixture |
 | T9.5.7.2 | Clamped: `timeFromBeat(startBeat) <= 8` → `medleyStartSec=0.0` | inline | Clamped to 0 |
 | T9.5.7.3 | Notes in `[start, end)` → normal ScoreFactor | inline | Applied normally |
 | T9.5.7.4 | Notes outside medley window → ScoreFactor=0 | inline | Freestyle treatment |
 | T9.5.7.5 | `TrackScoreValue` window-filtered | inline | Only in-window notes summed |
-| T9.5.7.6 | Per-note ratio scoring within medley window | inline | `note_score = max_note_score × (hits/N)` per [Scoring Algorithm](#scoring-algorithm-normative) |
+| T9.5.7.6 | Per-note ratio scoring within medley window | inline | `note_score = max_note_score × (hits/N)` per [Scoring Algorithm](#225-scoring-algorithm-normative) |
 | T9.5.7.7 | Playback order preserved | F16 | A → B → C |
 | T9.5.7.8 | `medleyStartBeat >= medleyEndBeat` → assertion error | inline | Internal defensive error |
 | T9.5.7.9 | Manifest entry missing `audioUrl` | inline | Entry rejected before medley playlist/build |
@@ -3200,6 +3554,7 @@ Single results screen with static table: per-segment scores + Medley Total (mean
 ### 2.6.20 Acceptance Tests (Results — 9.6)
 
 | ID | What | Expected | Fixture |
+
 |----|------|---------|---------|
 | T9.6.1 | Medley Total = `round(sum(scoreTotalInt) / nSegments)` per player | Aggregated score matches formula | F11/`medley_aggregation` |
 | T9.6.2 | Medley Total may be non-multiple-of-10 (USDX parity) | Non-tens result accepted (e.g. [10000,9960,0] → 6653) | inline |
@@ -3209,6 +3564,7 @@ Single results screen with static table: per-segment scores + Medley Total (mean
 ### 2.6.21 Acceptance Criteria
 
 - Manual verification on target device
+
 - F16 medley UI states
 
 ### 2.6.22 Knowledge Gaps
@@ -3219,25 +3575,26 @@ None.
 
 ## 2.7 Mock Phone (Dev/Test Only)
 
-A `:mock-phone` Gradle module MUST be maintained in the repository to enable TV app development and testing without a real phone companion. The mock phone provides three services:
+The `mockphone` repository is the TV app's peer-boundary test gate. It is a standalone Python process, not a Gradle module and not an in-process fake, so a TV implementation cannot pass its tests by faking a transport. Every slice that touches the peer boundary MUST be exercised against it over loopback before that slice is called done (see `plan.md` §2). It provides three services:
 
-**1. Mock HTTP server**: Ktor CIO server on `localhost:34781` serving `/manifest.json` from fixture songs and `GET /songs/<path>` from the fixture directory. Launched via `./gradlew :mock-phone:run`.
+**1. Mock HTTP server**: serves `/manifest.json` built from a fixture song directory, and `GET /songs/<path>` with HTTP Range support (`206 Partial Content`). Default port 34781, overridable with `--http-port`. The song directory is required: `--song-dir`.
 
 **2. Mock WebSocket client**: Connects to the TV's WebSocket, performs `hello` handshake (with `httpPort` pointing at the mock HTTP server), responds to `ping`/`pong` clock sync, and handles `assignSinger` by entering pitch-streaming mode.
 
-**3. Mock pitch frame generator**: Produces 20-byte UDP `pitchFrame` datagrams at 50fps during singing. Accepts a **performance profile**:
+**3. Mock pitch frame generator**: produces 20-byte UDP `pitchFrame` datagrams at 50fps during singing. Selected with `--mode`:
 
 | Profile | Behaviour |
 |---------|-----------|
 | `PERFECT` | Every frame within a note window emits `midiNote = note.toneSemitone + 60` |
-| `PARTIAL(hitRate: Float)` | Randomly sets `midiNote = 255` for `(1 - hitRate)` fraction of frames |
+| `PARTIAL(hitRate: Float)` | Randomly sets `midiNote = 255` for `(1 - hitRate)` fraction of frames (`--hit-rate`) |
 | `SILENCE` | All frames `midiNote = 255` |
 | `OCTAVE_OFF` | Emits `midiNote = note.toneSemitone + 60 + 12` (validates octave normalization) |
-| `REPLAY(path: Path)` | Replays a `pitchFrames.bin` fixture file with original timing |
+| `REPLAY(path: Path)` | Replays a `pitchFrames.bin` fixture file with original timing (`--replay-file`) |
+| `FIXED_GAPS` | Emits N unvoiced frames (`--gap-frames`), then switches to `PERFECT`. Exercises initial silence before singing starts |
 
 The generator computes `tvTimeMs` from `clockOffsetMs` (derived from clock sync exchange with the TV) plus local monotonic time. `songInstanceSeq` and `connectionId` are taken from `assignSinger` and `sessionState` messages received over the WebSocket.
 
-The mock phone is a **development dependency only** and MUST NOT be included in release builds.
+`mockphone` is a development and test dependency only. It MUST NOT be vendored into the TV app or included in any release build.
 
 ---
 
@@ -3406,23 +3763,23 @@ This section captures supporting mechanics and implementation shape for behavior
 
 ## 4.1 GamePhase FSM
 
-**States** (9 total):
+### States
 
-| State | Description | Scope |
-|-------|-------------|-------|
-| `Open` | No song loaded, session awaiting song selection | Iter 1 |
-| `Preparing` | Chart fetch/parse in progress, playback preparing | Iter 1 |
-| `Countdown` | Countdown overlay visible, phones warming up mic | Iter 1 |
-| `Live` | Audio playing, scoring active, pitch frames flowing | Iter 1 |
-| `Paused` | User-initiated pause | Iter 1 |
-| `Error` | Playback setup or audio error; returns to Open on dismiss | Iter 1 |
-| `Stopped` | Song/medley ended, finalizing before Results | Iter 2 |
-| `Results` | Results screen visible, session returned to Open | Iter 2 |
-| `DisconnectPaused` | Auto-pause because a required singer disconnected | Iter 3 |
+9 total.
 
-> **Implementation note**: `Open`, `Preparing`, `Countdown`, `Live`, `Paused`, and `Error` are implemented in Iteration 1. `Stopped` and `Results` are added in Iteration 2. `DisconnectPaused` is added in Iteration 3.
+| State | Description |
+|-------|-------------|
+| `Open` | No song loaded, session awaiting song selection |
+| `Preparing` | Chart fetch/parse in progress, playback preparing |
+| `Countdown` | Countdown overlay visible, phones warming up mic |
+| `Live` | Audio playing, scoring active, pitch frames flowing |
+| `Paused` | User-initiated pause |
+| `Error` | Playback setup or audio error; returns to Open on dismiss |
+| `Stopped` | Song/medley ended, finalizing before Results |
+| `Results` | Results screen visible, session returned to Open |
+| `DisconnectPaused` | Auto-pause because a required singer disconnected |
 
-**Transitions**:
+### Transitions
 
 ```
                     ┌─────────────────────────────────────────┐
@@ -3459,35 +3816,36 @@ This section captures supporting mechanics and implementation shape for behavior
               │           └─────────┘        └─────────┘
 ```
 
-**Transition Rules** (normative):
+### Transition Rules
 
-| From | To | Trigger | Scope |
-|------|----|---------|-------|
-| Open | Preparing | User starts song from SelectPlayers | Iter 1 |
-| Preparing | Countdown | Playback plan prepared, `assignSinger` sent, countdown enabled | Iter 1 |
-| Preparing | Live | Playback plan prepared, `assignSinger` sent, countdown disabled | Iter 1 |
-| Countdown | Live | Countdown reaches 0 | Iter 1 |
-| Countdown | Open | Required singer disconnects during countdown | Iter 1 |
-| Preparing | Error | Playback setup error or audio URL unreachable | Iter 1 |
-| Countdown | Error | Audio or critical resource error during countdown | Iter 1 |
-| Live | Error | `LibVlcEvent.EncounteredError` on audio MP, or permanent `AUDIOFOCUS_LOSS` (§2.6.16 Audio focus) | Iter 1 |
-| Error | Open | User dismisses error modal | Iter 1 |
-| Live | Paused | User presses Back, or `AUDIOFOCUS_LOSS_TRANSIENT[_CAN_DUCK]` (§2.6.16 Audio focus) | Iter 1 |
-| Live | Stopped | Playback reaches `stopAtLyricsTimeMs` or final medley segment ends | Iter 2 |
-| Live | DisconnectPaused | Required singer WebSocket drops | Iter 3 |
-| Paused | Live | User selects Resume, or `AUDIOFOCUS_GAIN` after a transient loss (§2.6.16 Audio focus) | Iter 1 |
-| Paused | Preparing | User confirms Restart (new `songInstanceSeq`) | Iter 1 |
-| Paused | Open | User confirms Quit | Iter 1 |
-| DisconnectPaused | Live | Singer reconnects + Resume, or Continue Without Them | Iter 3 |
-| DisconnectPaused | Open | User confirms Quit | Iter 3 |
-| Stopped | Results | Scoring finalization complete | Iter 2 |
-| Results | Open | User returns to Song List | Iter 2 |
+Normative.
 
-**Implementation**:
+| From | To | Trigger |
+|------|----|---------|
+| Open | Preparing | User starts song from SelectPlayers |
+| Preparing | Countdown | Playback plan prepared, `assignSinger` sent, countdown enabled |
+| Preparing | Live | Playback plan prepared, `assignSinger` sent, countdown disabled |
+| Countdown | Live | Countdown reaches 0 |
+| Countdown | Open | Required singer disconnects during countdown |
+| Preparing | Error | Playback setup error or audio URL unreachable |
+| Countdown | Error | Audio or critical resource error during countdown |
+| Live | Error | `LibVlcEvent.EncounteredError` on audio MP, or permanent `AUDIOFOCUS_LOSS` (§2.6.16 Audio focus) |
+| Error | Open | User dismisses error modal |
+| Live | Paused | User presses Back, or `AUDIOFOCUS_LOSS_TRANSIENT[_CAN_DUCK]` (§2.6.16 Audio focus) |
+| Live | Stopped | Playback reaches `stopAtLyricsTimeMs` or final medley segment ends |
+| Live | DisconnectPaused | Required singer WebSocket drops |
+| Paused | Live | User selects Resume, or `AUDIOFOCUS_GAIN` after a transient loss (§2.6.16 Audio focus) |
+| Paused | Preparing | User confirms Restart (new `songInstanceSeq`) |
+| Paused | Open | User confirms Quit |
+| DisconnectPaused | Live | Singer reconnects + Resume, or Continue Without Them |
+| DisconnectPaused | Open | User confirms Quit |
+| Stopped | Results | Scoring finalization complete |
+| Results | Open | User returns to Song List |
+
+### Implementation
 
 ```kotlin
 sealed class GamePhase {
-    // Iter 1
     object Open : GamePhase()
     data class Preparing(val selection: SongStartSelection) : GamePhase()
     data class Countdown(val plan: PlaybackPlan) : GamePhase()
@@ -3495,11 +3853,9 @@ sealed class GamePhase {
     data class Paused(val plan: PlaybackPlan, val positionMs: Long) : GamePhase()
     data class Error(val title: String, val bodyLines: List<String>) : GamePhase()
 
-    // Iter 2
     data class Stopped(val plan: PlaybackPlan) : GamePhase()
     data class Results(val scores: Map<PlayerId, PlayerScore>) : GamePhase()
 
-    // Iter 3
     data class DisconnectPaused(val plan: PlaybackPlan, val disconnectedPlayer: PlayerId) : GamePhase()
 }
 
@@ -3595,15 +3951,21 @@ private suspend fun transitionMedleySegment(
 }
 ```
 
-**Constants**:
+### Medley transition constants
+
 - `MEDLEY_FADE_OUT_SEC = 2.0f`
 - `MEDLEY_FADE_IN_SEC = 8.0f`
 - Prebuffer trigger: 5 seconds before segment end
 
-**Error Handling (Normative)**:
+### Error Handling
+
+Normative.
+
 - If audio is unreachable: medley MUST abort and follow playback-error exit path (show error modal, return to song list).
 
-**Audio Prebuffering (Normative)**:
+### Audio Prebuffering
+
+Normative.
 
 The UI/playback-layer controller MUST support preparing a second **audio+video pair** in background: one `LibVlcPlayerHandle` for the next segment's audio plus a second decorative video handle when `videoUrl` is admitted. At segment boundary, the active pair is released and the prebuffered pair becomes active (with fade-in). If prebuffering is not complete at transition point, coordinator MUST fall back to sequential prepare-and-play with a brief audio gap. All `LibVlcPlayerHandle` instances within a session share a single `LibVLC` engine — only the `MediaPlayer` is duplicated.
 
@@ -3665,7 +4027,8 @@ private fun finalizeNote(sn: ScheduledNote, tvNowMs: Long) {
 }
 ```
 
-**Constants**:
+### Scoring coroutine constants
+
 - `NOTE_FINALIZATION_DELAY_MS = 450` (matches max jitter buffer playout delay)
 
 ---
@@ -3743,7 +4106,10 @@ class JitterBuffer(
 
 NTP-lite protocol, best-of-N selection.
 
-**Sync Schedule (Normative)**:
+### Sync Schedule
+
+Normative.
+
 - Run **5 exchanges** (100ms apart) on connection to establish initial offset.
 - Before any `assignSinger` with `startMode="countdown"` or `startMode="live"`, the TV MUST have at least one valid clock-sync sample for each assigned singer. Countdown MUST NOT begin until this requirement has been satisfied.
 - **If zero valid samples after 5 exchanges**: Retry once (5 more exchanges at 100ms intervals). If still zero valid samples, abort song start and show error modal: "Network too unstable for accurate sync. Check WiFi connection and try again." Do NOT proceed with zero offset — pitch frames would be systematically misaligned.
@@ -3803,11 +4169,11 @@ data class ClockSample(val rtt: Long, val offsetMs: Long, val pingId: String, va
 
 USDX beat numbers in `.txt` files are the authoritative beat grid (quarter-beat resolution).
 
-**Internal Beat Unit**:
+### Internal Beat Unit
+
 - File beats: integers in note lines (`startBeat`, `duration`) and sentence lines.
 - Internal beats: identical to file beats (no scaling): `internalBeat = fileBeat`.
 - Parsing rule: use beat values as-is (no `*4`).
-
 
 ```kotlin
 object BeatCalculator {
@@ -3828,7 +4194,9 @@ object BeatCalculator {
 }
 ```
 
-**Mic Delay (Normative)**:
+### Mic Delay
+
+Normative.
 
 The TV-side mic delay is applied to all note-window calculations. For MVP:
 
@@ -3851,7 +4219,10 @@ Two beat computations from the same `BPM_file` and `GAPms`:
 - Lane beat tracks where singer's voice should appear given mic/network delay.
 - Pitch lane renders targets using lane beat. Live cursor driven by `PitchEvent.tvTimeMs` — correct performance aligns cursor with targets.
 
-**Pitch lane coordinate system (normative)**:
+### Pitch lane coordinate system
+
+Normative.
+
 - The pitch lane is a 2D coordinate system:
   - horizontal axis = lyrics-time position in ms
   - vertical axis = note pitch in semitones
@@ -3859,14 +4230,20 @@ Two beat computations from the same `BPM_file` and `GAPms`:
 - Horizontal mapping MUST be derived from `HorizontalTimeMapping`.
 - Vertical mapping MUST be derived from `VerticalPitchMapping`.
 
-**Horizontal mapping (normative)**:
+### Horizontal mapping
+
+Normative.
+
 - `visibleTimeMs` defines the total lyrics-time span visible within the drawable lane width.
 - `nowAnchorFraction` defines where the current lane time is drawn within the drawable lane width, as a fraction in `[0,1]` from left to right.
 - Note target width on screen is proportional to `(endTimeMs - startTimeMs) / visibleTimeMs`.
 - Note target X position on screen is derived from `(noteTimeMs - currentLaneTimeMs)` relative to the anchor position.
 - All pitch-target geometry MUST use the render-model lyrics-time axis.
 
-**Vertical mapping (normative)**:
+### Vertical mapping
+
+Normative.
+
 - `minToneSemitone` and `maxToneSemitone` define the visible pitch range for the lane.
 - Note target Y position is derived from linear interpolation of `toneSemitone` within `[minToneSemitone, maxToneSemitone]`.
 - Live pitch cursor Y position uses the same mapping as note targets.
@@ -3882,7 +4259,9 @@ Two beat computations from the same `BPM_file` and `GAPms`:
 
 **Boundary Convention**: `noteActive if startBeat <= beat < endBeat` (start inclusive, end exclusive).
 
-**Note Scoring Windows in TV Time (Normative)**:
+### Note Scoring Windows in TV Time
+
+Normative.
 
 For a note with `startBeat` and `durationBeats`, the scoring window in TV monotonic time is:
 
@@ -3891,7 +4270,7 @@ noteStartTvMs = effectiveSongStartTvMs + (startBeat × 15000 / BPM_file) + GAPms
 noteEndTvMs   = effectiveSongStartTvMs + ((startBeat + durationBeats) × 15000 / BPM_file) + GAPms + micDelayMs
 ```
 
-Where `effectiveSongStartTvMs = songStartTvMs + totalPausedDurationMs` per [§2.1](#21-playbackcoordinator) step 12 (equals `songStartTvMs` for a song with no pauses), `BPM_file` is the raw `#BPM` from the file with no scaling, `GAPms` is `#GAP` in ms, and `micDelayMs` is the effective mic delay (shifts window later to account for audio pipeline latency).
+Where `effectiveSongStartTvMs = songStartTvMs + totalPausedDurationMs` per [§2.1.2](#212-songstarttvms-capture-normative) step 12 (equals `songStartTvMs` for a song with no pauses), `BPM_file` is the raw `#BPM` from the file with no scaling, `GAPms` is `#GAP` in ms, and `micDelayMs` is the effective mic delay (shifts window later to account for audio pipeline latency).
 
 A pitch frame falls within the window if: `noteStartTvMs <= frame.tvTimeMs < noteEndTvMs`.
 
@@ -4034,282 +4413,6 @@ Pitch frames for F24 SHOULD be constructed inline in test code unless a case nee
 
 ---
 
-# 7. Project Plan
-
-## How to read this section (iteration spec extraction)
-
-Each iteration table has a **Scope** column with three values:
-- **In scope** — implement in full per the referenced spec section.
-- **Stub** — add a no-op placeholder; the stub description is in the **Stubs** block below each table.
-- **Deferred** — do not implement; do not add a placeholder unless listed as Stub.
-
-When generating an iteration spec, include full spec content only for In-scope rows. Replace Stub rows with the described placeholder. Omit Deferred items entirely.
-
-## 7.1 Iteration Overview
-
-| Iter | Theme | Key Deliverable | DOD Gate |
-|------|-------|-----------------|----------|
-| 0 | Foundation | Parser + Scoring math | Fixtures pass |
-| 1 | Song list | Phone connects, songs browsable | Song grid populated from phone |
-| 2 | Playback | Audio + lyric sync, unscored | Song plays, lyrics scroll |
-| 3 | Scoring | 1P + 2P + Duet scored | Sing → score; duet works |
-| 4 | Medley | Medley end-to-end | Play Medley chains songs |
-| 5 | Polish | Video, settings, disconnect | Shippable on target hardware |
-
-## 7.2 Iter 0 — Foundation (No Phone Needed)
-
-**Goal**: Pure-logic components fully tested with fixtures.
-
-| Deliverable | Component | Spec Ref | Fixtures |
-|-------------|-----------|----------|----------|
-| USDX parser | UsdxParser | [§2.4](#24-usdxparser) | F01, F02, F03, F04, F05 |
-| Beat↔time conversion | ScoringEngine (partial) | [§4.6](#46-beat-time-conversion) | F06 |
-| Per-note scoring math | ScoringEngine (partial) | [§2.2](#22-scoringengine) | F08, F09, F10 |
-| Line bonus + rounding | ScoringEngine (partial) | [§2.2](#22-scoringengine) | F11 |
-| Fixture harness | Test infra | [Appendix A](#appendix-a-peer-boundary-test-utilities) | — |
-
-**DOD**:
-- [x] All fixture tests pass: F01–F06, F08–F11
-- [x] Coverage ≥80% on UsdxParser, scoring math modules
-- [x] No Android dependencies — pure Kotlin, runs on JVM
-
-**Mock Phone**: Not needed.
-
-## 7.3 Iter 1 — Song List + Phone Join
-
-**Goal**: Phone connects → songs appear in grid → user can browse. Start is a no-op stub.
-
-| Deliverable | Component | Spec Ref | Fixtures | Scope |
-|-------------|-----------|----------|----------|-------|
-| WebSocket server | NetworkController | [§2.3](#23-networkcontroller) | F15 | In scope |
-| mDNS advertisement | NetworkController | [§2.3](#23-networkcontroller) | F15 | In scope |
-| HTTP client | NetworkController | [§2.3](#23-networkcontroller) | F15 | In scope |
-| Manifest aggregation | LibraryManager | [§2.5](#25-librarymanager) | F15, F23 | In scope |
-| Song grid UI, search/filter, and preview playback | UI: SongListScreen | [§2.6.10](#2610-song-preview-playback), [§2.6.12](#2612-songlistscreen-behavior) | F15 | In scope |
-| Join overlay | UI: JoinOverlay | [§2.6.13](#2613-join-overlay-behavior) | F15 | In scope |
-| App-wide UI shell (`MainActivity`, `CouchraokeTheme`, `AppNavHost`) | UI | [Entry Point and Wiring](#entry-point-and-wiring-normative) | — | In scope |
-| GamePhase FSM (`Open`, `Preparing`, `Error` only) | PlaybackCoordinator | [§4.1](#41-gamephase-fsm) | F22 | In scope |
-| SelectPlayersModal | UI: SelectPlayersModal | [§2.6.14](#2614-selectplayersmodal-behavior) | — | Stub |
-
-**Stubs**:
-- `SelectPlayersModal`: Start button logs intent and dismisses modal — no playback initiated.
-- `SongListScreen` left rail medley playlist: render empty playlist, `Play Medley` non-focusable.
-
-**DOD**:
-- [ ] App discovers phone via mDNS, completes handshake
-- [ ] Song list displays songs from phone manifest
-- [ ] Search filters grid
-- [ ] Preview plays on focus
-- [ ] Select song → SelectPlayersModal opens; Start dismisses modal, returns to Song List
-- [ ] F15 session lifecycle passes
-- [ ] F22 GamePhase FSM passes (`Open`, `Preparing`, `Error` transitions only)
-- [ ] Runs on emulator
-- [ ] Cumulative TV app flow: launch → pair phone → browse songs → open SelectPlayers → stub Start → return to Song List
-- [ ] No known blocker remains for Iter 1 TV-owned scope
-
-**Peer Test Utilities**: Prefer direct test clients and fakes; no general mock-phone harness required.
-
-## 7.4 Iter 2 — Audio + Lyric Sync
-
-**Goal**: Select song → audio plays → lyrics scroll in sync. No pitch pipeline, no scoring.
-
-| Deliverable | Component | Spec Ref | Fixtures | Scope |
-|-------------|-----------|----------|----------|-------|
-| LibVLC playback seam (`LibVlcPlayerHandle` wiring) | UI | [§2.6.1](#261-public-api-exposed-to-system) | F22 | In scope |
-| SingingScreen — lyrics, countdown, pause overlay | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | F22 | In scope |
-| Interruption overlay shell (loading/error variants) | UI: Shared overlay shell | [§2.6.11](#2611-interruption-overlay-shell) | F22 | In scope |
-| Playback timing, stop, error, and audio-focus handling | UI + PlaybackCoordinator | [§2.1](#21-playbackcoordinator), [§2.6.16](#2616-singingscreen-behavior) | F22 | In scope |
-| Minimal song-start clock-sync gate | PlaybackCoordinator | [§2.1](#21-playbackcoordinator) | inline | In scope |
-| GamePhase FSM remaining states (`Countdown`, `Live`, `Paused`, `Stopped`) | PlaybackCoordinator | [§4.1](#41-gamephase-fsm) | F22 | In scope |
-| Song preview seek-position fallback | UI: SongListScreen | [§2.6.10](#2610-song-preview-playback) | — | In scope |
-| SingingScreen — pitch lane | UI: SingingScreen | [§2.6.6](#266-pitch-lane-rendering-architecture) | — | Stub |
-| SingingScreen — live score display | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — | Stub |
-| Results screen | UI: ResultsScreen | [§2.6.18](#2618-resultsscreen-behavior) | — | Stub |
-
-**Stubs**:
-- `SingingScreen` pitch lane: render lane area with correct dimensions and tokens; no note bars, no cursor.
-- `SingingScreen` live score display: show `00000` static, no live updates.
-- `ResultsScreen`: show `00000` for all score fields; Back to Song List is the only action. Full `§2.6.18.1` layout deferred to Iter 3.
-
-**DOD**:
-- [ ] Select song → plays audio through `LibVlcPlayerHandle`, shows sentence-paged lyrics
-- [ ] UI emits `PlaybackEvent.Prepared(effectivePlaybackDurationMs)` before countdown or playback
-- [ ] UI emits `PlaybackEvent.Ready(songStartTvMs)` from the first audio `LibVlcEvent.Playing`; coordinator calls `ScoringEngine.setSongStart(songStartTvMs)` only after that event
-- [ ] Coordinator emits `PlaybackIntent.Play(stopAtLyricsTimeMs)`; UI enforces the boundary through `LibVlcPlayerHandle.stop()` and emits `PlaybackEvent.Ended`
-- [ ] Pause/resume/restart/quit work; Back → Song List
-- [ ] Playback errors return to Song List with the blocking error modal and leave the session Open
-- [ ] UI requests audio focus before playback and abandons it on song end, error exit, or Restart
-- [ ] Before countdown or live playback, coordinator obtains at least one valid clock-sync sample for every assigned singer
-- [ ] Minimal song-start clock-sync gate test passes
-- [ ] Song preview seek-position fallback: when `previewStartSec` is absent or ≤ 0 and `audioLengthSec > 120s`, preview seeks to `min(audioLengthSec / 4, 60s)` instead of 0
-- [ ] F22 GamePhase FSM passes (all states)
-- [ ] Cumulative TV app flow: complete Iter 1 flow → select song → lyrics scroll → stub results → Song List
-- [ ] No known blocker remains for Iter 2 TV-owned scope
-
-**Peer Test Utilities**: Prefer direct test clients and fakes.
-
-## 7.5 Iter 3 — Scoring (1P + 2P + Duet)
-
-**Goal**: Pitch frames scored in real time; 1 or 2 players; duet track routing works.
-
-| Deliverable | Component | Spec Ref | Fixtures | Scope |
-|-------------|-----------|----------|----------|-------|
-| Full clock sync protocol coverage | PlaybackCoordinator | [§2.1](#21-playbackcoordinator) | F14v2, F21 | In scope |
-| UDP listener + pitch frame validation | NetworkController | [§2.3](#23-networkcontroller) | F12v2 | In scope |
-| Jitter buffer | ScoringEngine | [§4.4](#44-jitter-buffer) | F13 | In scope |
-| Scoring coroutine | ScoringEngine | [§2.2](#22-scoringengine) | F08, F24 | In scope |
-| Pitch lane UI | UI: SingingScreen | [§2.6.6](#266-pitch-lane-rendering-architecture), [§2.6.16](#2616-singingscreen-behavior) | — | In scope |
-| Live score display | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — | In scope |
-| Results screen — single-song (§2.6.18.1) | UI: ResultsScreen | [§2.6.18.1](#26181-post-song-results) | — | In scope |
-| 2-phone handling | NetworkController | [§2.3](#23-networkcontroller) | F23 | In scope |
-| P1/P2 assignment | PlaybackCoordinator | [§2.6.14](#2614-selectplayersmodal-behavior) | F23 | In scope |
-| Duet chart routing | UsdxParser, ScoringEngine | [§2.4](#24-usdxparser), [§2.2](#22-scoringengine) | F04, F23, F24 | In scope |
-| Disconnect/reconnect + auto-pause overlay | PlaybackCoordinator, UI | [§2.3](#23-networkcontroller), [§2.6.11](#2611-interruption-overlay-shell), [§2.6.16](#2616-singingscreen-behavior) | F15 | In scope |
-| Results screen — medley variant (§2.6.18.2) | UI: ResultsScreen | [§2.6.18.2](#26182-post-medley-results) | — | Deferred |
-
-**Stubs**: None. Medley playlist left rail remains as established in Iter 1 (visible, `Play Medley` non-focusable).
-
-**DOD**:
-- [ ] Clock sync completes before song start
-- [ ] Pitch frames flow from phone → jitter buffer → scoring
-- [ ] Pitch lane shows live cursor
-- [ ] Score updates in real-time
-- [ ] Song ends → Results screen (§2.6.18.1) shows final score
-- [ ] Perfect mock performance → `scoreTotalInt == 10000`
-- [ ] F13, F21, F24 pass
-- [ ] Two phones connect, both appear in SelectPlayers
-- [ ] Duet song → P1 sings track 1, P2 sings track 2
-- [ ] Swap Parts works
-- [ ] Singer disconnect → disconnect auto-pause overlay appears; reconnect or Continue Without Them resumes
-- [ ] F04, F23 pass
-- [ ] Cumulative TV app flow: complete Iter 2 flow with two phones, duet assignment/swap, disconnect/reconnect, scored results
-- [ ] No known blocker remains for Iter 3 TV-owned scope
-- [ ] Demo: Two people sing a duet
-
-**Peer Test Utilities**: Use lightweight WebSocket test clients to simulate disconnect/reconnect and multi-phone session behavior. A full mock-phone harness is not required.
-
-## 7.6 Iter 4 — Medley
-
-**Goal**: Medley playlist builds, Play Medley runs end-to-end, medley results display.
-
-| Deliverable | Component | Spec Ref | Fixtures | Scope |
-|-------------|-----------|----------|----------|-------|
-| Medley playlist UI (left rail: add/remove/reorder, Play Medley enabled) | UI: SongListScreen | [§2.6.12](#2612-songlistscreen-behavior) | — | In scope |
-| Medley sequencer | PlaybackCoordinator | [§4.2](#42-medley-segment-transitions) | F16 | In scope |
-| Segment transitions | PlaybackCoordinator + UI | [§4.2](#42-medley-segment-transitions), [§2.6.17](#2617-singingscreen--medley-mode) | F16 | In scope |
-| Audio prebuffer/crossfade | UI (LibVLC) | [§4.2](#42-medley-segment-transitions) | — | In scope |
-| Medley scoring windows | ScoringEngine | [§2.6.17](#2617-singingscreen--medley-mode), [§2.2](#22-scoringengine) | F16 | In scope |
-| SingingScreen medley header + segment indicator | UI: SingingScreen | [§2.6.17](#2617-singingscreen--medley-mode) | — | In scope |
-| Medley results (§2.6.18.2) | UI: ResultsScreen | [§2.6.18.2](#26182-post-medley-results) | — | In scope |
-
-**Stubs**: None.
-
-**DOD**:
-- [ ] Medley playlist, start, transitions work
-- [ ] Crossfade audible (<100ms gap if prebuffer ready)
-- [ ] Medley results show per-segment + average
-- [ ] F16, F18 pass
-- [ ] Cumulative TV app flow: complete Iter 3 flow → build medley playlist → Play Medley → per-song transitions → medley results
-- [ ] No known blocker remains for Iter 4 TV-owned scope
-- [ ] Demo: Full medley karaoke session
-
-**Peer Test Utilities**: Use targeted test doubles for peer behavior. Keep medley validation focused on coordinator logic plus small instrumented playback checks.
-
-## 7.7 Iter 5 — Polish
-
-**Goal**: Video backgrounds, settings screens, disconnect hardening, performance targets met on reference hardware.
-
-| Deliverable | Component | Spec Ref | Fixtures | Scope |
-|-------------|-----------|----------|----------|-------|
-| Settings screens (Connect Phones, Song Library, Audio, Scoring Timing, Gameplay, Video) | UI: SettingsScreen | [§2.6.15](#2615-settingsscreen-behavior) | — | In scope |
-| Video backgrounds — real LibVLC two-MP wiring | UI: SingingScreen | [§2.6.16](#2616-singingscreen-behavior) | — | In scope |
-| `#VIDEOGAP` arithmetic and audio-master timing | UI (LibVLC) | [§2.1](#21-playbackcoordinator), [§2.6.16](#2616-singingscreen-behavior) | — | In scope |
-| Settings > Audio > Preview Volume gate | UI: SongListScreen / Settings | [§2.6.15.3](#26153-settings--audio) | — | In scope |
-| Device tuning + S905X4 LibVLC verification | All | [§1.6](#16-minimal-footprint) | — | In scope |
-
-**Stubs**: None.
-
-**DOD**:
-- [ ] All settings screens functional
-- [ ] Video background plays using real LibVLC audio and video `MediaPlayer` instances when `videoUrl` is present (building on Iter 2 contracts and data model)
-- [ ] Audio MP remains timing authority; video MP is decorative and does not influence scoring or `songStartTvMs`
-- [ ] `#VIDEOGAP` applies the specified video delay/seek behavior, and video MP is configured with `:no-audio`
-- [ ] Video MP failure falls back to `#BACKGROUND` without surfacing an error modal or affecting audio/scoring/session state
-- [ ] Fullscreen video uses `SurfaceView.setZOrderMediaOverlay(true)` rather than `TextureView`
-- [ ] HD/FHD LibVLC playback verified on the Amlogic S905X4 reference device with `--codec=mediacodec_ndk,all`; if verification fails, Video is forced OFF for the affected device profile and `#BACKGROUND` still-image fallback is used
-- [ ] Performance on target device: video degrades gracefully per the §2.6.16 degradation monitor; scoring and audio are unaffected when video is disabled
-- [ ] Fully functional TV app flow works end-to-end through the TV UI: launch, pair phones, load library, browse/search/preview, solo sing, scored sing, duet, disconnect/reconnect, settings, video/background fallback, medley, and results
-- [ ] All TV-owned fixture and acceptance tests pass
-- [ ] No known blocker remains in TV-owned scope
-
-**Peer Test Utilities**: Use lightweight WebSocket test clients; no general mock-phone harness required.
-
----
-
-# Appendix A: Peer-Boundary Test Utilities
-
-A general mock-phone harness is NOT required. Test only the TV-owned boundary using the smallest utilities that exercise app behavior directly.
-
-## A.1 Scope
-
-Use these utilities only for behavior that cannot be covered cleanly by pure unit tests:
-
-- WebSocket session handshake and validation
-- disconnect / reconnect handling
-- UDP pitch-frame ingress and validation
-- a small number of targeted instrumented checks where Android runtime behavior matters
-
-Do NOT build or maintain a separate simulated phone application unless later evidence shows the smaller approach is insufficient.
-
-## A.2 Preferred Test Shapes
-
-| Boundary | Preferred test shape | Notes |
-|---------|-----------------------|-------|
-| Parser, scoring math, jitter buffer, FSM, clock-sync math | Pure unit tests | Use fixtures/fakes; no sockets required. |
-| WebSocket control path | Lightweight WebSocket test client | Exercise `hello`, session lock, protocol mismatch, disconnect, reconnect. |
-| UDP pitch ingress | Direct UDP sender from test code | Send real datagrams to the listener; assert emitted `PitchFrame` values or downstream effects. |
-| HTTP client behavior | Small instrumented smoke test | Keep this narrow; do not justify a general harness with HTTP alone. |
-| LibVLC / Android timing | Instrumented test | Cover runtime-specific behavior separately from peer simulation. |
-
-## A.3 UDP Test Data Policy
-
-For UDP ingress tests, prefer constructing binary datagrams inline in the test. This keeps simple cases obvious and avoids unnecessary fixture churn.
-
-Use fixture or replay files only when one of the following is true:
-- the same frame sequence is reused across multiple tests
-- relative timing between frames is itself under test
-- a regression case is easier to preserve as captured data than as generated code
-
-For a basic valid-frame test, a single hardcoded 20-byte datagram in the test is preferred over a separate fixture file.
-
-## A.4 Disconnect / Reconnect Coverage
-
-Disconnect and reconnect handling is NOT mere transport plumbing; it is required app behavior and MUST be tested. At minimum cover:
-
-1. required singer disconnect during singing → `DisconnectPaused` behavior
-2. reconnect with same `clientId` → new `connectionId` assignment
-3. resend of `assignSinger` after reconnect
-4. resend of current `playbackState` after reconnect
-5. rejection of stale UDP frames carrying the old `connectionId`
-
-These tests may use lightweight WebSocket clients and direct UDP senders. They do not require a general-purpose phone harness.
-
-## A.5 Minimal Utility Surface
-
-If shared helpers are needed, keep them small and local to tests:
-
-- WebSocket test client helper
-- UDP datagram builder / sender helper
-- optional replay helper for timing-sensitive pitch streams
-
-Avoid adding song serving, asset hosting, or phone-side UI behavior to this layer unless a specific failing test proves it is necessary.
-
-## A.6 Acceptance Principle
-
-The testing goal is to verify TV-host behavior at the external peer boundary, not to simulate an entire phone implementation. Favor direct tests of the owned boundary over broad end-to-end scaffolding.
-
----
-
 # Appendix B: Protocol JSON Schemas
 
 > ⛔ DO NOT MODIFY WITHOUT CROSS-PLATFORM COORDINATION. Mirror protocol/schema changes in both TV and phone specs and fixtures in the same commit.
@@ -4326,6 +4429,7 @@ All messages MUST include:
 ## B.2 Schemas
 
 ### B.2.1 `hello`
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4345,6 +4449,7 @@ All messages MUST include:
 ```
 
 ### B.2.2 `sessionState`
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4408,6 +4513,7 @@ All messages MUST include:
 ```
 
 ### B.2.3 `ping` / `pong` (clock sync)
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4449,6 +4555,7 @@ All messages MUST include:
 ```
 
 ### B.2.4 `clockAck` (TV → Phone)
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4467,6 +4574,7 @@ All messages MUST include:
 ```
 
 ### B.2.5 `error`
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4485,6 +4593,7 @@ All messages MUST include:
 ```
 
 ### B.2.6 `assignSinger`
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4521,6 +4630,7 @@ All messages MUST include:
 ```
 
 ### B.2.7 `playbackState`
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4559,6 +4669,7 @@ All messages MUST include:
 ### B.2.8 `pitchFrame` (binary UDP — no JSON schema)
 
 See [§2.3](#23-networkcontroller) Pitch Frame Wire Format for the full 20-byte layout. Reference:
+
 ```
 Offset  Size  Type    Field
   0      4   uint32  seq
@@ -4626,11 +4737,17 @@ Given:
 - `GAPms = 2000`, `micDelayMs = 100`, `songStartTvMs = 50000`
 - `lyricsTimeSec = 5.0`
 
-**Highlight cursor** (lyrics beat, `micDelayMs = 0`):
+### Highlight cursor
+
+lyrics beat, `micDelayMs = 0`.
+
 - `highlightTimeSec = 5.0 − 2.0 = 3.0`
 - `MidBeat = 3.0 × 8.0 = 24.0` → `CurrentBeat = floor(24.0) = 24`
 
-**Note scoring window** (note `startBeatFile=20`, `durationBeats=4`):
+### Note scoring window
+
+note `startBeatFile=20`, `durationBeats=4`.
+
 - `noteStartTvMs = 50000 + (20 × 15000 / 120) + 2000 + 100 = 54600`
 - `noteEndTvMs   = 50000 + (24 × 15000 / 120) + 2000 + 100 = 55100`
 - Frames with `54600 <= tvTimeMs < 55100` are collected.
@@ -4678,16 +4795,21 @@ E
 
 **TrackScoreValue**: `(4×1) + (4×2) = 12`
 
-**Note scoring windows**:
+### Note scoring windows
+
 - Note 1 (Normal, beats 0–4): `noteStartTvMs=10000`, `noteEndTvMs=10500` → ~25 frames at 50fps
 - Note 2 (Golden, beats 4–8): `noteStartTvMs=10500`, `noteEndTvMs=11000` → ~25 frames
 
-**Per-note max scores**:
+### Per-note max scores
+
 - Note 1: `(9000/12) × 1 × 4 = 3000`
 - Note 2: `(9000/12) × 2 × 4 = 6000`
 - Sum = 9000 ✓
 
-**Perfect performance** (all 25 frames hit per note):
+### Perfect performance
+
+all 25 frames hit per note.
+
 - `Player.Score = 3000`, `Player.ScoreGolden = 6000`
 
 Line bonus:
@@ -4702,7 +4824,10 @@ Rounding:
 - `ScoreInt < Player.Score` is FALSE → `ScoreGoldenInt = floor(6000/10)×10 = 6000`
 - `ScoreTotalInt = 3000 + 6000 + 1000 = 10000` ✓
 
-**Partial performance** (Note 1: 20/25 hit; Note 2: 15/25 hit):
+### Partial performance
+
+Note 1: 20/25 hit; Note 2: 15/25 hit.
+
 - `Player.Score = 3000×(20/25) = 2400`, `Player.ScoreGolden = 6000×(15/25) = 3600`
 - Line 1: `LinePerfection = clamp(2400/2998, 0, 1) = 0.8005...` → `ScoreLine += 400.26...`
 - Line 2: `LinePerfection = clamp(3600/5998, 0, 1) = 0.6002...` → `ScoreLine += 300.10...`
